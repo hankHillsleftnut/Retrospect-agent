@@ -1,0 +1,53 @@
+# Render.com Blueprint for retrospect-agent
+#
+# Deploy by connecting this repo to Render and selecting "Blueprint" with this file.
+#
+# Notes on the architecture:
+#   - This is a PRIVATE service (type: pserv). It has NO public URL.
+#     Only other services in the same Render account can reach it.
+#     The existing retrospect-api backend talks to it via the internal hostname.
+#   - Cron jobs (daily ingestion at 5am UTC, weekly podcasts at 6am UTC Sunday)
+#     run IN-PROCESS inside this server, gated by the ENABLE_AGENT_CRONS env flag.
+#   - To inspect /runs dashboard during dev: run `npm run dev` locally pointing at
+#     prod Supabase, open http://localhost:3001/runs.
+
+services:
+  - type: pserv
+    name: retrospect-agent
+    env: node
+    region: oregon
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      # Enable the in-process daily ingestion + weekly podcast crons.
+      # Flip to "false" to silence the agent's autonomous scheduling.
+      - key: ENABLE_AGENT_CRONS
+        value: "true"
+      # Shared secret used by the existing retrospect-api backend to call this service.
+      # Set the same value in retrospect-api's env. Generate with: openssl rand -hex 32
+      - key: INTERNAL_API_SECRET
+        sync: false
+      # Supabase — same project the existing backend uses.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # OpenAI for chat completions + embeddings.
+      - key: OPENAI_API_KEY
+        sync: false
+      # Optional — Perplexity for the agent's internet_research tool. No-op if absent.
+      - key: PERPLEXITY_API_KEY
+        sync: false
+      # Optional — ElevenLabs for TTS. Podcast generation falls back to script-only if absent.
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      # Optional — Anthropic (not currently required by the agent but available for future use).
+      - key: ANTHROPIC_API_KEY
+        sync: false

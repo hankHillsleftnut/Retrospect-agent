@@ -1,0 +1,40 @@
+{
+  "name": "anxious-week",
+  "description": "User had a week dominated by catastrophizing and avoidance. Pipeline should challenge distortions with specific counter-evidence.",
+  "goals": [
+    {
+      "title": "Stop catastrophizing at work",
+      "description": "Notice fortune-telling and bring myself back to evidence."
+    },
+    {
+      "title": "Keep up gym 3x/week",
+      "description": "Strength train Monday, Wednesday, Friday."
+    }
+  ],
+  "preferences": {
+    "tone": "direct, no toxic positivity",
+    "focus_areas": ["work anxiety"]
+  },
+  "raw_content": [
+    {
+      "daysAgo": 6,
+      "content_type": "voice_recording",
+      "content": "Got the worst feedback email from my manager today. Well, it wasn't worst it was just feedback. But I keep replaying it. She said the doc was clear but she had questions. I just hear questions = bad."
+    },
+    {
+      "daysAgo": 5,
+      "content_type": "voice_recording",
+      "content": "Skipped gym. Just couldn't get out of my head. Watched 3 hours of TV. Then felt worse."
+    },
+    {
+      "daysAgo": 3,
+      "content_type": "voice_recording",
+      "content": "Standup. Manager said the doc is 'really useful'. I almost didn't hear it. Then I went looking for the bad thing she was about to say. There wasn't one."
+    },
+    {
+      "daysAgo": 1,
+      "content_type": "voice_recording",
+      "content": "Did go to the gym. Five sets of bench, three of rows. Felt strong. Side note: the launch I was dreading went fine. Nobody noticed the bug I was up at night about."
+    }
+  ]
+}

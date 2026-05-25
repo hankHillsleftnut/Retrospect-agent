@@ -1,0 +1,36 @@
+{
+  "name": "stalled-goal",
+  "description": "User has a goal that hasn't moved in 3 weeks. Pipeline should call this out directly and prescribe a behavioral experiment rather than cheer them on.",
+  "goals": [
+    {
+      "title": "Ship the side project v1",
+      "description": "Get a working version live by end of month."
+    }
+  ],
+  "preferences": {
+    "tone": "direct, no fluff",
+    "focus_areas": ["follow-through"]
+  },
+  "raw_content": [
+    {
+      "daysAgo": 18,
+      "content_type": "voice_recording",
+      "content": "I'm going to ship by next weekend. I have the design done, just need to wire up the API."
+    },
+    {
+      "daysAgo": 11,
+      "content_type": "voice_recording",
+      "content": "OK new plan: ship by THIS weekend. I rebuilt the design. The old one wasn't quite right."
+    },
+    {
+      "daysAgo": 4,
+      "content_type": "voice_recording",
+      "content": "Pushing the launch out, the auth flow needs more thought. I want to do it right."
+    },
+    {
+      "daysAgo": 1,
+      "content_type": "voice_recording",
+      "content": "I keep redesigning instead of shipping. I noticed that. I'm scared of someone seeing it and not liking it. Maybe."
+    }
+  ]
+}

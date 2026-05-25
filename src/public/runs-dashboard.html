@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>retrospect-agent runs</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161922; --panel2: #1d2230;
+    --fg: #e6e7eb; --muted: #8b91a3; --accent: #7aa2f7; --good: #9ece6a; --bad: #f7768e;
+    --border: #262b3b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.5px; }
+  header a { color: var(--accent); text-decoration: none; }
+  header input { background: var(--panel2); color: var(--fg); border: 1px solid var(--border); padding: 6px 10px; border-radius: 6px; min-width: 280px; }
+  main { display: flex; min-height: calc(100vh - 49px); }
+  aside { width: 360px; border-right: 1px solid var(--border); overflow-y: auto; }
+  aside .row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  aside .row:hover { background: var(--panel); }
+  aside .row.active { background: var(--panel2); }
+  aside .meta { color: var(--muted); font-size: 12px; }
+  aside .kind { display: inline-block; padding: 2px 6px; border-radius: 4px; background: var(--panel2); margin-right: 6px; font-size: 11px; text-transform: uppercase; }
+  aside .status-completed { color: var(--good); }
+  aside .status-failed { color: var(--bad); }
+  aside .status-running { color: var(--accent); }
+  section.detail { flex: 1; padding: 20px; overflow-y: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+  .panel h2 { margin: 0; padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); cursor: pointer; user-select: none; }
+  .panel h2::before { content: "▼ "; color: var(--muted); }
+  .panel.collapsed h2::before { content: "▶ "; }
+  .panel .body { padding: 16px; }
+  .panel.collapsed .body { display: none; }
+  pre { white-space: pre-wrap; word-wrap: break-word; background: var(--panel2); padding: 12px; border-radius: 6px; max-height: 480px; overflow-y: auto; font-size: 12.5px; }
+  .toolcall { background: var(--panel2); border-left: 3px solid var(--accent); padding: 10px 12px; margin-bottom: 10px; border-radius: 0 6px 6px 0; }
+  .toolcall .tool { font-weight: 600; color: var(--accent); }
+  .toolcall .meta { color: var(--muted); font-size: 12px; }
+  .toolcall pre { margin-top: 6px; max-height: 220px; }
+  .cost { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .cost .cell { background: var(--panel2); padding: 8px 12px; border-radius: 6px; }
+  .cost .cell .k { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+  .cost .cell .v { font-size: 16px; font-weight: 600; }
+  audio { width: 100%; margin-top: 8px; }
+  .empty { color: var(--muted); padding: 40px; text-align: center; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--panel2); font-size: 11px; color: var(--muted); margin-left: 6px; }
+  .script { white-space: pre-wrap; background: var(--panel2); padding: 18px; border-radius: 6px; font: 14px/1.65 ui-sans-serif, system-ui; max-height: 500px; overflow-y: auto; }
+</style>
+</head>
+<body>
+<header>
+  <h1>retrospect-agent / runs</h1>
+  <a href="/runs">all runs</a>
+  <a href="/runs/latest">latest</a>
+  <a href="/podcast-test">podcast test</a>
+  <input id="filter-user" placeholder="filter by userId (paste a uuid)" />
+</header>
+<main>
+  <aside id="list"></aside>
+  <section class="detail" id="detail">
+    <div class="empty">Pick a run on the left.</div>
+  </section>
+</main>
+
+<script>
+  const pathParts = location.pathname.split('/').filter(Boolean);
+  const initialRunId = pathParts[0] === 'runs' && pathParts[1] && pathParts[1] !== 'latest' ? pathParts[1] : null;
+
+  async function loadList() {
+    const userId = document.getElementById('filter-user').value.trim();
+    const qs = userId ? `?userId=${encodeURIComponent(userId)}&json=1` : '?json=1';
+    const res = await fetch(`/runs${qs}`);
+    const { runs = [] } = await res.json();
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    runs.forEach((r) => {
+      const div = document.createElement('div');
+      div.className = 'row';
+      div.dataset.id = r.id;
+      div.innerHTML = `
+        <div><span class="kind">${r.kind}</span><span class="status-${r.status}">${r.status}</span>${r.notes ? `<span class="pill">${r.notes}</span>` : ''}</div>
+        <div class="meta">${new Date(r.started_at).toLocaleString()} · ${r.duration_ms != null ? r.duration_ms + 'ms · ' : ''}$${r.cost_breakdown?.est_usd ?? 0}</div>
+        <div class="meta">${r.id}</div>
+      `;
+      div.addEventListener('click', () => loadRun(r.id));
+      list.appendChild(div);
+    });
+    if (initialRunId) loadRun(initialRunId);
+  }
+
+  function panel(id, title, bodyHtml, opts = {}) {
+    return `
+      <div class="panel ${opts.collapsed ? 'collapsed' : ''}" id="panel-${id}">
+        <h2 onclick="this.parentElement.classList.toggle('collapsed')">${title}</h2>
+        <div class="body">${bodyHtml}</div>
+      </div>`;
+  }
+
+  function fmtJson(obj) {
+    return `<pre>${escapeHtml(JSON.stringify(obj, null, 2))}</pre>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderToolCalls(calls) {
+    if (!calls || calls.length === 0) return '<div class="empty">No tool calls.</div>';
+    return calls.map((c, i) => `
+      <div class="toolcall">
+        <div><span class="tool">${c.tool}</span> <span class="meta">iter ${c.iteration} · ${c.duration_ms}ms · ${c.result_count ?? '?'} results</span></div>
+        <div class="meta">args:</div>
+        <pre>${escapeHtml(JSON.stringify(c.arguments, null, 2))}</pre>
+        <div class="meta">result preview:</div>
+        <pre>${escapeHtml(c.result_preview || '')}</pre>
+      </div>
+    `).join('');
+  }
+
+  function renderCost(c) {
+    if (!c) return '';
+    return `
+      <div class="cost">
+        <div class="cell"><div class="k">openai in</div><div class="v">${c.openai_tokens_input ?? 0}</div></div>
+        <div class="cell"><div class="k">openai out</div><div class="v">${c.openai_tokens_output ?? 0}</div></div>
+        <div class="cell"><div class="k">embed</div><div class="v">${c.embedding_tokens ?? 0}</div></div>
+        <div class="cell"><div class="k">perplexity</div><div class="v">${c.perplexity_calls ?? 0}</div></div>
+        <div class="cell"><div class="k">11labs chars</div><div class="v">${c.elevenlabs_chars ?? 0}</div></div>
+        <div class="cell"><div class="k">est usd</div><div class="v">$${c.est_usd ?? 0}</div></div>
+      </div>`;
+  }
+
+  async function loadRun(id) {
+    history.replaceState(null, '', `/runs/${id}`);
+    document.querySelectorAll('aside .row').forEach((r) => r.classList.toggle('active', r.dataset.id === id));
+
+    const res = await fetch(`/runs/${id}?json=1`);
+    if (!res.ok) {
+      document.getElementById('detail').innerHTML = '<div class="empty">Run not found.</div>';
+      return;
+    }
+    const { run } = await res.json();
+    const sections = [];
+
+    sections.push(panel('meta', `${run.kind.toUpperCase()} <span class="pill">${run.status}</span>`, `
+      <div class="meta">id: ${run.id}</div>
+      <div class="meta">started: ${new Date(run.started_at).toLocaleString()}</div>
+      <div class="meta">finished: ${run.finished_at ? new Date(run.finished_at).toLocaleString() : '—'}</div>
+      <div class="meta">duration: ${run.duration_ms ?? '—'}ms</div>
+      <div class="meta">triggered by: ${run.triggered_by}</div>
+      ${run.notes ? `<div class="meta">notes: ${escapeHtml(run.notes)}</div>` : ''}
+      ${run.error_message ? `<div class="meta" style="color: var(--bad)">error: ${escapeHtml(run.error_message)}</div>` : ''}
+      <h3 style="margin-top:14px; font-size:13px;">Cost</h3>
+      ${renderCost(run.cost_breakdown)}
+    `));
+
+    if (run.inputs_snapshot) sections.push(panel('inputs', 'Inputs snapshot', fmtJson(run.inputs_snapshot), { collapsed: true }));
+
+    if (run.outline_v1) sections.push(panel('o1', 'Cook A — Outline v1 (current context)', fmtJson(run.outline_v1)));
+
+    sections.push(panel('tools', `Cook B — Agent tool calls (${(run.agent_tool_calls || []).length})`, renderToolCalls(run.agent_tool_calls)));
+
+    if (run.outline_v2) sections.push(panel('o2', 'Cook B — Outline v2 (enriched)', fmtJson(run.outline_v2)));
+
+    if (run.final_script) sections.push(panel('script', 'Cook C — Final script', `<div class="script">${escapeHtml(run.final_script)}</div>`));
+
+    if (run.audio_url) sections.push(panel('audio', 'Audio', `<audio controls src="${run.audio_url}"></audio>`));
+
+    if (run.episode_summary) sections.push(panel('summary', 'Episode summary (saved for future)', `<div class="script">${escapeHtml(run.episode_summary)}</div>`));
+
+    document.getElementById('detail').innerHTML = sections.join('\n');
+  }
+
+  document.getElementById('filter-user').addEventListener('input', () => {
+    clearTimeout(window.__t);
+    window.__t = setTimeout(loadList, 300);
+  });
+  loadList();
+</script>
+</body>
+</html>

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>retrospect-agent podcast test</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #161922; --panel2: #1d2230;
+    --fg: #e6e7eb; --muted: #8b91a3; --accent: #7aa2f7; --good: #9ece6a; --bad: #f7768e;
+    --border: #262b3b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: 0.5px; }
+  a { color: var(--accent); text-decoration: none; }
+  main { display: grid; grid-template-columns: 380px 1fr; min-height: calc(100vh - 50px); }
+  form { border-right: 1px solid var(--border); padding: 20px; background: var(--panel); }
+  section { padding: 20px; overflow: auto; }
+  label { display: block; color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+  input, select, textarea {
+    width: 100%; color: var(--fg); background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; font: inherit;
+  }
+  input[type="checkbox"] { width: auto; margin-right: 8px; }
+  textarea { min-height: 420px; resize: vertical; line-height: 1.6; }
+  .field { margin-bottom: 16px; }
+  .checks { display: grid; gap: 8px; margin: 16px 0; color: var(--fg); }
+  button {
+    width: 100%; border: 0; border-radius: 8px; padding: 12px 14px; cursor: pointer;
+    color: #0b1020; background: var(--accent); font: inherit; font-weight: 700;
+  }
+  button.secondary { margin-top: 8px; color: var(--fg); background: var(--panel2); border: 1px solid var(--border); font-weight: 600; }
+  button:disabled { opacity: 0.6; cursor: wait; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
+  .panel h2 { margin: 0; padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .panel .body { padding: 16px; }
+  .meta { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+  .ok { color: var(--good); }
+  .bad { color: var(--bad); white-space: pre-wrap; }
+  .row { display: grid; grid-template-columns: 120px 1fr; gap: 12px; margin-bottom: 8px; }
+  audio { width: 100%; margin-top: 10px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel2); border-radius: 8px; padding: 12px; }
+  @media (max-width: 880px) {
+    main { grid-template-columns: 1fr; }
+    form { border-right: 0; border-bottom: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>retrospect-agent / podcast test</h1>
+  <a href="/runs">runs</a>
+  <a href="/runs/latest">latest run</a>
+</header>
+
+<main>
+  <form id="form">
+    <div class="field">
+      <label for="userId">userId</label>
+      <input id="userId" autocomplete="off" placeholder="Paste Supabase user id" required />
+      <button id="latestUser" type="button" class="secondary">Use latest run user</button>
+    </div>
+
+    <div class="field">
+      <label for="secret">INTERNAL_API_SECRET</label>
+      <input id="secret" type="password" autocomplete="off" placeholder="Shared backend/agent secret" required />
+    </div>
+
+    <div class="field">
+      <label for="daysBack">daysBack</label>
+      <input id="daysBack" type="number" min="1" max="90" value="14" />
+    </div>
+
+    <div class="field">
+      <label for="persona">persona</label>
+      <select id="persona">
+        <option value="">Use user preference</option>
+        <option value="thoughtful_friend">thoughtful_friend</option>
+        <option value="calm_coach">calm_coach</option>
+        <option value="direct_mentor">direct_mentor</option>
+      </select>
+    </div>
+
+    <div class="checks">
+      <label><input id="runIngestFirst" type="checkbox" /> Run ingestion first for recent raw content</label>
+      <label><input id="skipTTS" type="checkbox" checked /> Skip TTS audio</label>
+      <label><input id="dryRun" type="checkbox" /> Dry run, do not save episode</label>
+    </div>
+
+    <button id="submit" type="submit">Generate Podcast</button>
+    <p class="meta">
+      This calls the agent service directly at <code>/podcasts/generate</code>.
+      It uses the same protected agent endpoint the backend calls.
+    </p>
+  </form>
+
+  <section>
+    <div class="panel">
+      <h2>Status</h2>
+      <div class="body" id="status">
+        <span class="meta">Ready.</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Episode</h2>
+      <div class="body" id="episode">
+        <div class="meta">No episode generated yet.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Script</h2>
+      <div class="body">
+        <textarea id="script" placeholder="Generated podcast script will appear here."></textarea>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Summary</h2>
+      <div class="body">
+        <pre id="summary">Generated episode summary will appear here.</pre>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const saved = JSON.parse(localStorage.getItem('podcast-test') || '{}');
+  for (const key of ['userId', 'secret', 'daysBack', 'persona']) {
+    if (saved[key]) $(key).value = saved[key];
+  }
+  if (typeof saved.skipTTS === 'boolean') $('skipTTS').checked = saved.skipTTS;
+  if (typeof saved.dryRun === 'boolean') $('dryRun').checked = saved.dryRun;
+  if (typeof saved.runIngestFirst === 'boolean') $('runIngestFirst').checked = saved.runIngestFirst;
+
+  function setStatus(html) {
+    $('status').innerHTML = html;
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function saveForm() {
+    localStorage.setItem('podcast-test', JSON.stringify({
+      userId: $('userId').value.trim(),
+      secret: $('secret').value,
+      daysBack: $('daysBack').value,
+      persona: $('persona').value,
+      skipTTS: $('skipTTS').checked,
+      dryRun: $('dryRun').checked,
+      runIngestFirst: $('runIngestFirst').checked,
+    }));
+  }
+
+  $('form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    saveForm();
+
+    const body = {
+      userId: $('userId').value.trim(),
+      daysBack: Number($('daysBack').value || 14),
+      skipTTS: $('skipTTS').checked,
+      dryRun: $('dryRun').checked,
+      notes: 'Triggered by browser podcast test page',
+    };
+    if ($('persona').value) body.persona = $('persona').value;
+
+    $('submit').disabled = true;
+    $('script').value = '';
+    $('summary').textContent = '';
+    $('episode').innerHTML = '<div class="meta">Waiting for the agent...</div>';
+    setStatus('<span class="meta">Generating. This can take several minutes.</span>');
+
+    try {
+      const started = Date.now();
+      if ($('runIngestFirst').checked) {
+        setStatus('<span class="meta">Running ingestion first. This may reprocess recent raw content.</span>');
+        const ingestRes = await fetch('/ingest/run', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Internal-Secret': $('secret').value,
+          },
+          body: JSON.stringify({
+            userId: body.userId,
+            daysBack: body.daysBack,
+            notes: 'Triggered by browser podcast test page before podcast generation',
+          }),
+        });
+        const ingestPayload = await ingestRes.json().catch(() => ({}));
+        if (!ingestRes.ok) {
+          throw new Error(ingestPayload.error || `Ingest failed with HTTP ${ingestRes.status}`);
+        }
+        setStatus(`<span class="meta">Ingest done: ${ingestPayload.raw_content_processed ?? 0} raw rows, ${ingestPayload.observations_created ?? 0} observations, ${ingestPayload.insights_created ?? 0} insights. Generating podcast...</span>`);
+      }
+
+      const res = await fetch('/podcasts/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Secret': $('secret').value,
+        },
+        body: JSON.stringify(body),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(payload.error || `HTTP ${res.status}`);
+      }
+
+      const seconds = Math.round((Date.now() - started) / 1000);
+      setStatus(`<span class="ok">Generated in ${seconds}s.</span>`);
+      $('script').value = payload.script || '';
+      $('summary').textContent = payload.summary || 'No summary returned.';
+
+      const traceLink = payload.traceId ? `<a href="/runs/${encodeURIComponent(payload.traceId)}">open run trace</a>` : 'no trace';
+      const audio = payload.audioUrl ? `<audio controls src="${escapeHtml(payload.audioUrl)}"></audio>` : '<div class="meta">No audio URL returned.</div>';
+      $('episode').innerHTML = `
+        <div class="row"><div class="meta">title</div><div>${escapeHtml(payload.title || '')}</div></div>
+        <div class="row"><div class="meta">episodeId</div><div>${escapeHtml(payload.episodeId || 'dry run / not saved')}</div></div>
+        <div class="row"><div class="meta">trace</div><div>${traceLink}</div></div>
+        <div class="row"><div class="meta">mood</div><div>${escapeHtml(payload.mood || '')}</div></div>
+        <div class="row"><div class="meta">duration</div><div>${escapeHtml(payload.durationSeconds || '')} seconds</div></div>
+        <div class="row"><div class="meta">description</div><div>${escapeHtml(payload.description || '')}</div></div>
+        ${audio}
+      `;
+    } catch (err) {
+      setStatus(`<span class="bad">${escapeHtml(err.message || err)}</span>`);
+      $('episode').innerHTML = '<div class="meta">Generation failed.</div>';
+    } finally {
+      $('submit').disabled = false;
+    }
+  });
+
+  $('latestUser').addEventListener('click', async () => {
+    $('latestUser').disabled = true;
+    try {
+      const res = await fetch('/runs?json=1&limit=25');
+      const { runs = [] } = await res.json();
+      const run = runs.find((r) => r.user_id);
+      if (!run) throw new Error('No recent run with a user id was found.');
+      $('userId').value = run.user_id;
+      saveForm();
+      setStatus(`<span class="ok">Loaded user id from latest ${escapeHtml(run.kind)} run.</span>`);
+    } catch (err) {
+      setStatus(`<span class="bad">${escapeHtml(err.message || err)}</span>`);
+    } finally {
+      $('latestUser').disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

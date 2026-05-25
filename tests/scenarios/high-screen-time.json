@@ -1,0 +1,45 @@
+{
+  "name": "high-screen-time",
+  "description": "User had abnormally high social-media usage all week. Pipeline should connect digital behavior to emotional regulation without shaming.",
+  "goals": [
+    {
+      "title": "Read 30 minutes a day",
+      "description": "Replace scroll time with book time."
+    },
+    {
+      "title": "Sleep before midnight",
+      "description": "Be off screens by 11:30pm."
+    }
+  ],
+  "preferences": {
+    "tone": "warm but honest",
+    "focus_areas": ["digital habits"]
+  },
+  "raw_content": [
+    {
+      "daysAgo": 7,
+      "content_type": "screen_time",
+      "content": "Total: 8h 41m. Instagram 3h 12m, TikTok 2h 04m, Twitter 1h 21m. Pickups: 119. First pickup 6:14am. Last app close 1:48am."
+    },
+    {
+      "daysAgo": 5,
+      "content_type": "screen_time",
+      "content": "Total: 7h 56m. Instagram 2h 51m, TikTok 1h 47m, YouTube 1h 19m. Pickups: 101. Last app close 12:42am."
+    },
+    {
+      "daysAgo": 4,
+      "content_type": "voice_recording",
+      "content": "I had a stressful day at work and I just couldn't stop scrolling at night. I know I'm doing it but I don't stop. The book is right there."
+    },
+    {
+      "daysAgo": 2,
+      "content_type": "screen_time",
+      "content": "Total: 7h 22m. Instagram 2h 39m, TikTok 1h 51m. Pickups: 96. First pickup 6:01am. Last app close 1:11am."
+    },
+    {
+      "daysAgo": 1,
+      "content_type": "voice_recording",
+      "content": "I did read 20 minutes this morning before the phone. Felt different. Whole day felt different actually. Then crashed and scrolled at night again."
+    }
+  ]
+}
