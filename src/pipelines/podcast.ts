@@ -16,6 +16,8 @@ import type {
   DbInsight,
   DbObservation,
   DbPodcastEpisode,
+  DbRawContent,
+  DbUser,
   DbUserPreferences,
   DbEpisodeFeedback,
   OutlineV1,
@@ -61,6 +63,8 @@ async function cookA(input: {
   goals: DbGoal[];
   insights: DbInsight[];
   observations: DbObservation[];
+  onboardingProfile: DbRawContent | null;
+  voicePersona: VoicePersona | null;
   trace: Trace;
 }): Promise<OutlineV1> {
   const goalLines = input.goals.map(
@@ -73,7 +77,14 @@ async function cookA(input: {
     (o) => `- [${o.id}] (goal: ${o.goal_id ?? 'unassigned'}, ${o.observation_date.slice(0, 10)}) ${o.content}`
   );
 
-  const userMessage = `# Active Goals
+  const foundationBlock = formatOnboardingFoundation(
+    input.onboardingProfile,
+    input.voicePersona
+  );
+
+  const userMessage = `${foundationBlock}
+
+# Active Goals
 ${goalLines.join('\n') || '(none)'}
 
 # Recent Insights (last 2 weeks)
@@ -104,6 +115,8 @@ async function cookC(input: {
   outline: OutlineV2;
   preferences: DbUserPreferences | null;
   unprocessedFeedback: { date: string; text: string }[];
+  onboardingProfile: DbRawContent | null;
+  voicePersona: VoicePersona | null;
   trace: Trace;
 }): Promise<string> {
   const prefsBlock = input.preferences
@@ -119,7 +132,14 @@ ${input.preferences.directives.slice(-10).reverse().map((d) => `  - (${d.date.sl
     ? `\n\n# Unprocessed Feedback\n${input.unprocessedFeedback.map((f) => `  - (${f.date.slice(0, 10)}) ${f.text}`).join('\n')}`
     : '';
 
-  const userMessage = `# User Preferences
+  const foundationBlock = formatOnboardingFoundation(
+    input.onboardingProfile,
+    input.voicePersona
+  );
+
+  const userMessage = `${foundationBlock}
+
+# User Preferences
 ${prefsBlock}${feedbackBlock}
 
 # Enriched Outline (from Cook B)
@@ -144,8 +164,9 @@ Write the final podcast script now. Honor the notRealizedYet hints — set up th
 // ============================================
 async function loadContext(userId: string, daysBack: number) {
   const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
-  const [goalsRes, insightsRes, observationsRes, prefsRes, feedbackRes, lastEpisodeRes] =
+  const [userRes, goalsRes, insightsRes, observationsRes, prefsRes, feedbackRes, lastEpisodeRes, onboardingRes] =
     await Promise.all([
+      supabase.from(Tables.USERS).select('*').eq('id', userId).maybeSingle(),
       supabase.from(Tables.GOALS).select('*').eq('user_id', userId).eq('is_active', true),
       supabase
         .from(Tables.INSIGHTS)
@@ -175,9 +196,18 @@ async function loadContext(userId: string, daysBack: number) {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', userId)
+        .eq('content_type', 'onboarding_profile')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
   return {
+    user: (userRes.data ?? null) as DbUser | null,
     goals: (goalsRes.data ?? []) as DbGoal[],
     insights: (insightsRes.data ?? []) as DbInsight[],
     observations: (observationsRes.data ?? []) as DbObservation[],
@@ -188,7 +218,31 @@ async function loadContext(userId: string, daysBack: number) {
       id: f.id,
     })),
     lastEpisode: (lastEpisodeRes.data ?? null) as DbPodcastEpisode | null,
+    onboardingProfile: (onboardingRes.data ?? null) as DbRawContent | null,
   };
+}
+
+function formatOnboardingFoundation(
+  onboardingProfile: DbRawContent | null,
+  voicePersona: VoicePersona | null
+): string {
+  if (!onboardingProfile) {
+    return `# Foundational Onboarding Profile
+(none yet)`;
+  }
+
+  const metadata = onboardingProfile.metadata
+    ? `\nmetadata: ${JSON.stringify(onboardingProfile.metadata).slice(0, 1200)}`
+    : '';
+
+  return `# Foundational Onboarding Profile
+This is the user's first self-description inside Retrospect. Treat it as the foundation for interpreting what matters to them, what they are trying to become, what they are afraid of, and what would make the product feel personally intelligent.
+Do not merely recap it. Use it to decide what evidence feels meaningful, what tone will land, and which patterns should become part of the person's first impression of Retrospect.
+voice_persona: ${voicePersona ?? '(not set)'}
+raw_content_id: ${onboardingProfile.id}
+created_at: ${onboardingProfile.created_at}${metadata}
+
+${onboardingProfile.content.slice(0, 8000)}`;
 }
 
 // ============================================
@@ -221,16 +275,22 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
             unprocessed_feedback_ids: ctx.unprocessedFeedback.map((f) => f.id),
             preferences_present: !!ctx.preferences,
             last_episode_id: ctx.lastEpisode?.id ?? null,
-            persona: options.persona ?? null,
+            onboarding_profile_id: ctx.onboardingProfile?.id ?? null,
+            persona: options.persona ?? ctx.user?.voice_persona ?? null,
             skipTTS: !!options.skipTTS,
           },
         })
         .eq('id', trace.id);
     }
 
-    if (ctx.insights.length === 0 && ctx.observations.length === 0 && !options.outlineV1) {
+    if (
+      ctx.insights.length === 0 &&
+      ctx.observations.length === 0 &&
+      !ctx.onboardingProfile &&
+      !options.outlineV1
+    ) {
       throw new Error(
-        'Not enough recent data to generate a podcast. Run ingestion or seed:demo first.'
+        'Not enough data to generate a podcast episode. Add onboarding context, run ingestion, or seed demo data first.'
       );
     }
 
@@ -241,6 +301,8 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
         goals: ctx.goals,
         insights: ctx.insights,
         observations: ctx.observations,
+        onboardingProfile: ctx.onboardingProfile,
+        voicePersona: ctx.user?.voice_persona ?? null,
         trace,
       }));
     trace.setOutlineV1(outlineV1);
@@ -253,6 +315,8 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
         outlineV1,
         preferences: ctx.preferences,
         unprocessedFeedback: ctx.unprocessedFeedback.map(({ date, text }) => ({ date, text })),
+        onboardingProfile: ctx.onboardingProfile,
+        voicePersona: ctx.user?.voice_persona ?? null,
         trace,
       }));
     trace.setOutlineV2(outlineV2);
@@ -262,6 +326,8 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       outline: outlineV2,
       preferences: ctx.preferences,
       unprocessedFeedback: ctx.unprocessedFeedback.map(({ date, text }) => ({ date, text })),
+      onboardingProfile: ctx.onboardingProfile,
+      voicePersona: ctx.user?.voice_persona ?? null,
       trace,
     });
 
@@ -292,15 +358,8 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
 
     // Pick persona
     let persona: VoicePersona = options.persona ?? 'thoughtful_friend';
-    if (!options.persona) {
-      const { data: user } = await supabase
-        .from(Tables.USERS)
-        .select('voice_persona')
-        .eq('id', options.userId)
-        .maybeSingle();
-      if (user?.voice_persona && user.voice_persona in VOICE_PERSONAS) {
-        persona = user.voice_persona as VoicePersona;
-      }
+    if (!options.persona && ctx.user?.voice_persona && ctx.user.voice_persona in VOICE_PERSONAS) {
+      persona = ctx.user.voice_persona as VoicePersona;
     }
 
     // TTS
@@ -363,6 +422,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
           metadata: {
             word_count: script.split(/\s+/).length,
             voice_persona: persona,
+            onboarding_profile_id: ctx.onboardingProfile?.id ?? null,
             tool_call_count: trace.snapshot().agent_tool_calls.length,
           },
         })

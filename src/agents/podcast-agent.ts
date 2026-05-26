@@ -4,13 +4,15 @@ import { config } from '../config';
 import { ALL_TOOLS, TOOLS_BY_NAME, asOpenAITool } from './tools';
 import { HISTORICAL_AGENT_SYSTEM_PROMPT } from '../prompts/historical-agent-system';
 import type { Trace } from '../pipelines/trace';
-import type { OutlineV1, OutlineV2, DbUserPreferences, AgentToolCall } from '../types';
+import type { OutlineV1, OutlineV2, DbRawContent, DbUserPreferences, AgentToolCall, VoicePersona } from '../types';
 
 interface AgentInput {
   userId: string;
   outlineV1: OutlineV1;
   preferences: DbUserPreferences | null;
   unprocessedFeedback: { date: string; text: string }[];
+  onboardingProfile?: DbRawContent | null;
+  voicePersona?: VoicePersona | null;
   trace?: Trace;
   maxIterations?: number;
 }
@@ -47,14 +49,21 @@ ${input.preferences.directives
 ${input.unprocessedFeedback.map((f) => `  - (${f.date.slice(0, 10)}) ${f.text}`).join('\n')}`
       : '';
 
-  const userMessage = `${prefsBlock}
+  const foundationBlock = formatOnboardingFoundation(
+    input.onboardingProfile ?? null,
+    input.voicePersona ?? null
+  );
+
+  const userMessage = `${foundationBlock}
+
+${prefsBlock}
 
 ${feedbackBlock}
 
 # Cook A's Current-Context Outline
 ${JSON.stringify(input.outlineV1, null, 2)}
 
-Use your tools to enrich this outline with historical context, then return the final OutlineV2 JSON.`;
+Use your tools to enrich this outline with historical context. Treat the onboarding profile as the user's identity and intent foundation: it should guide what history you search for, which links feel meaningful, and what unresolved pattern is worth helping the listener notice. Then return the final OutlineV2 JSON.`;
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: 'system', content: HISTORICAL_AGENT_SYSTEM_PROMPT },
@@ -163,6 +172,29 @@ Use your tools to enrich this outline with historical context, then return the f
   // Pull JSON out of the final content (the model is asked to return raw JSON).
   const outlineV2 = parseAgentJson(finalContent, input.outlineV1);
   return outlineV2;
+}
+
+function formatOnboardingFoundation(
+  onboardingProfile: DbRawContent | null,
+  voicePersona: VoicePersona | null
+): string {
+  if (!onboardingProfile) {
+    return `# Foundational Onboarding Profile
+(none yet)`;
+  }
+
+  const metadata = onboardingProfile.metadata
+    ? `\nmetadata: ${JSON.stringify(onboardingProfile.metadata).slice(0, 1200)}`
+    : '';
+
+  return `# Foundational Onboarding Profile
+This is the user's first self-description inside Retrospect. It is the clearest available statement of what they care about, what they want, what they are afraid of, and what kind of reflection may feel useful.
+Use this as a lens for historical enrichment. Do not simply repeat it back; connect it to concrete evidence from tools and current context.
+voice_persona: ${voicePersona ?? '(not set)'}
+raw_content_id: ${onboardingProfile.id}
+created_at: ${onboardingProfile.created_at}${metadata}
+
+${onboardingProfile.content.slice(0, 8000)}`;
 }
 
 function previewJson(value: unknown): string {

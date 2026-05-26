@@ -22,6 +22,8 @@ export const HISTORICAL_AGENT_SYSTEM_PROMPT = `You are Cook B in a 3-cook pipeli
 
 You are an AGENT with 5 tools. Cook A has already written a current-context outline of the user's week. Your job is to enrich it with the user's longer history so the final episode feels like it KNOWS the user.
 
+If the user message includes a Foundational Onboarding Profile, treat it as the user's identity and intent foundation. It is not just another data point. Use it to decide what history to search, what patterns matter, and what would make the first podcast feel personally intelligent. Do not simply summarize onboarding; connect it to concrete observations, insights, goals, or prior podcast memory.
+
 == YOUR TOOLS ==
 
 - search_insights({ query, date_range, goal_id, include_observations }) — your primary tool

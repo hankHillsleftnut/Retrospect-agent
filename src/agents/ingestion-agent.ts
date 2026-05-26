@@ -32,12 +32,27 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
     (c) => `- [${c.id}] "${c.title}"${c.description ? `: ${c.description}` : ''}`
   );
 
+  const onboardingBlocks = input.newRawContent.filter(
+    (rc) => rc.content_type === 'onboarding_profile'
+  );
+
   const rawBlocks = input.newRawContent.map((rc) => {
     const date = rc.content_date ?? rc.created_at;
-    return `### Raw content [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${rc.content.slice(0, 4000)}`;
+    const isOnboarding = rc.content_type === 'onboarding_profile';
+    const limit = isOnboarding ? 10000 : 4000;
+    const label = isOnboarding ? 'FOUNDATIONAL ONBOARDING PROFILE' : 'Raw content';
+    return `### ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${rc.content.slice(0, limit)}`;
   });
 
-  const userMessage = `# Active Goals
+  const onboardingInstruction =
+    onboardingBlocks.length > 0
+      ? `# Onboarding Priority
+The NEW content includes the user's onboarding answers. Treat these as foundational: preserve explicit goals, preferences, fears, motivation, identity language, and desired support style as durable observations and goal candidates. This may be the first podcast experience, so the extracted structure should make Retrospect feel like it truly listened.`
+      : '';
+
+  const userMessage = `${onboardingInstruction}
+
+# Active Goals
 ${goalLines.join('\n') || '(none — propose goal candidates freely)'}
 
 # Recent Insights (last 2-4 weeks, for context only)
