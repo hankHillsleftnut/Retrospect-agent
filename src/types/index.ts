@@ -171,10 +171,19 @@ export interface HistoricalConnection {
   previousEpisodeIds?: string[];
 }
 
+export type PatternType =
+  | 'hidden_strength'
+  | 'distortion_habit'
+  | 'discounting_system'
+  | 'thought_behavior_cycle'
+  | 'progress_signal'
+  | 'self_esteem_blocker';
+
 export interface NotRealizedHint {
+  patternType?: PatternType;
   pattern: string;
   evidenceObservationIds: string[];
-  hintApproach: string; // how to bring this up without giving the answer
+  hintApproach: string;
 }
 
 export interface ResearchFinding {

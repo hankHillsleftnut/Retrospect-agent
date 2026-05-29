@@ -4,7 +4,7 @@ import { chatCompletion, jsonChatCompletion } from '../services/openai';
 import { generateEmbedding } from '../services/embeddings';
 import { textToSpeech, estimateDuration, VOICE_PERSONAS } from '../services/elevenlabs';
 import { CURRENT_CONTEXT_OUTLINE_SYSTEM_PROMPT } from '../prompts/current-context-outline';
-import { FINAL_TRANSCRIPT_SYSTEM_PROMPT } from '../prompts/final-transcript';
+import { FINAL_TRANSCRIPT_SYSTEM_PROMPT, PERSONA_PROMPT_STYLES } from '../prompts/final-transcript';
 import {
   EPISODE_SUMMARY_SYSTEM_PROMPT,
   EPISODE_TITLE_DESC_SYSTEM_PROMPT,
@@ -137,10 +137,16 @@ ${input.preferences.directives.slice(-10).reverse().map((d) => `  - (${d.date.sl
     input.voicePersona
   );
 
+  const personaStyle = PERSONA_PROMPT_STYLES[input.voicePersona ?? 'thoughtful_friend']
+    ?? PERSONA_PROMPT_STYLES['thoughtful_friend'];
+
   const userMessage = `${foundationBlock}
 
 # User Preferences
 ${prefsBlock}${feedbackBlock}
+
+# Voice Persona Style
+${personaStyle}
 
 # Enriched Outline (from Cook B)
 ${JSON.stringify(input.outline, null, 2)}

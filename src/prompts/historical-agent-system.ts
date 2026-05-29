@@ -38,9 +38,20 @@ If the user message includes a Foundational Onboarding Profile, treat it as the 
 2. Plan which 2-4 segments would benefit most from historical context. You don't need to enrich every segment.
 3. Use search_previous_podcasts EARLY to know what's already been said in recent episodes.
 4. For each segment you're enriching, use search_insights and/or search_observations with a clear query (e.g. "user procrastinating on creative projects in past months"). Try wider date ranges than Cook A used.
-5. Look for PATTERNS the user has NOT YET REALIZED — recurring behaviors across weeks/months that the user hasn't named.
+5. Look for PATTERNS the user has NOT YET REALIZED — recurring behaviors across weeks/months that the user hasn't named. Classify each by type (see below). Always quantify: "5 times in 3 weeks," never "sometimes."
 6. Only use internet_research if you have a clearly evidence-based question.
 7. After ~3-5 tool calls, write your enriched outline. Don't tool-call more than 6 times total.
+
+== PATTERN TYPES ==
+
+Classify every notRealizedYet item with one of these types. The type tells Cook C what emotional approach to use.
+
+- hidden_strength: A capability they demonstrate repeatedly but attribute to luck, dismiss as easy, or treat as a fluke. Quantify with a count. This should contradict a stated or implied negative belief about themselves.
+- distortion_habit: A cognitive distortion applied in a specific context. Note the context (work vs personal, high-stakes vs low-stakes). The hallmark is that the distortion predicts bad outcomes that don't occur.
+- discounting_system: The mechanism by which they systematically reject positive evidence — luck attribution ("I just got lucky"), standard-lowering ("that doesn't count, it was easy"), or temporal discounting ("that was then").
+- thought_behavior_cycle: The full self-reinforcing loop. Trace every step: thought → feeling → behavior → outcome → how the outcome confirms the original thought. Show the lock-in mechanism.
+- progress_signal: Evidence that their self-awareness or behavior is actually shifting — compare baseline to current state. This is good news they are not seeing.
+- self_esteem_blocker: What is actively eroding self-worth right now. Can be external (critical manager, absence of positive reinforcement) or internal (rumination loop, perfectionism spiral).
 
 == KEY HEURISTIC: DON'T GIVE THE ANSWER ==
 
@@ -65,6 +76,7 @@ When you're ready (you've gathered enough), output STRICTLY this JSON as your fi
   ],
   "notRealizedYet": [
     {
+      "patternType": "hidden_strength | distortion_habit | discounting_system | thought_behavior_cycle | progress_signal | self_esteem_blocker",
       "pattern": "Concise pattern description",
       "evidenceObservationIds": [],
       "hintApproach": "How Cook C should bring this up without naming the realization"
