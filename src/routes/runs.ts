@@ -123,11 +123,16 @@ runsRouter.get('/:id', async (req, res) => {
     }
     // Identity inferences produced by this ingestion run.
     // Prefer the trace column; fall back to inputs_snapshot.active_inference_ids
-    // (set by the standalone cook0 endpoint).
+    // (set by the standalone cook0 endpoint). The trace column defaults to
+    // an empty array, so we treat empty same as missing.
+    const traceInferenceIds = runData.identity_inference_ids as string[] | undefined;
+    const snapInferenceIds = snap.active_inference_ids as string[] | undefined;
     const inferenceIds =
-      ((runData.identity_inference_ids as string[] | undefined) ??
-        (snap.active_inference_ids as string[] | undefined) ??
-        []) as string[];
+      Array.isArray(traceInferenceIds) && traceInferenceIds.length > 0
+        ? traceInferenceIds
+        : Array.isArray(snapInferenceIds)
+          ? snapInferenceIds
+          : [];
     if (Array.isArray(inferenceIds) && inferenceIds.length > 0) {
       const { data: infRows } = await supabase
         .from(Tables.IDENTITY_INFERENCES)
