@@ -57,7 +57,7 @@ runsRouter.get('/:id', async (req, res) => {
   // Hydrate IDs from inputs_snapshot into actual content
   const snap = (data as Record<string, unknown>).inputs_snapshot as Record<string, unknown> | null;
   if (snap) {
-    const fetches: Promise<void>[] = [];
+    const fetches: PromiseLike<void>[] = [];
     const ctx: Record<string, unknown> = {};
 
     if (Array.isArray(snap.observation_ids) && snap.observation_ids.length > 0) {
