@@ -6,6 +6,7 @@ import { config } from './config';
 import { requireInternalSecret } from './middleware/internal-auth';
 import { healthRouter } from './routes/health';
 import { ingestRouter } from './routes/ingest';
+import { cook0Router } from './routes/cook0';
 import { podcastsRouter } from './routes/podcasts';
 import { preferencesRouter } from './routes/preferences';
 import { feedbackRouter } from './routes/feedback';
@@ -33,6 +34,7 @@ app.get('/podcast-test', (_req, res) => {
 // Protected routes: require the shared INTERNAL_API_SECRET header set by the
 // existing retrospect-api backend's agent-client.
 app.use('/ingest', requireInternalSecret, ingestRouter);
+app.use('/cook0', requireInternalSecret, cook0Router);
 app.use('/podcasts', requireInternalSecret, podcastsRouter);
 app.use('/preferences', requireInternalSecret, preferencesRouter);
 app.use('/feedback', requireInternalSecret, feedbackRouter);
