@@ -39,14 +39,18 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
   try {
     // 1. Fetch new raw content
     const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    // Only pick up content that hasn't been successfully processed yet.
+    // This prevents creating duplicate observations when re-running ingestion.
     let rawQuery = supabase
       .from(Tables.RAW_CONTENT)
       .select('*')
       .eq('user_id', options.userId)
+      .in('processing_status', ['pending', 'failed'])
       .gte('created_at', sinceIso)
       .order('created_at', { ascending: true });
 
     if (options.rawContentIds && options.rawContentIds.length > 0) {
+      // Specific IDs requested — fetch them regardless of status
       rawQuery = supabase
         .from(Tables.RAW_CONTENT)
         .select('*')

@@ -7,7 +7,8 @@ import { runIngest } from '../pipelines/ingest';
  * who has new raw_content in the last 24 hours.
  */
 export async function runDailyIngestion(): Promise<void> {
-  const since = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+  // Look back 7 days so entries that failed while the agent was down get retried.
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   const { data: rows, error } = await supabase
     .from(Tables.RAW_CONTENT)
@@ -24,7 +25,7 @@ export async function runDailyIngestion(): Promise<void> {
 
   for (const userId of userIds) {
     try {
-      const result = await runIngest({ userId, daysBack: 1, triggeredBy: 'cron' });
+      const result = await runIngest({ userId, daysBack: 7, triggeredBy: 'cron' });
       console.log(
         `[daily-ingestion] user=${userId} obs=${result.observations_created} ins=${result.insights_created} cand=${result.goal_candidates_created}`
       );
