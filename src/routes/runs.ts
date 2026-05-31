@@ -53,6 +53,61 @@ runsRouter.get('/:id', async (req, res) => {
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(404).json({ error: error.message });
+
+  // Hydrate IDs from inputs_snapshot into actual content
+  const snap = (data as Record<string, unknown>).inputs_snapshot as Record<string, unknown> | null;
+  if (snap) {
+    const fetches: Promise<void>[] = [];
+    const ctx: Record<string, unknown> = {};
+
+    if (Array.isArray(snap.observation_ids) && snap.observation_ids.length > 0) {
+      fetches.push(
+        supabase.from(Tables.OBSERVATIONS)
+          .select('id, content, observation_date, goal_id')
+          .in('id', snap.observation_ids)
+          .then(({ data: rows }) => { ctx.observations = rows ?? []; })
+      );
+    }
+    if (Array.isArray(snap.insight_ids) && snap.insight_ids.length > 0) {
+      fetches.push(
+        supabase.from(Tables.INSIGHTS)
+          .select('id, title, content, evidence_summary, created_at')
+          .in('id', snap.insight_ids)
+          .then(({ data: rows }) => { ctx.insights = rows ?? []; })
+      );
+    }
+    if (Array.isArray(snap.active_goal_ids) && snap.active_goal_ids.length > 0) {
+      fetches.push(
+        supabase.from(Tables.GOALS)
+          .select('id, title, description')
+          .in('id', snap.active_goal_ids)
+          .then(({ data: rows }) => { ctx.goals = rows ?? []; })
+      );
+    }
+    if (snap.onboarding_profile_id) {
+      fetches.push(
+        supabase.from(Tables.RAW_CONTENT)
+          .select('id, content_type, content, created_at')
+          .eq('id', snap.onboarding_profile_id)
+          .maybeSingle()
+          .then(({ data: row }) => { ctx.onboardingProfile = row ?? null; })
+      );
+    }
+    if (Array.isArray(snap.raw_content_ids) && snap.raw_content_ids.length > 0) {
+      fetches.push(
+        supabase.from(Tables.RAW_CONTENT)
+          .select('id, content_type, content, created_at')
+          .in('id', snap.raw_content_ids)
+          .then(({ data: rows }) => { ctx.rawContent = rows ?? []; })
+      );
+    }
+
+    await Promise.all(fetches);
+    if (Object.keys(ctx).length > 0) {
+      (data as Record<string, unknown>).context_data = ctx;
+    }
+  }
+
   return res.json({ run: data });
 });
 

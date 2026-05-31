@@ -130,6 +130,55 @@
       </div>`;
   }
 
+  function renderContextData(ctx) {
+    let html = '';
+
+    if (ctx.goals?.length > 0) {
+      html += '<h3 style="margin:0 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Goals</h3>';
+      html += ctx.goals.map(g => `
+        <div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;">
+          <div style="font-weight:600;">${escapeHtml(g.title ?? '(untitled)')}</div>
+          ${g.description ? `<div style="color:var(--muted);margin-top:4px;">${escapeHtml(g.description)}</div>` : ''}
+        </div>`).join('');
+    }
+
+    if (ctx.insights?.length > 0) {
+      html += '<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Insights</h3>';
+      html += ctx.insights.map(i => `
+        <div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;border-left:3px solid var(--accent);">
+          <div style="font-weight:600;">${escapeHtml(i.title ?? '(no title)')}</div>
+          <div style="margin-top:6px;">${escapeHtml(i.content ?? '')}</div>
+          ${i.evidence_summary ? `<div style="color:var(--muted);margin-top:6px;font-size:12px;">Evidence: ${escapeHtml(i.evidence_summary)}</div>` : ''}
+          <div style="color:var(--muted);font-size:11px;margin-top:6px;">${i.created_at ? new Date(i.created_at).toLocaleDateString() : ''}</div>
+        </div>`).join('');
+    }
+
+    if (ctx.observations?.length > 0) {
+      html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Observations (${ctx.observations.length})</h3>`;
+      html += ctx.observations.map(o => `
+        <div style="background:var(--panel2);padding:8px 14px;border-radius:6px;margin-bottom:6px;display:flex;gap:12px;align-items:flex-start;">
+          <div style="color:var(--muted);font-size:11px;white-space:nowrap;margin-top:2px;">${o.observation_date ? o.observation_date.slice(0,10) : ''}</div>
+          <div>${escapeHtml(o.content ?? '')}</div>
+        </div>`).join('');
+    }
+
+    if (ctx.onboardingProfile) {
+      html += '<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Onboarding Profile</h3>';
+      html += `<pre>${escapeHtml(ctx.onboardingProfile.content ?? '')}</pre>`;
+    }
+
+    if (ctx.rawContent?.length > 0) {
+      html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Raw Content (${ctx.rawContent.length})</h3>`;
+      html += ctx.rawContent.map(r => `
+        <div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;">
+          <div style="color:var(--muted);font-size:11px;margin-bottom:6px;">${escapeHtml(r.content_type ?? '')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</div>
+          <div style="white-space:pre-wrap;">${escapeHtml((r.content ?? '').slice(0, 800))}${r.content?.length > 800 ? '…' : ''}</div>
+        </div>`).join('');
+    }
+
+    return html || '<div class="empty">No source data to display.</div>';
+  }
+
   async function loadRun(id) {
     history.replaceState(null, '', `/runs/${id}`);
     document.querySelectorAll('aside .row').forEach((r) => r.classList.toggle('active', r.dataset.id === id));
@@ -155,6 +204,8 @@
     `));
 
     if (run.inputs_snapshot) sections.push(panel('inputs', 'Inputs snapshot', fmtJson(run.inputs_snapshot), { collapsed: true }));
+
+    if (run.context_data) sections.push(panel('context', 'Source data (what went in)', renderContextData(run.context_data)));
 
     if (run.outline_v1) sections.push(panel('o1', 'Cook A — Outline v1 (current context)', fmtJson(run.outline_v1)));
 
