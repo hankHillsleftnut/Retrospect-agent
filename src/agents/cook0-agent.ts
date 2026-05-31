@@ -168,7 +168,7 @@ Produce the next User Understanding Document. Return STRICT JSON per the schema 
   const { data, usage } = await claudeJsonCompletion<Cook0Result>(
     COOK0_SYSTEM_PROMPT,
     userMessage,
-    { temperature: 0.4, maxTokens: 8000, model: config.anthropic.cook0Model }
+    { maxTokens: 8000, model: config.anthropic.cook0Model }
   );
 
   input.trace?.addCost({

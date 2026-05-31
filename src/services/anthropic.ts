@@ -40,13 +40,18 @@ export async function claudeCompletion(
   user: string,
   options: ClaudeOptions = {}
 ): Promise<{ text: string; usage: ClaudeUsage }> {
-  const res = await client().messages.create({
+  // Newer Claude models (e.g. Opus 4.8+ / reasoning variants) reject the
+  // temperature parameter. Only include it when the caller explicitly sets one.
+  const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: options.model ?? config.anthropic.cook0Model,
     system,
     messages: [{ role: 'user', content: user }],
-    temperature: options.temperature ?? 0.4,
     max_tokens: options.maxTokens ?? 8000,
-  });
+  };
+  if (options.temperature !== undefined) {
+    params.temperature = options.temperature;
+  }
+  const res = await client().messages.create(params);
 
   // Claude returns content blocks. For our use case (no tools) all output is text.
   const text = res.content
