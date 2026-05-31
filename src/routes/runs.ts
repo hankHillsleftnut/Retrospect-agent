@@ -121,8 +121,13 @@ runsRouter.get('/:id', async (req, res) => {
         ctx.sourceEntries = srcRows ?? [];
       }
     }
-    // Identity inferences produced by this ingestion run
-    const inferenceIds = (runData.identity_inference_ids as string[] | undefined) ?? [];
+    // Identity inferences produced by this ingestion run.
+    // Prefer the trace column; fall back to inputs_snapshot.active_inference_ids
+    // (set by the standalone cook0 endpoint).
+    const inferenceIds =
+      ((runData.identity_inference_ids as string[] | undefined) ??
+        (snap.active_inference_ids as string[] | undefined) ??
+        []) as string[];
     if (Array.isArray(inferenceIds) && inferenceIds.length > 0) {
       const { data: infRows } = await supabase
         .from(Tables.IDENTITY_INFERENCES)
@@ -134,8 +139,12 @@ runsRouter.get('/:id', async (req, res) => {
     }
 
     // User Understanding Document — what Cook 0 wrote in this run.
-    // For ingest runs we wrote it into trace fields. For podcast runs the
-    // version is in the snapshot; fetch the document text for either case.
+    // Try in order:
+    //   1. Trace column (preferred — set by trace.setUserUnderstanding)
+    //   2. inputs_snapshot.user_understanding_version (for podcast runs)
+    //   3. Look up by source_ingestion_run_id (most robust for ingest/cook0 runs)
+    //   4. Fall back to the user's latest document version
+    const runUserId = runData.user_id as string;
     if (runData.user_understanding_document) {
       ctx.user_understanding_document = runData.user_understanding_document;
       ctx.user_understanding_version = runData.user_understanding_version;
@@ -143,13 +152,39 @@ runsRouter.get('/:id', async (req, res) => {
       const { data: docRow } = await supabase
         .from(Tables.USER_UNDERSTANDING)
         .select('document, version, generation_notes, created_at')
-        .eq('user_id', (runData.user_id as string))
+        .eq('user_id', runUserId)
         .eq('version', snap.user_understanding_version as number)
         .maybeSingle();
       if (docRow) {
         ctx.user_understanding_document = docRow.document;
         ctx.user_understanding_version = docRow.version;
         ctx.user_understanding_generation_notes = docRow.generation_notes;
+      }
+    } else {
+      // Look up by source_ingestion_run_id first (this run's own document)
+      const { data: docRow } = await supabase
+        .from(Tables.USER_UNDERSTANDING)
+        .select('document, version, generation_notes, created_at')
+        .eq('source_ingestion_run_id', req.params.id)
+        .maybeSingle();
+      if (docRow) {
+        ctx.user_understanding_document = docRow.document;
+        ctx.user_understanding_version = docRow.version;
+        ctx.user_understanding_generation_notes = docRow.generation_notes;
+      } else {
+        // Final fallback: latest document for this user.
+        const { data: latest } = await supabase
+          .from(Tables.USER_UNDERSTANDING)
+          .select('document, version, generation_notes, created_at')
+          .eq('user_id', runUserId)
+          .order('version', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (latest) {
+          ctx.user_understanding_document = latest.document;
+          ctx.user_understanding_version = latest.version;
+          ctx.user_understanding_generation_notes = latest.generation_notes;
+        }
       }
     }
 
