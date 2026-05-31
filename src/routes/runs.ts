@@ -63,7 +63,7 @@ runsRouter.get('/:id', async (req, res) => {
     if (Array.isArray(snap.observation_ids) && snap.observation_ids.length > 0) {
       fetches.push(
         supabase.from(Tables.OBSERVATIONS)
-          .select('id, content, observation_date, goal_id')
+          .select('id, content, observation_date, goal_id, raw_content_id')
           .in('id', snap.observation_ids)
           .then(({ data: rows }) => { ctx.observations = rows ?? []; })
       );
@@ -103,6 +103,23 @@ runsRouter.get('/:id', async (req, res) => {
     }
 
     await Promise.all(fetches);
+
+    // For podcast runs: follow observation.raw_content_id to surface the actual journal entries
+    // that fed into the podcast (ingestion runs already have raw_content directly in the snapshot).
+    if (!snap.raw_content_ids && Array.isArray(ctx.observations) && (ctx.observations as Record<string, unknown>[]).length > 0) {
+      const rcIds = [...new Set(
+        (ctx.observations as Record<string, unknown>[])
+          .map((o) => o['raw_content_id'])
+          .filter((id): id is string => typeof id === 'string')
+      )];
+      if (rcIds.length > 0) {
+        const { data: srcRows } = await supabase
+          .from(Tables.RAW_CONTENT)
+          .select('id, content_type, content, created_at')
+          .in('id', rcIds);
+        ctx.sourceEntries = srcRows ?? [];
+      }
+    }
     if (Object.keys(ctx).length > 0) {
       (data as Record<string, unknown>).context_data = ctx;
     }

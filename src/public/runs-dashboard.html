@@ -167,12 +167,24 @@
       html += `<pre>${escapeHtml(ctx.onboardingProfile.content ?? '')}</pre>`;
     }
 
+    // rawContent: ingestion runs (the actual entries that were ingested)
     if (ctx.rawContent?.length > 0) {
-      html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Raw Content (${ctx.rawContent.length})</h3>`;
+      html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Ingested Entries (${ctx.rawContent.length})</h3>`;
       html += ctx.rawContent.map(r => `
         <div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;">
           <div style="color:var(--muted);font-size:11px;margin-bottom:6px;">${escapeHtml(r.content_type ?? '')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</div>
           <div style="white-space:pre-wrap;">${escapeHtml((r.content ?? '').slice(0, 800))}${r.content?.length > 800 ? '…' : ''}</div>
+        </div>`).join('');
+    }
+
+    // sourceEntries: podcast runs — journal entries that observations were derived from
+    if (ctx.sourceEntries?.length > 0) {
+      html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Source Journal Entries (${ctx.sourceEntries.length})</h3>`;
+      html += `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">These are the raw entries whose observations fed into this podcast episode.</div>`;
+      html += ctx.sourceEntries.map(r => `
+        <div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;border-left:3px solid #7c6f5e;">
+          <div style="color:var(--muted);font-size:11px;margin-bottom:6px;">${escapeHtml(r.content_type ?? '')} · ${r.created_at ? new Date(r.created_at).toLocaleDateString() : ''}</div>
+          <div style="white-space:pre-wrap;">${escapeHtml((r.content ?? '').slice(0, 1000))}${(r.content ?? '').length > 1000 ? '…' : ''}</div>
         </div>`).join('');
     }
 
