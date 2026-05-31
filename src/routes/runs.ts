@@ -7,6 +7,59 @@ export const runsRouter = Router();
 
 const DASHBOARD_HTML = path.join(__dirname, '..', 'public', 'runs-dashboard.html');
 
+runsRouter.get('/users', async (req, res) => {
+  // Aggregate per-user stats from pipeline_run_traces + join users table for email
+  const { data: runs, error } = await supabase
+    .from(Tables.PIPELINE_RUN_TRACES)
+    .select('user_id, kind, status, started_at, cost_breakdown');
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const userMap: Record<string, {
+    user_id: string;
+    run_count: number;
+    podcast_count: number;
+    ingest_count: number;
+    failed_count: number;
+    total_cost: number;
+    last_run_at: string | null;
+  }> = {};
+
+  for (const r of (runs ?? [])) {
+    const uid = r.user_id as string;
+    if (!userMap[uid]) {
+      userMap[uid] = { user_id: uid, run_count: 0, podcast_count: 0, ingest_count: 0, failed_count: 0, total_cost: 0, last_run_at: null };
+    }
+    const u = userMap[uid];
+    u.run_count++;
+    if (r.kind === 'podcast') u.podcast_count++;
+    if (r.kind === 'ingest') u.ingest_count++;
+    if (r.status === 'failed') u.failed_count++;
+    u.total_cost = Math.round((u.total_cost + ((r.cost_breakdown as Record<string, number>)?.est_usd ?? 0)) * 10000) / 10000;
+    if (!u.last_run_at || r.started_at > u.last_run_at) u.last_run_at = r.started_at as string;
+  }
+
+  const userIds = Object.keys(userMap);
+  if (userIds.length > 0) {
+    const { data: users } = await supabase
+      .from(Tables.USERS)
+      .select('id, email, created_at')
+      .in('id', userIds);
+    for (const u of (users ?? [])) {
+      if (userMap[u.id]) {
+        (userMap[u.id] as Record<string, unknown>).email = u.email ?? null;
+        (userMap[u.id] as Record<string, unknown>).joined_at = u.created_at;
+      }
+    }
+  }
+
+  const sorted = Object.values(userMap).sort((a, b) =>
+    (b.last_run_at ?? '') > (a.last_run_at ?? '') ? 1 : -1
+  );
+
+  return res.json({ users: sorted });
+});
+
 runsRouter.get('/', async (req, res) => {
   if (req.accepts('html') && !req.query.json) {
     return res.sendFile(DASHBOARD_HTML);
