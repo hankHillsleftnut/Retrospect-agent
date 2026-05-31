@@ -50,8 +50,11 @@ export interface TtsOptions {
  */
 export async function textToSpeech(script: string, options: TtsOptions = {}): Promise<Buffer> {
   if (!config.elevenlabs.apiKey) {
+    console.warn('[elevenlabs] ELEVENLABS_API_KEY is not set — skipping TTS');
     return Buffer.alloc(0);
   }
+  console.log(`[elevenlabs] Starting TTS: ${script.length} chars, key present (${config.elevenlabs.apiKey.slice(0, 8)}...)`);
+
 
   const persona = options.persona ?? 'thoughtful_friend';
   const personaConfig = VOICE_PERSONAS[persona];

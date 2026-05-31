@@ -445,7 +445,11 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
     let durationSeconds = estimateDuration(script);
     if (!options.skipTTS && !options.dryRun) {
       const audioBuf = await textToSpeech(script, { persona });
-      trace.addCost({ elevenlabs_chars: script.length });
+      if (audioBuf.length === 0) {
+        console.warn('[podcast] TTS returned empty buffer — audio_url will be null');
+      } else {
+        trace.addCost({ elevenlabs_chars: script.length });
+      }
       if (audioBuf.length > 0) {
         const episodeIdPlaceholder = trace.id ?? Date.now().toString();
         const audioPath = `podcasts/${options.userId}/${episodeIdPlaceholder}.mp3`;
