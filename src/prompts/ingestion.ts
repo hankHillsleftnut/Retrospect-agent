@@ -106,6 +106,16 @@ calendar:
 healthkit:
   Only produce inferences on DEVIATION or CORRELATION. Raw normal data → no inference. Sleep dropped by 90 min for a week → inference about stress/avoidance/transition.
 
+social_web_research:
+  This is the result of multiple Perplexity web searches about the user's public social media presence. Treat it as rich ambient identity data — the user didn't write this, but it was found about them publicly.
+  - Extract identity inferences about stated values, aesthetics, recurring themes, and self-presentation patterns.
+  - What do they post about? What does their bio say? What do they seem to care about publicly?
+  - Look for gaps between public presentation and private onboarding profile (if available) — gaps are tensions.
+  - What kind of person does this public presence suggest? What are they trying to become? What do they want to be seen as?
+  - Confidence scores: 0.6–0.8 for clearly stated bio/profile content. 0.3–0.5 for speculative inferences from content themes.
+  - Produce 4–8 inferences per social_web_research entry. This is rich signal — don't underextract.
+  - Use domain "self_concept" for identity presentation, "relational" for audience/community patterns, "emerging" for anything platform-specific.
+
 == RULES ==
 
 1. Identity inferences are the primary output. If you produce only one and it's sharp, that's better than five generic ones.
