@@ -42,7 +42,7 @@ export const config = {
   elevenlabs: {
     apiKey: optional('ELEVENLABS_API_KEY'),
     defaultVoiceId: optional('ELEVENLABS_VOICE_ID', ''),
-    modelId: optional('ELEVENLABS_MODEL_ID', 'eleven_multilingual_v2'),
+    modelId: optional('ELEVENLABS_MODEL_ID', 'eleven_v3'),
   },
   pipeline: {
     ingestDaysBack: 30,
