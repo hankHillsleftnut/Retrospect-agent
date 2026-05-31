@@ -12,19 +12,19 @@ export const VOICE_PERSONAS: Record<
 > = {
   thoughtful_friend: {
     displayName: 'Thoughtful Friend',
-    voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel — warm, conversational
+    voiceId: 'l4Coq6695JDX9xtLqXDE',
     stability: 0.3,
     style: 0.4,
   },
   wise_mentor: {
     displayName: 'Wise Mentor',
-    voiceId: 'pNInz6obpgDQGcFmaJgB', // Adam — calm, grounded
+    voiceId: 'l4Coq6695JDX9xtLqXDE',
     stability: 0.5,
     style: 0.2,
   },
   energetic_host: {
     displayName: 'Energetic Host',
-    voiceId: 'ErXwobaYiN019PkySvjV', // Antoni — dynamic
+    voiceId: 'l4Coq6695JDX9xtLqXDE',
     stability: 0.2,
     style: 0.6,
   },
