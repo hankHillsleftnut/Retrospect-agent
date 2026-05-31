@@ -1,10 +1,20 @@
-import OpenAI from 'openai';
-import { openai } from '../services/openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config';
-import { ALL_TOOLS, TOOLS_BY_NAME, asOpenAITool } from './tools';
+import { ALL_TOOLS, TOOLS_BY_NAME, asAnthropicTool } from './tools';
 import { HISTORICAL_AGENT_SYSTEM_PROMPT } from '../prompts/historical-agent-system';
 import type { Trace } from '../pipelines/trace';
 import type { OutlineV1, OutlineV2, DbRawContent, DbUserPreferences, AgentToolCall, VoicePersona } from '../types';
+
+let _client: Anthropic | null = null;
+function client(): Anthropic {
+  if (!_client) {
+    if (!config.anthropic.apiKey) {
+      throw new Error('ANTHROPIC_API_KEY is not set — Cook B cannot run.');
+    }
+    _client = new Anthropic({ apiKey: config.anthropic.apiKey });
+  }
+  return _client;
+}
 
 interface AgentInput {
   userId: string;
@@ -17,15 +27,8 @@ interface AgentInput {
   maxIterations?: number;
 }
 
-const TOOL_DEFS = ALL_TOOLS.map((t) => asOpenAITool(t as any));
+const TOOL_DEFS = ALL_TOOLS.map((t) => asAnthropicTool(t as Parameters<typeof asAnthropicTool>[0]));
 
-/**
- * Run Cook B — the historical-enrichment agent.
- *
- * Loops over OpenAI tool-calling up to maxIterations.
- * Records every tool call to the trace.
- * Returns the enriched OutlineV2 when the model finally responds with content (no tool calls).
- */
 export async function runPodcastAgent(input: AgentInput): Promise<OutlineV2> {
   const maxIterations = input.maxIterations ?? config.pipeline.agentMaxIterations;
 
@@ -65,69 +68,63 @@ ${JSON.stringify(input.outlineV1, null, 2)}
 
 Use your tools to enrich this outline with historical context. Treat the onboarding profile as the user's identity and intent foundation: it should guide what history you search for, which links feel meaningful, and what unresolved pattern is worth helping the listener notice. Then return the final OutlineV2 JSON.`;
 
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: 'system', content: HISTORICAL_AGENT_SYSTEM_PROMPT },
+  const messages: Anthropic.MessageParam[] = [
     { role: 'user', content: userMessage },
   ];
 
   let finalContent: string | null = null;
-  let totalPromptTokens = 0;
-  let totalCompletionTokens = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
 
   for (let iter = 1; iter <= maxIterations; iter++) {
-    const completion = await openai.chat.completions.create({
-      model: config.openai.chatModel,
+    const response = await client().messages.create({
+      model: config.anthropic.cookBModel,
+      system: HISTORICAL_AGENT_SYSTEM_PROMPT,
       messages,
       tools: TOOL_DEFS,
-      tool_choice: iter === maxIterations ? 'none' : 'auto',
+      tool_choice: iter === maxIterations ? { type: 'none' } : { type: 'auto' },
       temperature: 0.4,
       max_tokens: 4096,
     });
 
-    totalPromptTokens += completion.usage?.prompt_tokens ?? 0;
-    totalCompletionTokens += completion.usage?.completion_tokens ?? 0;
+    totalInputTokens += response.usage.input_tokens;
+    totalOutputTokens += response.usage.output_tokens;
 
-    const choice = completion.choices[0]!;
-    const msg = choice.message;
+    // Collect text and tool_use blocks
+    const toolUseBlocks = response.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+    );
+    const textBlock = response.content.find(
+      (b): b is Anthropic.TextBlock => b.type === 'text'
+    );
 
-    // No tool calls → model has produced its final output.
-    if (!msg.tool_calls || msg.tool_calls.length === 0) {
-      finalContent = msg.content ?? '';
-      messages.push({ role: 'assistant', content: finalContent });
+    // No tool calls → final response
+    if (response.stop_reason === 'end_turn' || toolUseBlocks.length === 0) {
+      finalContent = textBlock?.text ?? '';
       break;
     }
 
-    // Push assistant message (with tool_calls) before tool responses.
-    messages.push({
-      role: 'assistant',
-      content: msg.content ?? null,
-      tool_calls: msg.tool_calls,
-    });
+    // Push assistant turn with all content blocks
+    messages.push({ role: 'assistant', content: response.content });
 
-    // Execute each tool call sequentially.
-    for (const call of msg.tool_calls) {
-      const name = call.function.name;
-      const argStr = call.function.arguments || '{}';
-      let args: any;
-      try {
-        args = JSON.parse(argStr);
-      } catch {
-        args = {};
-      }
+    // Execute each tool and collect results
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
-      const tool = TOOLS_BY_NAME[name];
+    for (const toolUse of toolUseBlocks) {
+      const tool = TOOLS_BY_NAME[toolUse.name];
       const startedAt = Date.now();
       let result: unknown;
       let preview: string;
       let count = 0;
 
       if (!tool) {
-        result = { error: `Unknown tool: ${name}` };
+        result = { error: `Unknown tool: ${toolUse.name}` };
         preview = JSON.stringify(result);
       } else {
         try {
-          result = await tool.execute(args, { userId: input.userId });
-          count = (result as any).count ?? (Array.isArray((result as any).hits) ? (result as any).hits.length : 0);
+          result = await tool.execute(toolUse.input as Record<string, unknown>, { userId: input.userId });
+          count = (result as { count?: number }).count
+            ?? (Array.isArray((result as { hits?: unknown[] }).hits) ? (result as { hits: unknown[] }).hits.length : 0);
           preview = previewJson(result);
         } catch (err) {
           result = { error: err instanceof Error ? err.message : String(err) };
@@ -138,40 +135,41 @@ Use your tools to enrich this outline with historical context. Treat the onboard
       const duration = Date.now() - startedAt;
       const traceEntry: AgentToolCall = {
         iteration: iter,
-        tool: name,
-        arguments: args,
+        tool: toolUse.name,
+        arguments: toolUse.input as Record<string, unknown>,
         result_preview: preview,
         result_count: count,
         duration_ms: duration,
         ts: new Date().toISOString(),
       };
       input.trace?.addToolCall(traceEntry);
-      if (name === 'internet_research') {
+      if (toolUse.name === 'internet_research') {
         input.trace?.addCost({ perplexity_calls: 1 });
       }
 
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: toolUse.id,
         content: JSON.stringify(result),
       });
     }
+
+    // Push all tool results in a single user turn
+    messages.push({ role: 'user', content: toolResults });
   }
 
   input.trace?.addCost({
-    openai_tokens_input: totalPromptTokens,
-    openai_tokens_output: totalCompletionTokens,
+    anthropic_tokens_input: totalInputTokens,
+    anthropic_tokens_output: totalOutputTokens,
   });
 
   if (!finalContent) {
     throw new Error(
-      `Agent did not produce a final response after ${maxIterations} iterations.`
+      `Cook B agent did not produce a final response after ${maxIterations} iterations.`
     );
   }
 
-  // Pull JSON out of the final content (the model is asked to return raw JSON).
-  const outlineV2 = parseAgentJson(finalContent, input.outlineV1);
-  return outlineV2;
+  return parseAgentJson(finalContent, input.outlineV1);
 }
 
 function formatOnboardingFoundation(
@@ -179,17 +177,13 @@ function formatOnboardingFoundation(
   voicePersona: VoicePersona | null
 ): string {
   if (!onboardingProfile) {
-    return `# Foundational Onboarding Profile
-(none yet)`;
+    return `# Foundational Onboarding Profile\n(none yet)`;
   }
-
   const metadata = onboardingProfile.metadata
     ? `\nmetadata: ${JSON.stringify(onboardingProfile.metadata).slice(0, 1200)}`
     : '';
-
   return `# Foundational Onboarding Profile
-This is the user's first self-description inside Retrospect. It is the clearest available statement of what they care about, what they want, what they are afraid of, and what kind of reflection may feel useful.
-Use this as a lens for historical enrichment. Do not simply repeat it back; connect it to concrete evidence from tools and current context.
+This is the user's first self-description inside Retrospect. Use it as a lens for historical enrichment.
 voice_persona: ${voicePersona ?? '(not set)'}
 raw_content_id: ${onboardingProfile.id}
 created_at: ${onboardingProfile.created_at}${metadata}
@@ -216,9 +210,8 @@ function parseAgentJson(content: string, fallback: OutlineV1): OutlineV2 {
       toolCallsSummary: 'Agent returned no JSON; using Cook A outline directly.',
     };
   }
-  const jsonStr = trimmed.slice(jsonStart, jsonEnd + 1);
   try {
-    const parsed = JSON.parse(jsonStr);
+    const parsed = JSON.parse(trimmed.slice(jsonStart, jsonEnd + 1));
     return {
       theme: parsed.theme ?? fallback.theme,
       segments: parsed.segments ?? fallback.segments,
@@ -229,9 +222,7 @@ function parseAgentJson(content: string, fallback: OutlineV1): OutlineV2 {
       toolCallsSummary: parsed.toolCallsSummary,
     };
   } catch (err) {
-    console.warn(
-      `[podcast-agent] Failed to parse final JSON (${err instanceof Error ? err.message : err}). Falling back.`
-    );
+    console.warn(`[podcast-agent] Failed to parse final JSON (${err instanceof Error ? err.message : err}). Falling back.`);
     return {
       ...fallback,
       historicalConnections: [],

@@ -1,6 +1,8 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { config } from '../config';
 import { chatCompletion, jsonChatCompletion } from '../services/openai';
+import { claudeCompletion } from '../services/anthropic';
 import { generateEmbedding } from '../services/embeddings';
 import { textToSpeech, estimateDuration, VOICE_PERSONAS } from '../services/elevenlabs';
 import { CURRENT_CONTEXT_OUTLINE_SYSTEM_PROMPT } from '../prompts/current-context-outline';
@@ -105,7 +107,7 @@ Produce the structured OutlineV1 JSON. Use the User Understanding Document as th
   const { data, usage } = await jsonChatCompletion<OutlineV1>(
     CURRENT_CONTEXT_OUTLINE_SYSTEM_PROMPT,
     userMessage,
-    { temperature: 0.4, maxTokens: 4096 }
+    { temperature: 0.4, maxTokens: 4096, model: config.openai.cookAModel }
   );
   input.trace.addCost({
     openai_tokens_input: usage.promptTokens,
@@ -160,13 +162,14 @@ ${JSON.stringify(input.outline, null, 2)}
 
 Write the final podcast script now. Honor the notRealizedYet hints — set up the pieces, don't name the realization.`;
 
-  const { text, usage } = await chatCompletion(FINAL_TRANSCRIPT_SYSTEM_PROMPT, userMessage, {
+  const { text, usage } = await claudeCompletion(FINAL_TRANSCRIPT_SYSTEM_PROMPT, userMessage, {
     temperature: 0.7,
     maxTokens: 6000,
+    model: config.anthropic.cookCModel,
   });
   input.trace.addCost({
-    openai_tokens_input: usage.promptTokens,
-    openai_tokens_output: usage.completionTokens,
+    anthropic_tokens_input: usage.inputTokens,
+    anthropic_tokens_output: usage.outputTokens,
   });
   input.trace.setFinalScript(text);
   return text;

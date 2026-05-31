@@ -28,4 +28,4 @@ export {
   internetResearchTool,
 };
 export type { AgentTool, ToolContext } from './types';
-export { asOpenAITool } from './types';
+export { asOpenAITool, asAnthropicTool } from './types';
