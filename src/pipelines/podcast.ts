@@ -126,6 +126,7 @@ async function cookC(input: {
   unprocessedFeedback: { date: string; text: string }[];
   onboardingProfile: DbRawContent | null;
   voicePersona: VoicePersona | null;
+  episodeNumber: number;
   trace: Trace;
 }): Promise<string> {
   const prefsBlock = input.preferences
@@ -156,6 +157,10 @@ ${prefsBlock}${feedbackBlock}
 
 # Voice Persona Style
 ${personaStyle}
+
+# Episode Context
+episode_number: ${input.episodeNumber}
+mode: ${input.episodeNumber <= 2 ? 'QUESTION_MODE — ask and affirm, do not assert' : 'ASSERTION_MODE — make claims, challenge, push forward'}
 
 # Enriched Outline (from Cook B)
 ${JSON.stringify(input.outline, null, 2)}
@@ -402,6 +407,14 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       }));
     trace.setOutlineV2(outlineV2);
 
+    // Fetch episode number before Cook C so the prompt knows which episode this is
+    const { count: priorEpisodeCount } = await supabase
+      .from(Tables.PODCAST_EPISODES)
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', options.userId)
+      .eq('status', 'ready');
+    const episodeNumber = (priorEpisodeCount ?? 0) + 1;
+
     // PASS C — Cook C
     const script = await cookC({
       outline: outlineV2,
@@ -409,6 +422,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       unprocessedFeedback: ctx.unprocessedFeedback.map(({ date, text }) => ({ date, text })),
       onboardingProfile: ctx.onboardingProfile,
       voicePersona: ctx.user?.voice_persona ?? null,
+      episodeNumber,
       trace,
     });
 
@@ -473,13 +487,6 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
     let episodeId: string | null = null;
     if (!options.dryRun) {
       const summaryEmbedding = await generateEmbedding(summary);
-
-      const { count: episodeCount } = await supabase
-        .from(Tables.PODCAST_EPISODES)
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', options.userId)
-        .eq('status', 'ready');
-      const episodeNumber = (episodeCount ?? 0) + 1;
 
       const { data: episode, error: epErr } = await supabase
         .from(Tables.PODCAST_EPISODES)

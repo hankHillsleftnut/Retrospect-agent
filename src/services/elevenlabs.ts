@@ -96,6 +96,7 @@ async function ttsChunk(
         stability,
         similarity_boost: 0.75,
         style,
+        speed: 1.15,
         use_speaker_boost: true,
       },
     }),
