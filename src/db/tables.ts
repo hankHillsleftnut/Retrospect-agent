@@ -16,4 +16,8 @@ export const Tables = {
   EPISODE_FEEDBACK: 'episode_feedback',
   // NEW (added by 101_pipeline_run_traces.sql)
   PIPELINE_RUN_TRACES: 'pipeline_run_traces',
+  // NEW (added by 102_identity_inferences.sql)
+  IDENTITY_INFERENCES: 'identity_inferences',
+  // NEW (added by 103_user_understanding.sql)
+  USER_UNDERSTANDING: 'user_understanding',
 } as const;

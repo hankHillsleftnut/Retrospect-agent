@@ -6,6 +6,7 @@ import type {
   DbInsight,
   DbRawContent,
   IngestionResult,
+  UserUnderstandingDocument,
 } from '../types';
 
 interface IngestionInput {
@@ -13,6 +14,8 @@ interface IngestionInput {
   recentInsights: DbInsight[];
   activeGoals: DbGoal[];
   openGoalCandidates: { id: string; title: string; description: string | null }[];
+  /** Latest User Understanding Document (if any) — lets the agent avoid re-deriving known truths. */
+  currentDocument: UserUnderstandingDocument | null;
   trace?: Trace;
 }
 
@@ -36,21 +39,25 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
     (rc) => rc.content_type === 'onboarding_profile'
   );
 
-  const rawBlocks = input.newRawContent.map((rc) => {
+  const rawBlocks = input.newRawContent.map((rc, idx) => {
     const date = rc.content_date ?? rc.created_at;
     const isOnboarding = rc.content_type === 'onboarding_profile';
     const limit = isOnboarding ? 10000 : 4000;
     const label = isOnboarding ? 'FOUNDATIONAL ONBOARDING PROFILE' : 'Raw content';
-    return `### ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${rc.content.slice(0, limit)}`;
+    return `### [index=${idx}] ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${rc.content.slice(0, limit)}`;
   });
 
   const onboardingInstruction =
     onboardingBlocks.length > 0
       ? `# Onboarding Priority
-The NEW content includes the user's onboarding answers. Treat these as foundational: preserve explicit goals, preferences, fears, motivation, identity language, and desired support style as durable observations and goal candidates. This may be the first podcast experience, so the extracted structure should make Retrospect feel like it truly listened.`
+The NEW content includes the user's onboarding answers. Treat this as the richest evidence you'll ever get. Produce 6–12 identity inferences from it. Do not gate on "needs 2+ observations".`
       : '';
 
-  const userMessage = `${onboardingInstruction}
+  const documentBlock = formatDocumentForAgent(input.currentDocument);
+
+  const userMessage = `${documentBlock}
+
+${onboardingInstruction}
 
 # Active Goals
 ${goalLines.join('\n') || '(none — propose goal candidates freely)'}
@@ -64,12 +71,12 @@ ${candidateLines.join('\n') || '(none)'}
 # NEW Raw Content to Process
 ${rawBlocks.join('\n\n---\n\n') || '(nothing new — return empty arrays)'}
 
-Extract observations, insights, and any goal_candidates from the NEW raw content above.`;
+Extract identity_inferences first, then observations, insights, and any goal_candidates from the NEW raw content above. Use raw_content indexes (shown in each ### heading) to cite evidence in identity_inferences.supporting_raw_content_indexes.`;
 
   const { data, usage } = await jsonChatCompletion<IngestionResult>(
     INGESTION_SYSTEM_PROMPT,
     userMessage,
-    { temperature: 0.25, maxTokens: 6000 }
+    { temperature: 0.25, maxTokens: 8000 }
   );
 
   input.trace?.addCost({
@@ -78,9 +85,52 @@ Extract observations, insights, and any goal_candidates from the NEW raw content
   });
 
   return {
+    identity_inferences: data.identity_inferences ?? [],
     observations: data.observations ?? [],
     insights: data.insights ?? [],
     goal_candidates: data.goal_candidates ?? [],
     processingNotes: data.processingNotes,
   };
+}
+
+function formatDocumentForAgent(doc: UserUnderstandingDocument | null): string {
+  if (!doc) {
+    return `# Current User Understanding Document
+(none yet — this is the first ingestion. Generate identity inferences freely; nothing to deduplicate against.)`;
+  }
+
+  const goalsBlock = doc.active_goals
+    .map((g) => `  - "${g.title}" — ${g.what_its_really_about}`)
+    .join('\n');
+  const tensionsBlock = doc.live_tensions.map((t) => `  - ${t}`).join('\n');
+  const emergingBlock = doc.emerging_dimensions
+    .map((d) => `  - [${d.label}] ${d.content}`)
+    .join('\n');
+
+  return `# Current User Understanding Document
+This is what we already believe about the user. Do NOT duplicate these claims. Only add identity inferences that REFINE, CORROBORATE with new evidence, CONTRADICT, or open up something NEW.
+
+## Identity Core
+${doc.identity_core || '(empty)'}
+
+## Active Goals
+${goalsBlock || '  (none)'}
+
+## Behavioral Patterns
+${doc.behavioral_patterns || '(empty)'}
+
+## Emotional Baseline
+${doc.emotional_baseline || '(empty)'}
+
+## Live Tensions
+${tensionsBlock || '  (none)'}
+
+## Track Record
+${doc.track_record || '(empty)'}
+
+## Forward Focus
+${doc.forward_focus || '(empty)'}
+
+## Emerging Dimensions
+${emergingBlock || '  (none)'}`;
 }

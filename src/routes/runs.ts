@@ -56,6 +56,7 @@ runsRouter.get('/:id', async (req, res) => {
 
   // Hydrate IDs from inputs_snapshot into actual content
   const snap = (data as Record<string, unknown>).inputs_snapshot as Record<string, unknown> | null;
+  const runData = data as Record<string, unknown>;
   if (snap) {
     const fetches: PromiseLike<void>[] = [];
     const ctx: Record<string, unknown> = {};
@@ -120,8 +121,40 @@ runsRouter.get('/:id', async (req, res) => {
         ctx.sourceEntries = srcRows ?? [];
       }
     }
+    // Identity inferences produced by this ingestion run
+    const inferenceIds = (runData.identity_inference_ids as string[] | undefined) ?? [];
+    if (Array.isArray(inferenceIds) && inferenceIds.length > 0) {
+      const { data: infRows } = await supabase
+        .from(Tables.IDENTITY_INFERENCES)
+        .select(
+          'id, content, domain, domain_label, confidence_score, is_provisional, evidence_summary, created_at, retired_at, superseded_by'
+        )
+        .in('id', inferenceIds);
+      ctx.identity_inferences = infRows ?? [];
+    }
+
+    // User Understanding Document — what Cook 0 wrote in this run.
+    // For ingest runs we wrote it into trace fields. For podcast runs the
+    // version is in the snapshot; fetch the document text for either case.
+    if (runData.user_understanding_document) {
+      ctx.user_understanding_document = runData.user_understanding_document;
+      ctx.user_understanding_version = runData.user_understanding_version;
+    } else if (snap.user_understanding_version != null) {
+      const { data: docRow } = await supabase
+        .from(Tables.USER_UNDERSTANDING)
+        .select('document, version, generation_notes, created_at')
+        .eq('user_id', (runData.user_id as string))
+        .eq('version', snap.user_understanding_version as number)
+        .maybeSingle();
+      if (docRow) {
+        ctx.user_understanding_document = docRow.document;
+        ctx.user_understanding_version = docRow.version;
+        ctx.user_understanding_generation_notes = docRow.generation_notes;
+      }
+    }
+
     if (Object.keys(ctx).length > 0) {
-      (data as Record<string, unknown>).context_data = ctx;
+      runData.context_data = ctx;
     }
   }
 

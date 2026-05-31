@@ -153,6 +153,71 @@
         </div>`).join('');
     }
 
+    if (ctx.identity_inferences?.length > 0) {
+      html += `<h3 style="margin:0 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Identity Inferences (${ctx.identity_inferences.length})</h3>`;
+      html += `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">New claims about WHO this person is, produced this run.</div>`;
+      html += ctx.identity_inferences.map(i => {
+        const stateLabel = i.retired_at
+          ? `<span style="background:#3a1f24;color:var(--bad);padding:1px 6px;border-radius:4px;font-size:10px;">RETIRED</span>`
+          : i.superseded_by
+            ? `<span style="background:#3a2f1f;color:#e0c878;padding:1px 6px;border-radius:4px;font-size:10px;">SUPERSEDED</span>`
+            : i.is_provisional
+              ? `<span style="background:#2a2a3a;color:var(--muted);padding:1px 6px;border-radius:4px;font-size:10px;">PROVISIONAL</span>`
+              : `<span style="background:#1f3a2a;color:var(--good);padding:1px 6px;border-radius:4px;font-size:10px;">CONFIRMED</span>`;
+        const domainLabel = i.domain === 'emerging' && i.domain_label
+          ? `${i.domain}:${i.domain_label}`
+          : i.domain;
+        return `
+        <div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;border-left:3px solid #b07ae8;">
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+            <span style="font-size:10px;text-transform:uppercase;color:var(--muted);background:var(--panel);padding:1px 6px;border-radius:4px;">${escapeHtml(domainLabel)}</span>
+            <span style="font-size:11px;color:var(--muted);">confidence ${i.confidence_score}</span>
+            ${stateLabel}
+          </div>
+          <div>${escapeHtml(i.content ?? '')}</div>
+          ${i.evidence_summary ? `<div style="color:var(--muted);margin-top:6px;font-size:12px;">Evidence: ${escapeHtml(i.evidence_summary)}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
+    if (ctx.user_understanding_document) {
+      const doc = ctx.user_understanding_document;
+      const version = ctx.user_understanding_version;
+      html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">User Understanding Document${version != null ? ` — v${version}` : ''}</h3>`;
+      if (ctx.user_understanding_generation_notes) {
+        html += `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;font-style:italic;">Cook 0 notes: ${escapeHtml(ctx.user_understanding_generation_notes)}</div>`;
+      }
+      const section = (label, body) => body
+        ? `<div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;">
+            <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;">${label}</div>
+            <div style="white-space:pre-wrap;">${escapeHtml(body)}</div>
+          </div>`
+        : '';
+      html += section('Identity Core', doc.identity_core);
+      if (Array.isArray(doc.active_goals) && doc.active_goals.length > 0) {
+        html += `<div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;">
+          <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Active Goals</div>
+          ${doc.active_goals.map(g => `<div style="margin-bottom:6px;"><strong>${escapeHtml(g.title ?? '')}</strong><div style="color:var(--muted);font-size:12px;">${escapeHtml(g.what_its_really_about ?? '')}</div></div>`).join('')}
+        </div>`;
+      }
+      html += section('Behavioral Patterns', doc.behavioral_patterns);
+      html += section('Emotional Baseline', doc.emotional_baseline);
+      if (Array.isArray(doc.live_tensions) && doc.live_tensions.length > 0) {
+        html += `<div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;">
+          <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;">Live Tensions</div>
+          ${doc.live_tensions.map(t => `<div style="margin-bottom:4px;">• ${escapeHtml(t)}</div>`).join('')}
+        </div>`;
+      }
+      html += section('Track Record', doc.track_record);
+      html += section('Forward Focus', doc.forward_focus);
+      if (Array.isArray(doc.emerging_dimensions) && doc.emerging_dimensions.length > 0) {
+        html += `<div style="background:var(--panel2);padding:10px 14px;border-radius:6px;margin-bottom:8px;border-left:3px solid #b07ae8;">
+          <div style="font-size:10px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">Emerging Dimensions</div>
+          ${doc.emerging_dimensions.map(d => `<div style="margin-bottom:8px;"><strong>${escapeHtml(d.label ?? '')}</strong><div style="white-space:pre-wrap;color:var(--muted);font-size:13px;">${escapeHtml(d.content ?? '')}</div></div>`).join('')}
+        </div>`;
+      }
+    }
+
     if (ctx.observations?.length > 0) {
       html += `<h3 style="margin:16px 0 8px; font-size:12px; text-transform:uppercase; color:var(--muted);">Observations (${ctx.observations.length})</h3>`;
       html += ctx.observations.map(o => `

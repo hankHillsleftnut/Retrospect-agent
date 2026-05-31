@@ -29,6 +29,12 @@ export const config = {
     chatModel: optional('OPENAI_CHAT_MODEL', 'gpt-4o'),
     embeddingModel: optional('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-large'),
   },
+  anthropic: {
+    // Optional at boot — only Cook 0 calls Anthropic, and Cook 0 is wrapped in
+    // try/catch in the ingest pipeline so an unset key degrades gracefully.
+    apiKey: optional('ANTHROPIC_API_KEY'),
+    cook0Model: optional('ANTHROPIC_COOK0_MODEL', 'claude-opus-4-7'),
+  },
   perplexity: {
     apiKey: optional('PERPLEXITY_API_KEY'),
     model: optional('PERPLEXITY_MODEL', 'sonar-pro'),

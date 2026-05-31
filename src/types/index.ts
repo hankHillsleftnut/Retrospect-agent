@@ -226,12 +226,106 @@ export interface IngestionResult {
     confidence_score: number;
     supporting_observation_indexes: number[];
   }[];
+  identity_inferences: IdentityInferenceDraft[];
   processingNotes?: string;
+}
+
+// ============================================
+// Identity inferences — first-class output from ingestion
+// (separate from observations; answer "who is this person?")
+// ============================================
+
+export type IdentityDomain =
+  | 'self_concept'
+  | 'emotional'
+  | 'work_achievement'
+  | 'relational'
+  | 'physical'
+  | 'cognitive'
+  | 'emerging';
+
+/** Shape returned by the ingestion LLM. References evidence by index into the run's arrays. */
+export interface IdentityInferenceDraft {
+  content: string;
+  domain: IdentityDomain;
+  /** Only required when domain === 'emerging' — names the new category. */
+  domain_label?: string | null;
+  confidence_score: number;
+  is_provisional: boolean;
+  evidence_summary?: string | null;
+  supporting_raw_content_indexes?: number[];
+  supporting_observation_indexes?: number[];
+}
+
+export interface DbIdentityInference {
+  id: string;
+  user_id: string;
+  content: string;
+  domain: IdentityDomain;
+  domain_label: string | null;
+  confidence_score: number;
+  is_provisional: boolean;
+  evidence_summary: string | null;
+  supporting_raw_content_ids: string[];
+  supporting_observation_ids: string[];
+  superseded_by: string | null;
+  corroborated_by: string[];
+  retired_at: string | null;
+  retirement_reason: string | null;
+  embedding?: number[] | string | null;
+  source_ingestion_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================
+// User Understanding Document — bounded self-model produced by Cook 0
+// ============================================
+
+export interface UserUnderstandingDocument {
+  identity_core: string;
+  active_goals: {
+    goal_id: string | null;
+    title: string;
+    what_its_really_about: string;
+  }[];
+  behavioral_patterns: string;
+  emotional_baseline: string;
+  live_tensions: string[];
+  track_record: string;
+  forward_focus: string;
+  emerging_dimensions: {
+    label: string;
+    content: string;
+    first_seen_at: string;
+  }[];
+}
+
+export interface DbUserUnderstanding {
+  id: string;
+  user_id: string;
+  version: number;
+  document: UserUnderstandingDocument;
+  inference_ids_at_version: string[];
+  generation_notes: string | null;
+  source_ingestion_run_id: string | null;
+  model: string | null;
+  created_at: string;
+}
+
+/** Cook 0's output: the new document plus lifecycle decisions on inferences. */
+export interface Cook0Result {
+  document: UserUnderstandingDocument;
+  generation_notes: string;
+  promote_inference_ids: string[];
+  retire_inferences: { id: string; reason: string; superseded_by?: string | null }[];
 }
 
 export interface CostBreakdown {
   openai_tokens_input: number;
   openai_tokens_output: number;
+  anthropic_tokens_input: number;
+  anthropic_tokens_output: number;
   embedding_tokens: number;
   perplexity_calls: number;
   elevenlabs_chars: number;

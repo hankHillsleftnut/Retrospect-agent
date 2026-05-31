@@ -1,6 +1,6 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
-import type { AgentToolCall, CostBreakdown } from '../types';
+import type { AgentToolCall, CostBreakdown, UserUnderstandingDocument } from '../types';
 
 export type TraceKind = 'ingest' | 'podcast' | 'cookA' | 'cookB' | 'cookC';
 export type TraceTrigger = 'manual' | 'cron' | 'http' | 'cli' | 'replay';
@@ -17,6 +17,8 @@ export interface TraceOptions {
 const emptyCost: CostBreakdown = {
   openai_tokens_input: 0,
   openai_tokens_output: 0,
+  anthropic_tokens_input: 0,
+  anthropic_tokens_output: 0,
   embedding_tokens: 0,
   perplexity_calls: 0,
   elevenlabs_chars: 0,
@@ -98,6 +100,19 @@ export class Trace {
     this.fields.episode_id = id;
   }
 
+  setIdentityInferenceIds(ids: string[]) {
+    this.fields.identity_inference_ids = ids;
+  }
+
+  setUserUnderstanding(document: UserUnderstandingDocument, version: number) {
+    this.fields.user_understanding_document = document;
+    this.fields.user_understanding_version = version;
+  }
+
+  setCook0Failure(error: string) {
+    this.fields.cook0_error = error;
+  }
+
   addToolCall(call: AgentToolCall) {
     this.toolCalls.push(call);
   }
@@ -111,13 +126,24 @@ export class Trace {
   }
 
   private estimateUsd(): number {
-    // Rough estimates — adjust as pricing changes.
-    const inputCost = this.cost.openai_tokens_input * (5 / 1_000_000);
-    const outputCost = this.cost.openai_tokens_output * (15 / 1_000_000);
+    // OpenAI GPT-4o pricing
+    const openaiIn = this.cost.openai_tokens_input * (5 / 1_000_000);
+    const openaiOut = this.cost.openai_tokens_output * (15 / 1_000_000);
+
+    // Anthropic Claude Opus 4.7 pricing (~5x GPT-4o — Cook 0 is the only caller).
+    // If we route Cook 0 to a cheaper Sonnet later, swap these constants.
+    const anthropicIn = this.cost.anthropic_tokens_input * (15 / 1_000_000);
+    const anthropicOut = this.cost.anthropic_tokens_output * (75 / 1_000_000);
+
     const embedCost = this.cost.embedding_tokens * (0.13 / 1_000_000);
     const ppxCost = this.cost.perplexity_calls * 0.005;
     const ttsCost = this.cost.elevenlabs_chars * (0.30 / 1000) * 0.001; // very rough
-    return Math.round((inputCost + outputCost + embedCost + ppxCost + ttsCost) * 10000) / 10000;
+
+    return (
+      Math.round(
+        (openaiIn + openaiOut + anthropicIn + anthropicOut + embedCost + ppxCost + ttsCost) * 10000
+      ) / 10000
+    );
   }
 
   snapshot() {

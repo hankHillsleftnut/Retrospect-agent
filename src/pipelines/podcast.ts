@@ -19,9 +19,11 @@ import type {
   DbRawContent,
   DbUser,
   DbUserPreferences,
+  DbUserUnderstanding,
   DbEpisodeFeedback,
   OutlineV1,
   OutlineV2,
+  UserUnderstandingDocument,
   VoicePersona,
 } from '../types';
 
@@ -64,6 +66,7 @@ async function cookA(input: {
   insights: DbInsight[];
   observations: DbObservation[];
   onboardingProfile: DbRawContent | null;
+  userUnderstanding: UserUnderstandingDocument | null;
   voicePersona: VoicePersona | null;
   trace: Trace;
 }): Promise<OutlineV1> {
@@ -82,7 +85,11 @@ async function cookA(input: {
     input.voicePersona
   );
 
-  const userMessage = `${foundationBlock}
+  const understandingBlock = formatUserUnderstanding(input.userUnderstanding);
+
+  const userMessage = `${understandingBlock}
+
+${foundationBlock}
 
 # Active Goals
 ${goalLines.join('\n') || '(none)'}
@@ -93,7 +100,7 @@ ${insightLines.join('\n') || '(none)'}
 # Recent Observations (last 2 weeks)
 ${observationLines.join('\n') || '(none)'}
 
-Produce the structured OutlineV1 JSON.`;
+Produce the structured OutlineV1 JSON. Use the User Understanding Document as the model of who this person is; use the recent insights and observations to decide what's alive right now and worth surfacing this week.`;
 
   const { data, usage } = await jsonChatCompletion<OutlineV1>(
     CURRENT_CONTEXT_OUTLINE_SYSTEM_PROMPT,
@@ -170,47 +177,65 @@ Write the final podcast script now. Honor the notRealizedYet hints — set up th
 // ============================================
 async function loadContext(userId: string, daysBack: number) {
   const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
-  const [userRes, goalsRes, insightsRes, observationsRes, prefsRes, feedbackRes, lastEpisodeRes, onboardingRes] =
-    await Promise.all([
-      supabase.from(Tables.USERS).select('*').eq('id', userId).maybeSingle(),
-      supabase.from(Tables.GOALS).select('*').eq('user_id', userId).eq('is_active', true),
-      supabase
-        .from(Tables.INSIGHTS)
-        .select('*')
-        .eq('user_id', userId)
-        .gte('updated_at', sinceIso)
-        .order('updated_at', { ascending: false }),
-      supabase
-        .from(Tables.OBSERVATIONS)
-        .select('*')
-        .eq('user_id', userId)
-        .gte('observation_date', sinceIso)
-        .order('observation_date', { ascending: false }),
-      supabase.from(Tables.USER_PREFERENCES).select('*').eq('user_id', userId).maybeSingle(),
-      supabase
-        .from(Tables.EPISODE_FEEDBACK)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('processed', false)
-        .order('created_at', { ascending: false })
-        .limit(10),
-      supabase
-        .from(Tables.PODCAST_EPISODES)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('status', 'ready')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from(Tables.RAW_CONTENT)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('content_type', 'onboarding_profile')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+  const [
+    userRes,
+    goalsRes,
+    insightsRes,
+    observationsRes,
+    prefsRes,
+    feedbackRes,
+    lastEpisodeRes,
+    onboardingRes,
+    understandingRes,
+  ] = await Promise.all([
+    supabase.from(Tables.USERS).select('*').eq('id', userId).maybeSingle(),
+    supabase.from(Tables.GOALS).select('*').eq('user_id', userId).eq('is_active', true),
+    supabase
+      .from(Tables.INSIGHTS)
+      .select('*')
+      .eq('user_id', userId)
+      .gte('updated_at', sinceIso)
+      .order('updated_at', { ascending: false }),
+    supabase
+      .from(Tables.OBSERVATIONS)
+      .select('*')
+      .eq('user_id', userId)
+      .gte('observation_date', sinceIso)
+      .order('observation_date', { ascending: false }),
+    supabase.from(Tables.USER_PREFERENCES).select('*').eq('user_id', userId).maybeSingle(),
+    supabase
+      .from(Tables.EPISODE_FEEDBACK)
+      .select('*')
+      .eq('user_id', userId)
+      .eq('processed', false)
+      .order('created_at', { ascending: false })
+      .limit(10),
+    supabase
+      .from(Tables.PODCAST_EPISODES)
+      .select('*')
+      .eq('user_id', userId)
+      .eq('status', 'ready')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from(Tables.RAW_CONTENT)
+      .select('*')
+      .eq('user_id', userId)
+      .eq('content_type', 'onboarding_profile')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from(Tables.USER_UNDERSTANDING)
+      .select('*')
+      .eq('user_id', userId)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const understanding = (understandingRes.data ?? null) as DbUserUnderstanding | null;
 
   return {
     user: (userRes.data ?? null) as DbUser | null,
@@ -225,7 +250,51 @@ async function loadContext(userId: string, daysBack: number) {
     })),
     lastEpisode: (lastEpisodeRes.data ?? null) as DbPodcastEpisode | null,
     onboardingProfile: (onboardingRes.data ?? null) as DbRawContent | null,
+    userUnderstanding: understanding,
+    userUnderstandingDocument: (understanding?.document ?? null) as UserUnderstandingDocument | null,
   };
+}
+
+function formatUserUnderstanding(doc: UserUnderstandingDocument | null): string {
+  if (!doc) {
+    return `# USER UNDERSTANDING DOCUMENT
+(none yet — Cook 0 has not produced a document for this user. Fall back to deriving identity from observations + onboarding.)`;
+  }
+
+  const goalsBlock = doc.active_goals
+    .map((g) => `  - "${g.title}" — ${g.what_its_really_about}`)
+    .join('\n');
+  const tensionsBlock = doc.live_tensions.map((t) => `  - ${t}`).join('\n');
+  const emergingBlock = doc.emerging_dimensions
+    .map((d) => `  - [${d.label}] ${d.content}`)
+    .join('\n');
+
+  return `# USER UNDERSTANDING DOCUMENT
+This is the agent's compressed, current model of who this user is. Use it as the LENS for what matters; do not re-derive who they are from observations. Recent insights and observations tell you what is alive RIGHT NOW — this document tells you who is experiencing it.
+
+## Identity Core
+${doc.identity_core || '(empty)'}
+
+## Active Goals
+${goalsBlock || '  (none)'}
+
+## Behavioral Patterns
+${doc.behavioral_patterns || '(empty)'}
+
+## Emotional Baseline
+${doc.emotional_baseline || '(empty)'}
+
+## Live Tensions
+${tensionsBlock || '  (none)'}
+
+## Track Record
+${doc.track_record || '(empty)'}
+
+## Forward Focus
+${doc.forward_focus || '(empty)'}
+
+## Emerging Dimensions
+${emergingBlock || '  (none)'}`;
 }
 
 function formatOnboardingFoundation(
@@ -282,6 +351,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
             preferences_present: !!ctx.preferences,
             last_episode_id: ctx.lastEpisode?.id ?? null,
             onboarding_profile_id: ctx.onboardingProfile?.id ?? null,
+            user_understanding_version: ctx.userUnderstanding?.version ?? null,
             persona: options.persona ?? ctx.user?.voice_persona ?? null,
             skipTTS: !!options.skipTTS,
           },
@@ -293,6 +363,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       ctx.insights.length === 0 &&
       ctx.observations.length === 0 &&
       !ctx.onboardingProfile &&
+      !ctx.userUnderstandingDocument &&
       !options.outlineV1
     ) {
       throw new Error(
@@ -308,6 +379,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
         insights: ctx.insights,
         observations: ctx.observations,
         onboardingProfile: ctx.onboardingProfile,
+        userUnderstanding: ctx.userUnderstandingDocument,
         voicePersona: ctx.user?.voice_persona ?? null,
         trace,
       }));
