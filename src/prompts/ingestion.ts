@@ -69,8 +69,11 @@ healthkit:
   Flag meaningful deviations from what's typical. Compare values to healthy ranges where obvious. Note correlations with time patterns.
   Be conservative — raw health data is suggestive, not diagnostic.
 
-text_entry / google_docs:
-  Written entries are more intentional than voice. Weight explicit statements higher. Note decisions made, blockers named, and progress acknowledged.
+text_entry / journal_entry / google_docs:
+  Written entries are more intentional than voice. Weight explicit statements higher. Note decisions made, blockers named, and progress acknowledged. For journal_entry, the user is doing deliberate reflection — extract what they are actively working through, what they've named as hard, and any stated intentions or realizations.
+
+voice_journal:
+  Same as voice_recording. The user spoke spontaneously. Look for emotional undertones, implied states, and use their own words. Note intensity and temporal markers ("this morning", "lately", "for the past month").
 
 onboarding_profile:
   Treated separately by the system prompt above. Don't re-apply this lens.
