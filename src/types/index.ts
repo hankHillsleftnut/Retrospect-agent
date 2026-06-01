@@ -313,6 +313,34 @@ export interface DbUserUnderstanding {
   created_at: string;
 }
 
+// ============================================
+// Magic Moments — onboarding interpretation output
+// ============================================
+
+export type MagicMomentStructure =
+  | 'transferred_capability'
+  | 'defended_fear'
+  | 'contradiction'
+  | 'the_gap'
+  | 'already_knowing'
+  | 'the_condition';
+
+export interface MagicMoment {
+  structure: MagicMomentStructure;
+  title: string;
+  pattern: string;
+  evidence: string;
+  reframe: string;
+  future_self_line: string | null;
+  hypothesis: string;
+  strength: number;
+}
+
+export interface MagicMomentsResult {
+  moments: MagicMoment[];
+  notes?: string;
+}
+
 /** Cook 0's output: the new document plus lifecycle decisions on inferences. */
 export interface Cook0Result {
   document: UserUnderstandingDocument;

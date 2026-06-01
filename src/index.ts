@@ -10,6 +10,7 @@ import { cook0Router } from './routes/cook0';
 import { podcastsRouter } from './routes/podcasts';
 import { preferencesRouter } from './routes/preferences';
 import { feedbackRouter } from './routes/feedback';
+import { onboardingRouter } from './routes/onboarding';
 import { runsRouter } from './routes/runs';
 import { runDailyIngestion } from './jobs/daily-ingestion';
 import { runWeeklyPodcasts } from './jobs/weekly-podcast';
@@ -38,6 +39,7 @@ app.use('/cook0', requireInternalSecret, cook0Router);
 app.use('/podcasts', requireInternalSecret, podcastsRouter);
 app.use('/preferences', requireInternalSecret, preferencesRouter);
 app.use('/feedback', requireInternalSecret, feedbackRouter);
+app.use('/onboarding', requireInternalSecret, onboardingRouter);
 
 app.get('/', (_req, res) => {
   res.redirect('/runs');
