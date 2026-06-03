@@ -11,6 +11,7 @@ import { podcastsRouter } from './routes/podcasts';
 import { preferencesRouter } from './routes/preferences';
 import { feedbackRouter } from './routes/feedback';
 import { onboardingRouter } from './routes/onboarding';
+import { notificationsRouter } from './routes/notifications';
 import { runsRouter } from './routes/runs';
 import { runDailyIngestion } from './jobs/daily-ingestion';
 import { runWeeklyPodcasts } from './jobs/weekly-podcast';
@@ -40,6 +41,7 @@ app.use('/podcasts', requireInternalSecret, podcastsRouter);
 app.use('/preferences', requireInternalSecret, preferencesRouter);
 app.use('/feedback', requireInternalSecret, feedbackRouter);
 app.use('/onboarding', requireInternalSecret, onboardingRouter);
+app.use('/notifications', requireInternalSecret, notificationsRouter);
 
 app.get('/', (_req, res) => {
   res.redirect('/runs');
