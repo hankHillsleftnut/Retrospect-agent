@@ -20,4 +20,6 @@ export const Tables = {
   IDENTITY_INFERENCES: 'identity_inferences',
   // NEW (added by 103_user_understanding.sql)
   USER_UNDERSTANDING: 'user_understanding',
+  // NEW (added by 105_graph_edges.sql) — MVP knowledge graph
+  GRAPH_EDGES: 'graph_edges',
 } as const;

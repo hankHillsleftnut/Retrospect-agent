@@ -279,6 +279,45 @@ export interface DbIdentityInference {
 }
 
 // ============================================
+// Knowledge Graph (MVP) — first-class typed edges over existing nodes.
+// Backed by graph_edges (105_graph_edges.sql). Nodes are existing rows
+// referenced polymorphically by (type, id); no separate nodes table yet.
+// ============================================
+
+export type GraphNodeType =
+  | 'observation'
+  | 'insight'
+  | 'identity_inference'
+  | 'goal'
+  | 'goal_candidate'
+  | 'raw_content';
+
+export type GraphEdgeType =
+  | 'derived_from'
+  | 'evidence_for'
+  | 'relates_to_goal'
+  | 'supports'
+  | 'contradicts'
+  | 'tension_with';
+
+export interface DbGraphEdge {
+  id: string;
+  user_id: string;
+  from_type: GraphNodeType;
+  from_id: string;
+  to_type: GraphNodeType;
+  to_id: string;
+  edge_type: GraphEdgeType;
+  weight: number | null;
+  metadata: Record<string, unknown>;
+  source_run_id: string | null;
+  superseded_by: string | null;
+  retired_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================
 // User Understanding Document — bounded self-model produced by Cook 0
 // ============================================
 
