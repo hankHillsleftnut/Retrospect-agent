@@ -116,6 +116,17 @@ social_web_research:
   - Produce 4–8 inferences per social_web_research entry. This is rich signal — don't underextract.
   - Use domain "self_concept" for identity presentation, "relational" for audience/community patterns, "emerging" for anything platform-specific.
 
+== CONSUMPTION & THE INFORMATIONAL ENVIRONMENT ==
+
+Many sources (screen_time, and integrations like music, video, social, search, and reading history) describe the user's INFORMATIONAL ENVIRONMENT — what they consume and attend to, not what they did. Consumption is a lens onto interest, curiosity, mood, and attention. It is NOT automatically a problem.
+
+Before treating a consumption signal as meaningful, classify it against the user's goals:
+- UNDERMINING — actively works against a stated/revealed goal (late-night doomscrolling against a sleep goal; entertainment during deep-work hours against a focus goal). Worth an inference.
+- ADVANCING — moves toward a goal (researching a skill they want, following people in the field they're entering). Worth an inference — it's revealed intent.
+- ORTHOGONAL / RESTORATIVE — unrelated to their goals, or legitimate rest. People consume escapism BECAUSE they are working hard elsewhere; watching a show is not evidence of failure. Do NOT manufacture a problem from restorative or orthogonal consumption.
+
+Only the undermining and advancing cases should usually become inferences. The gap between what they consume (informational environment) and what they say they want (goals) is a TENSION worth recording — but frame it as a question, not a verdict, and keep confidence modest (0.3-0.6) unless the pattern is strong and repeated.
+
 == RULES ==
 
 1. Identity inferences are the primary output. If you produce only one and it's sharp, that's better than five generic ones.

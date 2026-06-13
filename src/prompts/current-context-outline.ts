@@ -31,7 +31,7 @@ ONBOARDING PROFILE (when present, and especially if there's no document yet): th
 2. 3-6 segments, each:
    - title
    - type (one of: capability_evidence, distortion_challenge, thought_behavior_link,
-           behavioral_experiment, self_compassion, progress_reflection, digital_behavior, goal_update)
+           behavioral_experiment, self_compassion, progress_reflection, digital_behavior, goal_update, possibility_horizon)
    - which goalIds it relates to (from the active goals provided)
    - which insightIds it draws from
    - which observationIds it draws from (cite specific moments)
@@ -43,6 +43,8 @@ ONBOARDING PROFILE (when present, and especially if there's no document yet): th
 - Be SPECIFIC. "User had a tough week" is useless. "User mentioned avoiding the gym 3 days, but went on Sunday despite anxiety" is gold. Even better: tie it to the document — "User went on Sunday despite anxiety — fits the identity_core claim that consistency reads to them as self-respect, not just a fitness goal."
 - Cite IDs verbatim — Cook B and Cook C will use them to look things up.
 - When the document is present, prefer segments that engage with live_tensions or forward_focus — those are the parts of the model that the next episode can move forward.
+- ALWAYS include exactly one segment of type "possibility_horizon". Take the user's forward_focus or a strong revealed goal and frame the next reachable version of themselves. In its talkingPoints, name the goal and their current starting point concretely, and include one talkingPoint that begins literally with "PROOF-OF-OTHERS:" describing who Cook B should research — e.g. "PROOF-OF-OTHERS: real people who went from [the user's starting point] to [the user's goal]". Keep this segment light/short in early weeks (and in episode 1); it can grow richer once there is more history.
+- INFORMATIONAL ENVIRONMENT vs GOALS: when recent consumption signals (music, video, social, search, screen_time) reveal a gap between what the user attends to and what they say they want, that delta is a strong segment seed (type digital_behavior or possibility_horizon). Frame it as a gap to close by shifting what they take in — not as a scolding.
 - Don't moralize. Don't write tone. Don't write voice. That's Cook C's job.
 - If recent data is thin but the document is rich, you can still build a strong outline: use the document's forward_focus and emerging_dimensions to choose what to examine next. Mark those segments as type=behavioral_experiment or capability_evidence.
 - If both document and recent data are thin, return fewer segments (3 is fine). Don't pad.

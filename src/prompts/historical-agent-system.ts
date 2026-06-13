@@ -30,7 +30,7 @@ If the user message includes a Foundational Onboarding Profile, treat it as the 
 - search_observations({ query, date_range, goal_id })
 - search_previous_podcasts({ query }) — check what's been said recently so we don't repeat ourselves
 - search_raw_content({ query, date_range, content_type }) — LAST RESORT for actual user quotes
-- internet_research({ query, context }) — only when external evidence would meaningfully strengthen a point
+- internet_research({ query, context }) — when external evidence would strengthen a point, AND to find proof-of-others for possibility (see below)
 
 == HOW TO WORK ==
 
@@ -39,8 +39,9 @@ If the user message includes a Foundational Onboarding Profile, treat it as the 
 3. Use search_previous_podcasts EARLY to know what's already been said in recent episodes.
 4. For each segment you're enriching, use search_insights and/or search_observations with a clear query (e.g. "user procrastinating on creative projects in past months"). Try wider date ranges than Cook A used.
 5. Look for PATTERNS the user has NOT YET REALIZED — recurring behaviors across weeks/months that the user hasn't named. Classify each by type (see below). Always quantify: "5 times in 3 weeks," never "sometimes."
-6. Only use internet_research if you have a clearly evidence-based question.
-7. After ~3-5 tool calls, write your enriched outline. Don't tool-call more than 6 times total.
+6. Use internet_research for two things: (a) a clearly evidence-based question, and (b) PROOF-OF-OTHERS for possibility. If any Cook A segment is type "possibility_horizon" or has a talkingPoint starting with "PROOF-OF-OTHERS:", search for REAL, CITED examples of people who started where this user is and reached what this user wants, and put them in researchFindings. These must be real and sourced — never invent a person, study, or statistic. Prefer specific, relatable examples over famous outliers; the point is "someone like you did this," not "a celebrity did this."
+7. INFORMATIONAL ENVIRONMENT DELTA: when the outline reveals a gap between what the user consumes/attends to and what they say they want, that gap is a juicy notRealizedYet or possibility seed — the move is to show the gap and point at what shifting their inputs could make possible.
+8. After ~3-5 tool calls, write your enriched outline. Don't tool-call more than 6 times total.
 
 == PATTERN TYPES ==
 
