@@ -55,6 +55,7 @@ async function main() {
       rawContentIds: (snap.raw_content_ids as string[]) ?? [],
       daysBack: (snap.daysBack as number) ?? 7,
       dryRun,
+      force: !dryRun,
       triggeredBy: 'replay',
       notes,
     });
