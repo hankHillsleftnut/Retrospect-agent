@@ -20,7 +20,7 @@ export interface RunMagicMomentsSummary {
   integrationTypes: string[];
 }
 
-const INTEGRATION_TYPES = ['healthkit', 'screen_time', 'google_docs', 'calendar', 'social_web_research'];
+const INTEGRATION_TYPES = ['healthkit', 'screen_time', 'google_docs', 'calendar', 'social_web_research', 'apple_music', 'photos', 'contacts'];
 
 /**
  * The interpretation engine. Pure-ish: reads onboarding + integration raw

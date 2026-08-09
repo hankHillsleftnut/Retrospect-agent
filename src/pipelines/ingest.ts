@@ -20,6 +20,8 @@ export interface IngestOptions {
   rawContentIds?: string[];
   triggeredBy?: TraceTrigger;
   dryRun?: boolean;
+  /** Deliberately reprocess completed content. Reserved for explicit replay/debug flows. */
+  force?: boolean;
   notes?: string;
 }
 
@@ -72,8 +74,32 @@ function batchRawContent(entries: DbRawContent[]): DbRawContent[][] {
   return batches;
 }
 
+async function completeEmptyIngest(trace: Trace, processingNotes: string): Promise<IngestSummary> {
+  const summary: IngestSummary = {
+    traceId: trace.id,
+    observations_created: 0,
+    insights_created: 0,
+    goal_candidates_created: 0,
+    identity_inferences_created: 0,
+    raw_content_processed: 0,
+    batches_run: 0,
+    user_understanding_version: null,
+    cook0_failed: false,
+    result: {
+      observations: [],
+      insights: [],
+      goal_candidates: [],
+      identity_inferences: [],
+    },
+    processingNotes,
+  };
+  await trace.complete();
+  return summary;
+}
+
 export async function runIngest(options: IngestOptions): Promise<IngestSummary> {
   const daysBack = options.daysBack ?? 7;
+  const processingRawContentIds: string[] = [];
   const trace = options.dryRun
     ? Trace.memoryOnly()
     : await Trace.start({
@@ -107,29 +133,33 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
     const { data: rawData, error: rawErr } = await rawQuery;
     if (rawErr) throw new Error(`Fetch raw_content failed: ${rawErr.message}`);
-    const newRawContent = (rawData ?? []) as DbRawContent[];
+    let newRawContent = (rawData ?? []) as DbRawContent[];
 
     if (newRawContent.length === 0) {
-      const summary: IngestSummary = {
-        traceId: trace.id,
-        observations_created: 0,
-        insights_created: 0,
-        goal_candidates_created: 0,
-        identity_inferences_created: 0,
-        raw_content_processed: 0,
-        batches_run: 0,
-        user_understanding_version: null,
-        cook0_failed: false,
-        result: {
-          observations: [],
-          insights: [],
-          goal_candidates: [],
-          identity_inferences: [],
-        },
-        processingNotes: 'No new raw content found.',
-      };
-      await trace.complete();
-      return summary;
+      return completeEmptyIngest(trace, 'No new raw content found.');
+    }
+
+    if (!options.dryRun) {
+      const ids = newRawContent.map((row) => row.id);
+      const leaseStartedAt = new Date().toISOString();
+      let leaseQuery = supabase
+        .from(Tables.RAW_CONTENT)
+        .update({
+          processing_status: 'processing',
+          processing_error: null,
+          processing_started_at: leaseStartedAt,
+        })
+        .in('id', ids);
+      if (!options.force) {
+        leaseQuery = leaseQuery.in('processing_status', ['pending', 'failed']);
+      }
+      const { data: leasedRows, error: processingError } = await leaseQuery.select('*');
+      if (processingError) throw new Error(`Mark raw_content processing failed: ${processingError.message}`);
+      newRawContent = (leasedRows ?? []) as DbRawContent[];
+      processingRawContentIds.push(...newRawContent.map((row) => row.id));
+      if (newRawContent.length === 0) {
+        return completeEmptyIngest(trace, 'No raw content was eligible for processing; another run may hold the lease.');
+      }
     }
 
     // 2. Fetch context (active goals + recent insights + open candidates + latest user understanding)
@@ -233,19 +263,30 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       // 5a. Persist observations from this batch.
       const batchObservationIds: string[] = [];
       if (result.observations.length > 0) {
-        const toInsert = result.observations.map((o, idx) => {
-          const matchedRaw = batch[Math.min(idx, batch.length - 1)];
+        const toInsert = result.observations.map((o) => {
+          const citedRawIds = [...new Set(
+            (o.supporting_raw_content_indexes ?? [])
+              .map((idx) => batch[idx]?.id)
+              .filter((id): id is string => Boolean(id))
+          )];
+          const supportingRawIds =
+            citedRawIds.length > 0
+              ? citedRawIds
+              : batch.length === 1
+                ? [batch[0]!.id]
+                : [];
+          const matchedRaw = batch.find((raw) => raw.id === supportingRawIds[0]);
           return {
             user_id: options.userId,
             goal_id: o.goal_id ?? null,
-            raw_content_id: o.raw_content_id ?? matchedRaw?.id ?? null,
+            raw_content_id: supportingRawIds[0] ?? null,
             content: o.content,
             reason_why: o.reason_why,
             confidence_score: o.confidence_score,
             observation_date:
               matchedRaw?.content_date ?? matchedRaw?.created_at ?? new Date().toISOString(),
             is_goal_candidate: o.is_goal_candidate,
-            metadata: {},
+            metadata: { supporting_raw_content_ids: supportingRawIds },
           };
         });
         const { data: inserted, error: insErr } = await supabase
@@ -370,6 +411,17 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
           }
         }
       }
+
+      const { error: completedError } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .update({
+          processing_status: 'completed',
+          processing_error: null,
+          processing_started_at: null,
+          processed_at: new Date().toISOString(),
+        })
+        .in('id', batch.map((row) => row.id));
+      if (completedError) throw new Error(`Mark raw_content completed failed: ${completedError.message}`);
     } // end batch loop
 
     if (options.dryRun) {
@@ -462,6 +514,17 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       result: aggregateResult,
     };
   } catch (err) {
+    if (!options.dryRun && processingRawContentIds.length > 0) {
+      await supabase
+        .from(Tables.RAW_CONTENT)
+        .update({
+          processing_status: 'failed',
+          processing_error: err instanceof Error ? err.message : String(err),
+          processing_started_at: null,
+        })
+        .in('id', processingRawContentIds)
+        .eq('processing_status', 'processing');
+    }
     await trace.fail(err);
     throw err;
   }

@@ -1,4 +1,5 @@
 import express from 'express';
+import './services/telemetry';
 import cors from 'cors';
 import path from 'path';
 import cron from 'node-cron';
@@ -13,8 +14,11 @@ import { feedbackRouter } from './routes/feedback';
 import { onboardingRouter } from './routes/onboarding';
 import { notificationsRouter } from './routes/notifications';
 import { runsRouter } from './routes/runs';
+import { integrationsRouter } from './routes/integrations';
 import { runDailyIngestion } from './jobs/daily-ingestion';
 import { runWeeklyPodcasts } from './jobs/weekly-podcast';
+import { startIntegrationSchedulerLoop } from './jobs/integration-scheduler';
+import { startIntegrationWorkerLoop } from './jobs/integration-worker';
 
 const app = express();
 app.use(cors());
@@ -42,6 +46,7 @@ app.use('/preferences', requireInternalSecret, preferencesRouter);
 app.use('/feedback', requireInternalSecret, feedbackRouter);
 app.use('/onboarding', requireInternalSecret, onboardingRouter);
 app.use('/notifications', requireInternalSecret, notificationsRouter);
+app.use('/integrations', requireInternalSecret, integrationsRouter);
 
 app.get('/', (_req, res) => {
   res.redirect('/runs');
@@ -63,10 +68,17 @@ const server = app.listen(config.server.port, () => {
 server.timeout = 600_000; // podcast generation can take a while
 server.keepAliveTimeout = 120_000;
 
+function envFlag(name: string, fallback = false): boolean {
+  const raw = process.env[name];
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  return fallback;
+}
+
 // In-process cron jobs. Gated behind ENABLE_AGENT_CRONS so we can deploy the
 // service without it autonomously running ingestion/podcasts until we say so.
 // Defaults to disabled — explicit opt-in via env var.
-const cronsEnabled = process.env.ENABLE_AGENT_CRONS === 'true';
+const cronsEnabled = envFlag('ENABLE_AGENT_CRONS');
 
 if (cronsEnabled) {
   // Daily ingestion at 5 AM UTC — safety net so journal entries that miss the
@@ -89,5 +101,58 @@ if (cronsEnabled) {
     '[cron] agent crons disabled (set ENABLE_AGENT_CRONS=true to enable daily ingest + weekly podcast)'
   );
 }
+
+const integrationRuntimeEnabled = envFlag('ENABLE_INTEGRATION_RUNTIME');
+const integrationWorkerEnabled = envFlag('ENABLE_INTEGRATION_WORKER', integrationRuntimeEnabled);
+const integrationSchedulerEnabled = envFlag('ENABLE_INTEGRATION_SCHEDULER', integrationRuntimeEnabled);
+const runtimeStops: Array<() => void> = [];
+
+if (integrationWorkerEnabled) {
+  const worker = startIntegrationWorkerLoop();
+  runtimeStops.push(worker.stop);
+  worker.done.catch((error) => {
+    console.error('[integration-worker] in-process fatal', error);
+  });
+  console.log(
+    `[integrations] in-process worker enabled (${worker.workerId})`
+  );
+} else {
+  console.log(
+    '[integrations] in-process worker disabled (set ENABLE_INTEGRATION_RUNTIME=true or ENABLE_INTEGRATION_WORKER=true)'
+  );
+}
+
+if (integrationSchedulerEnabled) {
+  const scheduler = startIntegrationSchedulerLoop();
+  runtimeStops.push(scheduler.stop);
+  console.log('[integrations] in-process scheduler enabled');
+} else {
+  console.log(
+    '[integrations] in-process scheduler disabled (set ENABLE_INTEGRATION_RUNTIME=true or ENABLE_INTEGRATION_SCHEDULER=true)'
+  );
+}
+
+let shuttingDown = false;
+function shutdown(signal: string): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[shutdown] ${signal} received; stopping agent service`);
+  for (const stop of runtimeStops) stop();
+  server.close((error) => {
+    if (error) {
+      console.error('[shutdown] server close error', error);
+      process.exit(1);
+    }
+    process.exit(0);
+  });
+  const forceExit = setTimeout(() => {
+    console.warn('[shutdown] forced exit after timeout');
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+}
+
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
 
 export default app;

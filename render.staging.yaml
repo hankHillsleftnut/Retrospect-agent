@@ -1,0 +1,43 @@
+services:
+  - type: pserv
+    name: retrospect-agent-staging
+    env: node
+    region: oregon
+    plan: starter
+    autoDeploy: true
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - { key: NODE_ENV, value: production }
+      - { key: RETROSPECT_ENV, value: staging }
+      - { key: ENABLE_AGENT_CRONS, value: "false" }
+      - { key: ENABLE_INTEGRATION_RUNTIME, value: "true" }
+      - { key: INTEGRATION_SCHEDULER_POLL_MINUTES, value: "15" }
+      - { key: INTEGRATION_SYNC_INTERVAL_MINUTES, value: "360" }
+      - { key: INTEGRATION_WORKER_CONCURRENCY, value: "3" }
+      - { key: INTEGRATION_WORKER_POLL_MS, value: "3000" }
+      - { key: INTEGRATION_WORKER_LEASE_SECONDS, value: "1800" }
+      - { key: INTERNAL_API_SECRET, sync: false }
+      - { key: SUPABASE_URL, sync: false }
+      - { key: SUPABASE_SERVICE_KEY, sync: false }
+      - { key: OPENAI_API_KEY, sync: false }
+      - { key: ANTHROPIC_API_KEY, sync: false }
+      - { key: INTEGRATION_KMS_KEY_ID, sync: false }
+      - { key: AWS_REGION, value: us-west-2 }
+      - { key: AWS_ACCESS_KEY_ID, sync: false }
+      - { key: AWS_SECRET_ACCESS_KEY, sync: false }
+      - { key: GOOGLE_OAUTH_CLIENT_ID, sync: false }
+      - { key: GOOGLE_OAUTH_CLIENT_SECRET, sync: false }
+      - { key: SPOTIFY_CLIENT_ID, sync: false }
+      - { key: SPOTIFY_CLIENT_SECRET, sync: false }
+      - { key: REDDIT_CLIENT_ID, sync: false }
+      - { key: REDDIT_CLIENT_SECRET, sync: false }
+      - { key: PINTEREST_CLIENT_ID, sync: false }
+      - { key: PINTEREST_CLIENT_SECRET, sync: false }
+      - { key: TIKTOK_CLIENT_KEY, sync: false }
+      - { key: TIKTOK_CLIENT_SECRET, sync: false }
+      - { key: LINKEDIN_CLIENT_ID, sync: false }
+      - { key: LINKEDIN_CLIENT_SECRET, sync: false }
+      - { key: X_CLIENT_ID, sync: false }
+      - { key: X_CLIENT_SECRET, sync: false }
+      - { key: SENTRY_DSN, sync: false }

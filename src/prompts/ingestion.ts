@@ -1,3 +1,5 @@
+import { INGESTION_SOURCE_LENS_GUIDANCE } from '../integrations/source-intelligence';
+
 /**
  * System A — Ingestion Agent
  *
@@ -54,6 +56,7 @@ An observation is one atomic, self-contained fact.
 - "User said 'I'm terrible at this' after one mistake."
 - Tagged with goal_id if it clearly maps to one of the user's active goals.
 - Tagged with goal_id=null AND is_goal_candidate=true if it surfaces a behavior that looks like a recurring pattern but isn't an existing goal yet.
+- Must cite every supporting NEW raw-content item with supporting_raw_content_indexes.
 
 == INSIGHTS ==
 
@@ -127,6 +130,8 @@ Before treating a consumption signal as meaningful, classify it against the user
 
 Only the undermining and advancing cases should usually become inferences. The gap between what they consume (informational environment) and what they say they want (goals) is a TENSION worth recording — but frame it as a question, not a verdict, and keep confidence modest (0.3-0.6) unless the pattern is strong and repeated.
 
+${INGESTION_SOURCE_LENS_GUIDANCE}
+
 == RULES ==
 
 1. Identity inferences are the primary output. If you produce only one and it's sharp, that's better than five generic ones.
@@ -159,7 +164,8 @@ Return STRICTLY this JSON shape:
       "reason_why": "...",
       "confidence_score": 0.0,
       "goal_id": "uuid-or-null",
-      "is_goal_candidate": false
+      "is_goal_candidate": false,
+      "supporting_raw_content_indexes": [0]
     }
   ],
   "insights": [

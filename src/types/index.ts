@@ -29,8 +29,82 @@ export interface DbRawContent {
   content_type: string;
   content_date: string | null;
   processing_status: string;
+  processing_started_at?: string | null;
   created_at: string;
   metadata?: Record<string, unknown>;
+  source_item_id?: string | null;
+}
+
+export type IntegrationCollectionMode = 'native_ios' | 'oauth_api' | 'data_export';
+export type IntegrationRunType =
+  | 'initial_backfill'
+  | 'incremental_sync'
+  | 'webhook_recovery'
+  | 'replay'
+  | 'export_import';
+
+export type IntegrationJobType =
+  | 'initial_backfill'
+  | 'incremental_sync'
+  | 'webhook_recovery'
+  | 'replay'
+  | 'export_import'
+  | 'device_batch'
+  | 'oauth_sync'
+  | 'archive_parse'
+  | 'reconcile'
+  | 'delete_connection_data';
+
+export interface IntegrationJob {
+  id: string;
+  user_id: string;
+  connection_id: string;
+  job_type: IntegrationJobType;
+  status: 'queued' | 'leased' | 'running' | 'completed' | 'failed' | 'dead_letter' | 'cancelled';
+  attempt_count: number;
+  max_attempts: number;
+  payload: Record<string, unknown>;
+  lease_owner: string | null;
+  leased_until: string | null;
+}
+
+export interface IntegrationSourceItemInput {
+  providerObjectType: string;
+  providerObjectId: string;
+  payload: Record<string, unknown>;
+  canonicalType: string;
+  canonicalText: string;
+  normalizedData: Record<string, unknown>;
+  occurredAt?: string;
+  analysisEligible?: boolean;
+  providerCreatedAt?: string;
+  providerUpdatedAt?: string;
+  parserVersion: string;
+  normalizerVersion: string;
+  contentType: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ProcessIntegrationBatchInput {
+  userId: string;
+  providerId: string;
+  collectionMode: IntegrationCollectionMode;
+  runType: IntegrationRunType;
+  cursorBefore: Record<string, unknown>;
+  cursorAfter: Record<string, unknown>;
+  items: IntegrationSourceItemInput[];
+}
+
+export interface ProcessIntegrationBatchResult {
+  syncRunId: string;
+  ingestionTraceId: string | null;
+  itemsSeen: number;
+  itemsCreated: number;
+  itemsUpdated: number;
+  itemsSkipped: number;
+  itemsFailed: number;
+  rawContentIds: string[];
+  failures: { providerObjectId: string; error: string }[];
 }
 
 export interface DbObservation {
@@ -210,6 +284,7 @@ export interface IngestionResult {
     goal_id: string | null;
     is_goal_candidate: boolean;
     raw_content_id?: string | null;
+    supporting_raw_content_indexes?: number[];
   }[];
   insights: {
     title: string;

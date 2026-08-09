@@ -71,7 +71,7 @@ ${candidateLines.join('\n') || '(none)'}
 # NEW Raw Content to Process
 ${rawBlocks.join('\n\n---\n\n') || '(nothing new — return empty arrays)'}
 
-Extract identity_inferences first, then observations, insights, and any goal_candidates from the NEW raw content above. Use raw_content indexes (shown in each ### heading) to cite evidence in identity_inferences.supporting_raw_content_indexes.`;
+Extract identity_inferences first, then observations, insights, and any goal_candidates from the NEW raw content above. Use raw_content indexes (shown in each ### heading) to cite evidence in both identity_inferences.supporting_raw_content_indexes and observations.supporting_raw_content_indexes.`;
 
   const { data, usage } = await jsonChatCompletion<IngestionResult>(
     INGESTION_SYSTEM_PROMPT,

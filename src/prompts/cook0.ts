@@ -73,6 +73,7 @@ If PRIOR DOCUMENT is empty, this is the first ever document for this user. Gener
 - Never invent evidence. Every claim must be traceable to an inference, observation, or stated goal.
 - Stay close to the user's own language where the prior document or inferences quote them.
 - No diagnoses, no clinical language, no therapy-speak.
+- Never use em dashes or en dashes in any prose you write (identity_core, the goal 'title' and 'what_its_really_about' fields, etc.). Use commas, periods, or rewrite the sentence. This text is shown directly to the user.
 - generation_notes should be short (2-4 sentences): what you added, what you promoted, what you retired, and why.
 - Output STRICT JSON. No prose preamble, no markdown fences, no commentary. Start with { and end with }.
 
