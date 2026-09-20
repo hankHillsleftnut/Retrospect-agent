@@ -275,3 +275,162 @@ export async function factsFor(options: {
   if (factErr) throw new Error(`factsFor assertions failed: ${factErr.message}`);
   return (data ?? []) as FactRow[];
 }
+
+// ── People, gaps, lineage ───────────────────────────────────────────────────
+
+export interface PersonRow {
+  id: string;
+  canonical_name: string;
+  significance: number;
+  mentions: number;
+}
+
+/** People who actually matter to this person, most significant first. */
+export async function significantPeople(options: {
+  userId: string;
+  minSignificance?: number;
+  limit?: number;
+}): Promise<PersonRow[]> {
+  const { data, error } = await supabase
+    .from(Tables.ENTITIES).select('id,canonical_name,attributes')
+    .eq('user_id', options.userId).eq('entity_type', 'person')
+    .limit(options.limit ?? 50);
+  if (error) throw new Error(`significantPeople failed: ${error.message}`);
+
+  const floor = options.minSignificance ?? 0.1;
+  return (data ?? [])
+    .map((e: any) => ({
+      id: e.id,
+      canonical_name: e.canonical_name,
+      significance: Number(e.attributes?.significance ?? 0),
+      mentions: Number(e.attributes?.significance_mentions ?? 0),
+    }))
+    .filter((p: PersonRow) => p.significance >= floor)
+    .sort((a: PersonRow, b: PersonRow) => b.significance - a.significance);
+}
+
+/**
+ * What don't we know?
+ *
+ * A required field of every evidence pack. Admitting a blind spot is what
+ * separates knowing someone from performing it -- and it stops the writer
+ * quietly filling silence with invention.
+ */
+export async function gaps(options: {
+  userId: string;
+  since: string;
+  expectedSources?: string[];
+}): Promise<string[]> {
+  const expected = options.expectedSources ?? ['journal_entry', 'calendar', 'healthkit'];
+
+  const { data, error } = await supabase
+    .from(Tables.RAW_CONTENT).select('content_type')
+    .eq('user_id', options.userId).gte('created_at', options.since);
+  if (error) throw new Error(`gaps failed: ${error.message}`);
+
+  const seen = new Set((data ?? []).map((r: { content_type: string }) => r.content_type));
+  const out = expected.filter((s) => !seen.has(s)).map((s) => `no ${s.replace(/_/g, ' ')} data in this period`);
+
+  const { count } = await supabase
+    .from(Tables.ASSERTIONS).select('id', { count: 'exact', head: true })
+    .eq('user_id', options.userId).gte('observed_at', options.since);
+  if ((count ?? 0) === 0) out.push('no new facts were recorded in this period');
+
+  return out;
+}
+
+export type LineageDirection = 'backward' | 'forward';
+
+export interface LineageNode {
+  kind: 'raw_content' | 'assertion' | 'pattern' | 'why';
+  id: string;
+  summary: string;
+  /** Where a chain stopped, and why -- a dead end with a reason beats silence. */
+  stoppedBecause?: string;
+}
+
+/**
+ * Walk the provenance chain from any ID.
+ *
+ * backward: "why did it say that" -- pattern -> facts -> excerpts -> journal
+ * forward:  "where did this journal end up" -- and, just as usefully, where it
+ *           STOPPED. Most information never reaches a podcast by design.
+ */
+export async function lineage(options: {
+  userId: string;
+  id: string;
+  kind: 'raw_content' | 'assertion' | 'pattern';
+  direction: LineageDirection;
+}): Promise<LineageNode[]> {
+  const out: LineageNode[] = [];
+
+  if (options.direction === 'backward') {
+    if (options.kind === 'pattern') {
+      const facts = await factsFor({ userId: options.userId, patternId: options.id });
+      for (const f of facts) out.push({ kind: 'assertion', id: f.id, summary: f.predicate });
+      if (facts.length === 0) {
+        out.push({ kind: 'pattern', id: options.id, summary: 'pattern',
+          stoppedBecause: 'no supporting facts are linked to this pattern' });
+      }
+      return out;
+    }
+    const { data: ev } = await supabase.from(Tables.ASSERTION_EVIDENCE)
+      .select('raw_content_id,excerpt,char_start,char_end')
+      .eq('assertion_id', options.id);
+    for (const e of (ev ?? []) as any[]) {
+      out.push({
+        kind: 'raw_content',
+        id: e.raw_content_id ?? '(structured source)',
+        summary: e.excerpt ?? '',
+      });
+    }
+    if (out.length === 0) {
+      out.push({ kind: 'assertion', id: options.id, summary: 'assertion',
+        stoppedBecause: 'no evidence rows -- this fact cannot show its receipts' });
+    }
+    return out;
+  }
+
+  // forward
+  const { data: ev } = await supabase.from(Tables.ASSERTION_EVIDENCE)
+    .select('assertion_id').eq('raw_content_id', options.id);
+  const assertionIds = (ev ?? []).map((e: { assertion_id: string }) => e.assertion_id);
+
+  if (assertionIds.length === 0) {
+    return [{ kind: 'raw_content', id: options.id, summary: 'source',
+      stoppedBecause: 'produced no facts -- extraction found nothing verifiable here' }];
+  }
+
+  const { data: facts } = await supabase.from(Tables.ASSERTIONS)
+    .select('id,predicate,status,valid_to,supersedes_id')
+    .eq('user_id', options.userId).in('id', assertionIds);
+
+  for (const f of (facts ?? []) as any[]) {
+    out.push({
+      kind: 'assertion', id: f.id, summary: f.predicate,
+      stoppedBecause: f.status !== 'active'
+        ? `${f.status}${f.valid_to ? ` on ${String(f.valid_to).slice(0, 10)}` : ''}`
+        : undefined,
+    });
+  }
+
+  const { data: links } = await supabase.from(Tables.BEHAVIOR_PATTERN_FACTS)
+    .select('pattern_id').in('assertion_id', assertionIds);
+  const patternIds = [...new Set((links ?? []).map((l: { pattern_id: string }) => l.pattern_id))];
+
+  if (patternIds.length === 0) {
+    out.push({ kind: 'pattern', id: '(none)', summary: 'no pattern',
+      stoppedBecause: 'these facts have not repeated enough to become a pattern' });
+    return out;
+  }
+
+  const { data: patterns } = await supabase.from(Tables.BEHAVIOR_PATTERNS)
+    .select('id,label,status').in('id', patternIds);
+  for (const p of (patterns ?? []) as any[]) {
+    out.push({
+      kind: 'pattern', id: p.id, summary: p.label,
+      stoppedBecause: p.status !== 'live' ? `pattern is ${p.status}` : undefined,
+    });
+  }
+  return out;
+}
