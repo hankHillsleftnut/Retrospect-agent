@@ -276,7 +276,42 @@ export interface AgentToolCall {
   ts: string;
 }
 
+/** Controlled predicate vocabulary for Fact candidates. Free predicates are
+ *  allowed but make pattern grouping harder -- prefer this list.
+ *  docs/second-brain/04 "Extraction". */
+export type FactPredicate =
+  | 'stated_goal'
+  | 'quit_or_stopped'
+  | 'skipped_or_avoided'
+  | 'attended'
+  | 'said_about_self'
+  | 'mentioned_person'
+  | 'felt'
+  | 'health_metric'
+  | 'scheduled'
+  | 'communicated_with';
+
+/** One checkable claim proposed by the extractor. Not yet a Fact: it becomes
+ *  one only if its excerpt is verified against the source. */
+export interface FactCandidate {
+  /** "Self" or a person's name as written. */
+  subject: string;
+  predicate: FactPredicate | string;
+  object: string;
+  /** ISO date if the text states when it happened. */
+  event_time?: string | null;
+  /** MUST be copied verbatim from the source. Unverifiable excerpt = dropped. */
+  excerpt: string;
+  /** Index into the raw content array the excerpt came from. */
+  source_index: number;
+  severity_hint?: 'standard' | 'high' | 'extreme';
+  /** The user naming their own loop ("I always start things and don't finish").
+   *  Seeds a pattern candidate; never promotes one on its own. */
+  names_own_loop?: boolean;
+}
+
 export interface IngestionResult {
+  fact_candidates?: FactCandidate[];
   observations: {
     content: string;
     reason_why: string;

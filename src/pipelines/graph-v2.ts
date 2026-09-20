@@ -50,7 +50,7 @@ function sourceIntelligence(record: SourceRecord, providerId: string): Record<st
   return publicSourceIntelligenceProfile(providerId);
 }
 
-async function resolveEntity(options: {
+export async function resolveEntity(options: {
   userId: string;
   entityType: string;
   canonicalName: string;
