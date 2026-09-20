@@ -183,3 +183,95 @@ export async function selfTalk(options: {
   if (error) throw new Error(`selfTalk failed: ${error.message}`);
   return (data ?? []) as FactRow[];
 }
+
+// ── Patterns ────────────────────────────────────────────────────────────────
+
+export interface PatternRow {
+  id: string;
+  slug: string;
+  label: string;
+  status: string;
+  severity: string;
+  episode_promotable: boolean;
+  instance_count: number;
+  weighted_count: number;
+  source_count: number;
+  confidence: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
+  grouping_key: string;
+  promoter_version: string;
+  metadata: Record<string, unknown>;
+}
+
+/**
+ * What loops is this person currently in?
+ *
+ * A plain indexed select. It must never scan raw journals: the whole point of
+ * promoting a Pattern was so that next week's episode can ask this question
+ * instead of re-deriving it from scratch.
+ */
+export async function livePatterns(options: {
+  userId: string;
+  includeNonPromotable?: boolean;
+  limit?: number;
+}): Promise<PatternRow[]> {
+  let q = supabase
+    .from(Tables.BEHAVIOR_PATTERNS)
+    .select('*')
+    .eq('user_id', options.userId)
+    .eq('status', 'live')
+    .order('confidence', { ascending: false })
+    .limit(options.limit ?? 50);
+
+  // Extreme patterns are knowledge, not episode fuel. A consumer must ask
+  // explicitly to see them (01 Example D, 05 D10).
+  if (!options.includeNonPromotable) q = q.eq('episode_promotable', true);
+
+  const { data, error } = await q;
+  if (error) throw new Error(`livePatterns failed: ${error.message}`);
+  return (data ?? []) as PatternRow[];
+}
+
+/** One pattern, its inferred why, and the facts holding it up. */
+export async function pattern(options: {
+  userId: string;
+  patternId: string;
+}): Promise<{ pattern: PatternRow; whys: any[]; facts: FactRow[] } | null> {
+  const { data: row, error } = await supabase
+    .from(Tables.BEHAVIOR_PATTERNS).select('*')
+    .eq('user_id', options.userId).eq('id', options.patternId).maybeSingle();
+  if (error) throw new Error(`pattern failed: ${error.message}`);
+  if (!row) return null;
+
+  const [whys, facts] = await Promise.all([
+    supabase.from(Tables.BEHAVIOR_PATTERN_WHYS).select('*')
+      .eq('pattern_id', options.patternId).is('retired_at', null),
+    factsFor({ userId: options.userId, patternId: options.patternId }),
+  ]);
+
+  return { pattern: row as PatternRow, whys: whys.data ?? [], facts };
+}
+
+/** The evidence under a pattern, so a claim can always be shown its receipts. */
+export async function factsFor(options: {
+  userId: string;
+  patternId: string;
+  role?: 'supports' | 'weakly_related' | 'counter_evidence';
+}): Promise<FactRow[]> {
+  let link = supabase.from(Tables.BEHAVIOR_PATTERN_FACTS)
+    .select('assertion_id').eq('pattern_id', options.patternId);
+  if (options.role) link = link.eq('role', options.role);
+
+  const { data: links, error } = await link;
+  if (error) throw new Error(`factsFor failed: ${error.message}`);
+  const ids = (links ?? []).map((l: { assertion_id: string }) => l.assertion_id);
+  if (ids.length === 0) return [];
+
+  const { data, error: factErr } = await supabase
+    .from(Tables.ASSERTIONS).select('*')
+    .eq('user_id', options.userId).in('id', ids)
+    .order('event_time', { ascending: true });
+  if (factErr) throw new Error(`factsFor assertions failed: ${factErr.message}`);
+  return (data ?? []) as FactRow[];
+}
