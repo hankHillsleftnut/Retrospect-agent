@@ -3,6 +3,8 @@ import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent } from '../agents/ingestion-agent';
 import { writeJournalFacts } from '../brain/write-journal-facts';
+import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
+import { buildPortrait, patchDocument } from '../brain/portrait';
 import {
   reclaimExpiredLeases,
   reclaimUnstampedLeases,
@@ -39,6 +41,9 @@ export interface IngestSummary {
   leases_reclaimed?: number;
   /** Source rows that gained an embedding in this run. */
   raw_content_embedded?: number;
+  patterns_created?: number;
+  patterns_promoted?: number;
+  whys_created?: number;
   /** Rows that already had facts, so extraction was skipped. */
   rows_skipped_already_have_facts?: number;
   /** Claims discarded because their quote was not in the source. A high
@@ -69,7 +74,9 @@ export interface IngestSummary {
  * that leaves ~20K input tokens for the raw_content blocks themselves.
  * 35000 chars ≈ 9K tokens, fits comfortably.
  */
-const MAX_BATCH_CHARS = 35000;
+// One long brain dump must never be split mid-thought across LLM calls, so
+// the batch budget has to comfortably exceed the per-entry cap (16k).
+const MAX_BATCH_CHARS = 60000;
 
 /** Per-entry content cap (matches the slice in ingestion-agent.ts). */
 function estimateEntryChars(rc: DbRawContent): number {
@@ -137,6 +144,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     let leasesReclaimed = 0;
     let factsSkippedRows = 0;
     let rawEmbedded = 0;
+    let promoterResult: PromoterRunResult | null = null;
     let heartbeat: { stop: () => void } = { stop: () => {} };
 
     // Reclaim abandoned work FIRST. A run that died mid-flight leaves its
@@ -587,6 +595,9 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         facts_written: factsWritten,
         leases_reclaimed: leasesReclaimed,
         raw_content_embedded: rawEmbedded,
+        patterns_created: 0,
+        patterns_promoted: 0,
+        whys_created: 0,
         rows_skipped_already_have_facts: factsSkippedRows,
         facts_dropped: factsDropped,
         fact_drop_reasons: factDropReasons,
@@ -648,6 +659,38 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
           `Observations/insights/inferences were persisted; document stays at v${currentUnderstanding?.version ?? 0}.`
       );
       trace.setCook0Failure(cook0Error);
+    }
+
+    // Patterns, then whys, then the portrait -- in that order, because each
+    // can only exist once the one before it does.
+    if (factsWritten > 0 || factsSkippedRows > 0) {
+      try {
+        promoterResult = await runPromoter({ userId: options.userId, sourceRunId: trace.id });
+        console.log(
+          `[ingest] patterns: ${promoterResult.created} new, ${promoterResult.promoted} promoted, ` +
+            `${promoterResult.demoted} demoted, ${promoterResult.whysCreated} whys`
+        );
+      } catch (err) {
+        // Facts are already safe; a promoter failure costs this run's patterns,
+        // not the evidence. The next run recomputes from the same facts.
+        console.error(`[ingest] promoter FAILED: ${(err as Error).message}`);
+      }
+
+      try {
+        const portrait = await buildPortrait(options.userId);
+        const { data: latest } = await supabase.from(Tables.USER_UNDERSTANDING)
+          .select('document,version').eq('user_id', options.userId)
+          .order('version', { ascending: false }).limit(1).maybeSingle();
+        const patched = patchDocument((latest?.document as any) ?? null, portrait);
+        await supabase.from(Tables.USER_UNDERSTANDING).upsert({
+          user_id: options.userId,
+          document: patched,
+          version: (latest?.version ?? 0) + 1,
+        });
+        console.log(`[ingest] portrait rebuilt (${portrait.emptySlots.length} slot(s) left empty)`);
+      } catch (err) {
+        console.error(`[ingest] portrait rebuild FAILED: ${(err as Error).message}`);
+      }
     }
 
     heartbeat.stop();
