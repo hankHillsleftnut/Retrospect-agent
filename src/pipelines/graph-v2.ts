@@ -1,6 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { publicSourceIntelligenceProfile } from '../integrations/source-intelligence';
+import { classifyRelation, type ClaimShape } from '../brain/supersession';
 
 interface SourceRecord {
   id: string;
@@ -189,6 +190,63 @@ export interface WriteFactOptions {
   sourceRunId?: string | null;
   metadata?: Record<string, unknown>;
   evidence: FactEvidenceInput[];
+  /** Default true. Integrations that manage their own validity can opt out. */
+  applySupersession?: boolean;
+}
+
+/**
+ * Retire any active assertion the incoming claim contradicts.
+ *
+ * Deliberately narrow: same subject, and a relation the classifier is willing
+ * to call 'supersedes'. Episodic facts never retire each other, which is what
+ * keeps three Thursday skips countable as three.
+ */
+export async function supersedeContradicted(options: {
+  userId: string;
+  subjectEntityId: string;
+  newAssertionId: string;
+  incoming: ClaimShape;
+  eventTime?: string | null;
+}, db: FactDb = supabase): Promise<string[]> {
+  const { data: existing, error } = await db.from(Tables.ASSERTIONS)
+    .select('id,predicate,object_value,event_time')
+    .eq('user_id', options.userId)
+    .eq('subject_entity_id', options.subjectEntityId)
+    .eq('status', 'active')
+    .is('valid_to', null);
+  if (error) throw new Error(`Supersession lookup failed: ${error.message}`);
+
+  const retired: string[] = [];
+  const closedAt = options.eventTime ?? new Date().toISOString();
+
+  for (const row of (existing ?? []) as any[]) {
+    if (row.id === options.newAssertionId) continue;
+    const prior: ClaimShape = {
+      predicate: row.predicate,
+      object: String(row.object_value?.normalized ?? ''),
+      eventTime: row.event_time,
+    };
+    if (classifyRelation(prior, options.incoming) !== 'supersedes') continue;
+
+    const { error: updErr } = await db.from(Tables.ASSERTIONS)
+      .update({ valid_to: closedAt, status: 'superseded' })
+      .eq('id', row.id);
+    if (updErr) throw new Error(`Retire assertion failed: ${updErr.message}`);
+
+    await db.from(Tables.ASSERTIONS)
+      .update({ supersedes_id: row.id })
+      .eq('id', options.newAssertionId);
+
+    await db.from(Tables.ASSERTION_RELATIONS).upsert({
+      user_id: options.userId,
+      from_assertion_id: options.newAssertionId,
+      to_assertion_id: row.id,
+      relation_type: 'supersedes',
+    }, { onConflict: 'from_assertion_id,to_assertion_id,relation_type' });
+
+    retired.push(row.id);
+  }
+  return retired;
 }
 
 /** Minimal surface of the Supabase client that writeFact needs, so tests can inject a fake. */
@@ -220,6 +278,28 @@ export async function writeFact(
     metadata: options.metadata ?? {},
   }, { onConflict: 'user_id,origin_key' }).select('id').single();
   if (error || !assertion) throw new Error(`Write graph assertion failed: ${error?.message ?? 'no row'}`);
+
+  // Time is applied here, in code. The model proposed a claim; what that
+  // claim does to what we already believed is not its decision.
+  if (options.applySupersession !== false && options.objectValue) {
+    try {
+      await supersedeContradicted({
+        userId: options.userId,
+        subjectEntityId: options.subjectEntityId,
+        newAssertionId: assertion.id,
+        incoming: {
+          predicate: options.predicate,
+          object: String((options.objectValue as Record<string, unknown>).normalized ?? ''),
+          eventTime: options.eventTime ?? null,
+        },
+        eventTime: options.eventTime ?? null,
+      }, db);
+    } catch (err) {
+      // A supersession failure must not lose the Fact. The row is written;
+      // lint check F3 will find the un-retired pair.
+      console.warn(`[writeFact] supersession failed: ${(err as Error).message}`);
+    }
+  }
 
   if (options.evidence.length > 0) {
     const evidence: AssertionEvidenceRow[] = options.evidence.map((entry) => ({
