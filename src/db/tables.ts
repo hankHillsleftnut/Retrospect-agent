@@ -42,6 +42,7 @@ export const Tables = {
   BEHAVIOR_PATTERN_FACTS: 'behavior_pattern_facts',
   BEHAVIOR_PATTERN_WHYS: 'behavior_pattern_whys',
   LINT_FINDINGS: 'lint_findings',
+  REMEDIATION_LOG: 'remediation_log',
   ENTITIES: 'entities',
   ENTITY_ALIASES: 'entity_aliases',
   ENTITY_RESOLUTION_CANDIDATES: 'entity_resolution_candidates',
