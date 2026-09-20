@@ -24,6 +24,8 @@ interface AssertionEvidenceRow {
   evidence_role: 'supports' | 'contradicts' | 'context';
   weight: number;
   excerpt: string | null;
+  char_start?: number | null;
+  char_end?: number | null;
 }
 
 interface EntityAliasInput {
@@ -146,7 +148,105 @@ function aliasesForRecord(record: SourceRecord, providerId: string): EntityAlias
   return aliases;
 }
 
-async function writeObservedAssertion(options: {
+// ---------------------------------------------------------------------------
+// writeFact — the single write path for every Fact in the system.
+//
+// Source-agnostic on purpose: journals (raw_content), integrations
+// (source_items / analysis_units) and any future source all land here, so
+// there is exactly one place that owns idempotency, evidence and (later)
+// supersession. See docs/second-brain/04 "Shared write function" and 05 D3.
+//
+// `originKey` is REQUIRED and is the retry lock: the same logical claim from
+// the same source must always produce the same key, so re-running ingest
+// upserts instead of duplicating.
+// ---------------------------------------------------------------------------
+
+export interface FactEvidenceInput {
+  analysisUnitId?: string | null;
+  sourceItemId?: string | null;
+  rawContentId?: string | null;
+  excerpt?: string | null;
+  charStart?: number | null;
+  charEnd?: number | null;
+  role?: 'supports' | 'contradicts' | 'context';
+  weight?: number;
+}
+
+export interface WriteFactOptions {
+  userId: string;
+  subjectEntityId: string;
+  predicate: string;
+  objectEntityId?: string | null;
+  objectValue?: Record<string, unknown> | null;
+  /** Required. Deterministic per logical claim per source. */
+  originKey: string;
+  kind?: 'observed' | 'inferred';
+  confidence?: number;
+  eventTime?: string | null;
+  normalizerVersion?: string | null;
+  modelVersion?: string | null;
+  /** Links the row to the pipeline run that produced it, for lineage. */
+  sourceRunId?: string | null;
+  metadata?: Record<string, unknown>;
+  evidence: FactEvidenceInput[];
+}
+
+/** Minimal surface of the Supabase client that writeFact needs, so tests can inject a fake. */
+export type FactDb = Pick<typeof supabase, 'from'>;
+
+export async function writeFact(
+  options: WriteFactOptions,
+  db: FactDb = supabase
+): Promise<string> {
+  if (!options.originKey) throw new Error('writeFact: originKey is required');
+  if (!options.objectEntityId && !options.objectValue) {
+    throw new Error('writeFact: one of objectEntityId or objectValue is required');
+  }
+
+  const { data: assertion, error } = await db.from(Tables.ASSERTIONS).upsert({
+    user_id: options.userId,
+    subject_entity_id: options.subjectEntityId,
+    predicate: options.predicate,
+    object_entity_id: options.objectEntityId ?? null,
+    object_value: options.objectValue ?? null,
+    assertion_kind: options.kind ?? 'observed',
+    confidence: options.confidence ?? 1,
+    event_time: options.eventTime ?? null,
+    observed_at: new Date().toISOString(),
+    normalizer_version: options.normalizerVersion ?? null,
+    model_version: options.modelVersion ?? null,
+    source_run_id: options.sourceRunId ?? null,
+    origin_key: options.originKey,
+    metadata: options.metadata ?? {},
+  }, { onConflict: 'user_id,origin_key' }).select('id').single();
+  if (error || !assertion) throw new Error(`Write graph assertion failed: ${error?.message ?? 'no row'}`);
+
+  if (options.evidence.length > 0) {
+    const evidence: AssertionEvidenceRow[] = options.evidence.map((entry) => ({
+      user_id: options.userId,
+      assertion_id: assertion.id,
+      analysis_unit_id: entry.analysisUnitId ?? null,
+      source_item_id: entry.sourceItemId ?? null,
+      raw_content_id: entry.rawContentId ?? null,
+      evidence_role: entry.role ?? 'supports',
+      weight: entry.weight ?? 1,
+      excerpt: entry.excerpt ?? null,
+      char_start: entry.charStart ?? null,
+      char_end: entry.charEnd ?? null,
+    }));
+    const { error: evidenceError } = await db.from(Tables.ASSERTION_EVIDENCE)
+      .upsert(evidence, { onConflict: 'assertion_id,analysis_unit_id,source_item_id,raw_content_id,evidence_role' });
+    if (evidenceError) throw new Error(`Write assertion evidence failed: ${evidenceError.message}`);
+  }
+
+  return assertion.id;
+}
+
+/**
+ * Integration mapper over writeFact. Signature unchanged from before the
+ * extraction, so every existing call site behaves identically.
+ */
+export async function writeObservedAssertion(options: {
   userId: string;
   record: SourceRecord;
   providerId: string;
@@ -155,53 +255,35 @@ async function writeObservedAssertion(options: {
   objectEntityId: string;
   objectValue?: Record<string, unknown>;
   originSuffix?: string;
-}): Promise<string> {
-  const originKey = `source_item:${options.record.id}:${options.predicate}:${options.originSuffix ?? 'primary'}`;
-  const { data: assertion, error } = await supabase.from(Tables.ASSERTIONS).upsert({
-    user_id: options.userId,
-    subject_entity_id: options.subjectEntityId,
+}, db: FactDb = supabase): Promise<string> {
+  const units = options.record.analysis_units ?? [];
+  const excerpt = options.record.canonical_text?.slice(0, 1000) ?? null;
+  const evidence: FactEvidenceInput[] = units.length > 0
+    ? units.map((unit) => ({
+        analysisUnitId: unit.id,
+        sourceItemId: options.record.id,
+        excerpt,
+      }))
+    : [{ analysisUnitId: null, sourceItemId: options.record.id, excerpt }];
+
+  return writeFact({
+    userId: options.userId,
+    subjectEntityId: options.subjectEntityId,
     predicate: options.predicate,
-    object_entity_id: options.objectEntityId,
-    object_value: options.objectValue ?? null,
-    assertion_kind: 'observed',
+    objectEntityId: options.objectEntityId,
+    objectValue: options.objectValue,
+    originKey: `source_item:${options.record.id}:${options.predicate}:${options.originSuffix ?? 'primary'}`,
+    kind: 'observed',
     confidence: 1,
-    event_time: options.record.occurred_at,
-    observed_at: new Date().toISOString(),
-    normalizer_version: options.record.normalizer_version,
-    origin_key: originKey,
+    eventTime: options.record.occurred_at,
+    normalizerVersion: options.record.normalizer_version,
     metadata: {
       source_item_id: options.record.id,
       provider_id: options.providerId,
       source_intelligence: sourceIntelligence(options.record, options.providerId),
     },
-  }, { onConflict: 'user_id,origin_key' }).select('id').single();
-  if (error || !assertion) throw new Error(`Write graph assertion failed: ${error?.message ?? 'no row'}`);
-
-  const evidence: AssertionEvidenceRow[] = (options.record.analysis_units ?? []).length > 0
-    ? options.record.analysis_units.map((unit) => ({
-        user_id: options.userId,
-        assertion_id: assertion.id,
-        analysis_unit_id: unit.id,
-        source_item_id: options.record.id,
-        raw_content_id: null,
-        evidence_role: 'supports',
-        weight: 1,
-        excerpt: options.record.canonical_text?.slice(0, 1000) ?? null,
-      }))
-    : [{
-        user_id: options.userId,
-        assertion_id: assertion.id,
-        analysis_unit_id: null,
-        source_item_id: options.record.id,
-        raw_content_id: null,
-        evidence_role: 'supports',
-        weight: 1,
-        excerpt: options.record.canonical_text?.slice(0, 1000) ?? null,
-      }];
-  const { error: evidenceError } = await supabase.from(Tables.ASSERTION_EVIDENCE)
-    .upsert(evidence, { onConflict: 'assertion_id,analysis_unit_id,source_item_id,raw_content_id,evidence_role' });
-  if (evidenceError) throw new Error(`Write assertion evidence failed: ${evidenceError.message}`);
-  return assertion.id;
+    evidence,
+  }, db);
 }
 
 function graphMapping(record: SourceRecord): {
