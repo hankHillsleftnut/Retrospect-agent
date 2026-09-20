@@ -91,7 +91,40 @@ async function main() {
     await backfillPodcastSummaries(userId, dryRun);
   }
 
+  await reportCoverage(userId);
   console.log('Done.');
+}
+
+/**
+ * "We ran the script" is not a result. Coverage is.
+ * At audit, raw_content embedding coverage was 0.4% -- which is why
+ * search_raw_content returned nothing useful for the account that mattered.
+ */
+async function reportCoverage(userId: string | null) {
+  const base = supabase.from('raw_content').select('id', { count: 'exact', head: true });
+  const totalQ = userId ? base.eq('user_id', userId) : base;
+  const { count: total } = await totalQ;
+
+  const base2 = supabase
+    .from('raw_content')
+    .select('id', { count: 'exact', head: true })
+    .not('embedding', 'is', null);
+  const embQ = userId ? base2.eq('user_id', userId) : base2;
+  const { count: embedded } = await embQ;
+
+  const t = total ?? 0;
+  const e = embedded ?? 0;
+  const pct = t === 0 ? 0 : (100 * e) / t;
+  console.log('');
+  console.log('─────────────────────────────────────────────');
+  console.log(`  raw_content embedding coverage${userId ? ` (user ${userId})` : ' (all users)'}`);
+  console.log(`    embedded : ${e}`);
+  console.log(`    total    : ${t}`);
+  console.log(`    coverage : ${pct.toFixed(1)}%`);
+  if (pct < 95) {
+    console.log('  ⚠  below 95% — fallback search over sources will be patchy.');
+  }
+  console.log('─────────────────────────────────────────────');
 }
 
 main().catch((err) => {
