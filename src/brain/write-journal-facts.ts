@@ -13,6 +13,7 @@
 
 import { writeFact, resolveEntity } from '../pipelines/graph-v2';
 import { verifyExcerpt } from './verify-span';
+import { noteAmbiguousName, refreshSignificance } from './people';
 import type { FactCandidate } from '../types';
 
 export interface JournalFactSource {
@@ -32,6 +33,8 @@ export interface WriteJournalFactsResult {
   assertionIds: string[];
   /** Candidates where the user named their own loop -- seeds for the promoter. */
   selfNamedLoops: string[];
+  /** Person entities whose significance was recomputed this run. */
+  peopleTouched: Set<string>;
 }
 
 /** Stable, boring object text so the same claim always yields the same key. */
@@ -67,6 +70,7 @@ export async function writeJournalFacts(options: {
     dropReasons: {},
     assertionIds: [],
     selfNamedLoops: [],
+    peopleTouched: new Set<string>(),
   };
   if (options.candidates.length === 0) return result;
 
@@ -111,6 +115,7 @@ export async function writeJournalFacts(options: {
     }
 
     let subjectEntityId = selfEntityId;
+    let personTouched: { id: string; name: string } | null = null;
     if (candidate.subject && candidate.subject.toLowerCase() !== 'self') {
       subjectEntityId = await resolveEntity({
         userId: options.userId,
@@ -121,6 +126,17 @@ export async function writeJournalFacts(options: {
         // how two different Alexes become one person (05, 01 test 4).
         aliases: [{ namespace: 'journal:name', alias: candidate.subject.trim().toLowerCase() }],
       });
+      personTouched = { id: subjectEntityId, name: candidate.subject.trim() };
+    }
+    // A person named in the OBJECT counts as an interaction too.
+    if (candidate.predicate === 'mentioned_person' && candidate.object) {
+      const mentionedId = await resolveEntity({
+        userId: options.userId,
+        entityType: 'person',
+        canonicalName: candidate.object.trim(),
+        aliases: [{ namespace: 'journal:name', alias: candidate.object.trim().toLowerCase() }],
+      });
+      personTouched = { id: mentionedId, name: candidate.object.trim() };
     }
 
     const assertionId = await writeFact({
@@ -156,6 +172,23 @@ export async function writeJournalFacts(options: {
 
     result.written += 1;
     result.assertionIds.push(assertionId);
+
+    if (personTouched) {
+      // A bare first name still resolves -- refusing would fragment every
+      // mention -- but the ambiguity is recorded so a human can split two
+      // Alexes later, instead of the system being silently wrong forever.
+      try {
+        await noteAmbiguousName({
+          userId: options.userId,
+          entityId: personTouched.id,
+          name: personTouched.name,
+        });
+        await refreshSignificance({ userId: options.userId, entityId: personTouched.id });
+        result.peopleTouched.add(personTouched.id);
+      } catch (err) {
+        console.warn(`[facts] people update failed: ${(err as Error).message}`);
+      }
+    }
     if (candidate.names_own_loop === true) result.selfNamedLoops.push(assertionId);
   }
 
