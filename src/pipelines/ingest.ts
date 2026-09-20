@@ -3,6 +3,12 @@ import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent } from '../agents/ingestion-agent';
 import { writeJournalFacts } from '../brain/write-journal-facts';
+import {
+  reclaimExpiredLeases,
+  reclaimUnstampedLeases,
+  startHeartbeat,
+  hasExistingFacts,
+} from '../brain/lease';
 import { runCook0, applyCook0Decisions, writeNewDocumentVersion } from '../agents/cook0-agent';
 import { Trace, TraceTrigger } from './trace';
 import type {
@@ -29,6 +35,12 @@ export interface IngestOptions {
 export interface IngestSummary {
   /** Facts written to the graph from this run. */
   facts_written?: number;
+  /** Rows returned to 'pending' because a previous run died holding them. */
+  leases_reclaimed?: number;
+  /** Source rows that gained an embedding in this run. */
+  raw_content_embedded?: number;
+  /** Rows that already had facts, so extraction was skipped. */
+  rows_skipped_already_have_facts?: number;
   /** Claims discarded because their quote was not in the source. A high
    *  number here means the extraction prompt is wrong, not the verifier. */
   facts_dropped?: number;
@@ -122,6 +134,27 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
   try {
     // 1. Fetch new raw content
     const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    let leasesReclaimed = 0;
+    let factsSkippedRows = 0;
+    let rawEmbedded = 0;
+    let heartbeat: { stop: () => void } = { stop: () => {} };
+
+    // Reclaim abandoned work FIRST. A run that died mid-flight leaves its
+    // rows in 'processing' forever; without this they are invisible to every
+    // later run. This is what turns a transient outage into a retry instead
+    // of permanent data loss.
+    if (!options.dryRun) {
+      const [expired, unstamped] = await Promise.all([
+        reclaimExpiredLeases({ userId: options.userId }),
+        reclaimUnstampedLeases(options.userId),
+      ]);
+      const reclaimed = expired.reclaimed + unstamped.reclaimed;
+      if (reclaimed > 0) {
+        console.log(`[ingest] reclaimed ${reclaimed} abandoned row(s) for retry`);
+        leasesReclaimed = reclaimed;
+      }
+    }
+
     // Only pick up content that hasn't been successfully processed yet.
     // This prevents creating duplicate observations when re-running ingestion.
     let rawQuery = supabase
@@ -166,7 +199,39 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       const { data: leasedRows, error: processingError } = await leaseQuery.select('*');
       if (processingError) throw new Error(`Mark raw_content processing failed: ${processingError.message}`);
       newRawContent = (leasedRows ?? []) as DbRawContent[];
+
+      // Idempotency: a row that already produced Facts does not need the LLM
+      // again. Origin keys mean a re-extract would upsert to the same rows,
+      // so this is purely saved spend -- and it makes retry cheap enough to
+      // be the default response to a failure.
+      if (!options.force && newRawContent.length > 0) {
+        const checks = await Promise.all(
+          newRawContent.map(async (row) => ({
+            row,
+            done: await hasExistingFacts(options.userId, row.id),
+          }))
+        );
+        const already = checks.filter((c) => c.done).map((c) => c.row.id);
+        if (already.length > 0) {
+          await supabase
+            .from(Tables.RAW_CONTENT)
+            .update({
+              processing_status: 'completed',
+              processing_started_at: null,
+              processed_at: new Date().toISOString(),
+            })
+            .in('id', already);
+          factsSkippedRows = already.length;
+          console.log(`[ingest] ${already.length} row(s) already have facts; skipping extraction`);
+          newRawContent = checks.filter((c) => !c.done).map((c) => c.row);
+        }
+        if (newRawContent.length === 0) {
+          return completeEmptyIngest(trace, 'All requested rows already produced facts.');
+        }
+      }
+
       processingRawContentIds.push(...newRawContent.map((row) => row.id));
+      heartbeat = startHeartbeat(processingRawContentIds);
       if (newRawContent.length === 0) {
         return completeEmptyIngest(trace, 'No raw content was eligible for processing; another run may hold the lease.');
       }
@@ -472,6 +537,33 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         }
       }
 
+      // Embed the SOURCE, not just the derived rows. 0.4% of raw_content
+      // carried an embedding at audit, which made search_raw_content dead.
+      // Facts do not need this to exist; fallback search does.
+      try {
+        const toEmbed = batch.filter((row) => !row.embedding && row.content?.trim());
+        if (toEmbed.length > 0) {
+          const vectors = await generateEmbeddings(
+            toEmbed.map((row) => row.content.slice(0, 8000))
+          );
+          trace.addCost({
+            embedding_tokens: toEmbed.reduce((acc, r) => acc + r.content.length / 4, 0),
+          });
+          for (let i = 0; i < toEmbed.length; i++) {
+            const vector = vectors[i];
+            if (!vector) continue;
+            await supabase
+              .from(Tables.RAW_CONTENT)
+              .update({ embedding: vector })
+              .eq('id', toEmbed[i]!.id);
+            rawEmbedded += 1;
+          }
+        }
+      } catch (err) {
+        // Never fail a batch over search hygiene.
+        console.warn(`[ingest]     raw embedding failed: ${(err as Error).message}`);
+      }
+
       const { error: completedError } = await supabase
         .from(Tables.RAW_CONTENT)
         .update({
@@ -493,6 +585,9 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         goal_candidates_created: aggregateResult.goal_candidates.length,
         identity_inferences_created: aggregateResult.identity_inferences.length,
         facts_written: factsWritten,
+        leases_reclaimed: leasesReclaimed,
+        raw_content_embedded: rawEmbedded,
+        rows_skipped_already_have_facts: factsSkippedRows,
         facts_dropped: factsDropped,
         fact_drop_reasons: factDropReasons,
         self_named_loops: selfNamedLoopIds.length,
@@ -555,6 +650,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       trace.setCook0Failure(cook0Error);
     }
 
+    heartbeat.stop();
     await trace.complete();
 
     const processingNotes = [

@@ -33,6 +33,10 @@ export interface DbRawContent {
   created_at: string;
   metadata?: Record<string, unknown>;
   source_item_id?: string | null;
+  /** Present once the source has been embedded for fallback search. */
+  embedding?: number[] | null;
+  processed_at?: string | null;
+  processing_error?: string | null;
 }
 
 export type IntegrationCollectionMode = 'native_ios' | 'oauth_api' | 'data_export';
