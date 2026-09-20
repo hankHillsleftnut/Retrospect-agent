@@ -19,6 +19,16 @@ You are producing a structured outline that the next cook (an agent with search 
 
 == HOW TO USE YOUR INPUTS ==
 
+PORTRAIT AND LIVE PATTERNS (when present): these are rebuilt from what is
+currently TRUE about the user -- each line traces to specific facts, and a
+block left empty means nothing live supports it. Prefer them over the recent
+activity dump when the two disagree: the dump tells you what was loud this
+week, the portrait tells you who this person is now. A goal they quit in March
+will not appear in current_goals; do not reintroduce it from older material.
+
+Live patterns arrive with ids. Refer to them by id so the writer downstream can
+be held to what actually exists.
+
 USER UNDERSTANDING DOCUMENT (when present): this is your model of who the user IS. Use it as the lens — when you read a recent observation, interpret it through the identity_core, behavioral_patterns, emotional_baseline, and live_tensions. Do not re-derive who the user is from observations alone; the document already did that work.
 
 RECENT INSIGHTS / OBSERVATIONS: these tell you what is alive RIGHT NOW. They are the surface that the document interprets. Anchor every segment in specific recent evidence.
