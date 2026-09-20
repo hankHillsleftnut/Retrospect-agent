@@ -2,6 +2,7 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent } from '../agents/ingestion-agent';
+import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runCook0, applyCook0Decisions, writeNewDocumentVersion } from '../agents/cook0-agent';
 import { Trace, TraceTrigger } from './trace';
 import type {
@@ -26,6 +27,15 @@ export interface IngestOptions {
 }
 
 export interface IngestSummary {
+  /** Facts written to the graph from this run. */
+  facts_written?: number;
+  /** Claims discarded because their quote was not in the source. A high
+   *  number here means the extraction prompt is wrong, not the verifier. */
+  facts_dropped?: number;
+  fact_drop_reasons?: Record<string, number>;
+  /** Candidates where the user named their own loop -- promoter seeds. */
+  self_named_loops?: number;
+  fact_write_errors?: string[];
   traceId: string | null;
   observations_created: number;
   insights_created: number;
@@ -235,6 +245,12 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     let totalCandidatesCreated = 0;
     const batchNotes: string[] = [];
 
+    let factsWritten = 0;
+    let factsDropped = 0;
+    const factDropReasons: Record<string, number> = {};
+    const selfNamedLoopIds: string[] = [];
+    const factWriteErrors: string[] = [];
+
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       const batch = batches[batchIdx]!;
       const isDryRun = !!options.dryRun;
@@ -259,6 +275,50 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       if (result.processingNotes) batchNotes.push(result.processingNotes);
 
       if (isDryRun) continue;
+
+      // 5.0 Facts FIRST. The graph is the bank; observations below are a
+      // compatibility shim for Cook A until it reads facts (04, 06).
+      // A claim whose quote is not in the source is dropped here and never
+      // reaches the graph.
+      if ((result.fact_candidates ?? []).length > 0) {
+        try {
+          const factResult = await writeJournalFacts({
+            userId: options.userId,
+            candidates: result.fact_candidates ?? [],
+            sources: batch.map((rc) => ({
+              id: rc.id,
+              content: rc.content,
+              content_type: rc.content_type,
+              content_date: rc.content_date,
+            })),
+            sourceRunId: trace.id,
+            transcriptionConfidence: Object.fromEntries(
+              batch
+                .map((rc) => {
+                  const meta = (rc.metadata ?? {}) as Record<string, unknown>;
+                  const c = meta.transcription_confidence;
+                  return typeof c === 'number' ? [rc.id, c] : null;
+                })
+                .filter((e): e is [string, number] => e !== null)
+            ),
+          });
+          factsWritten += factResult.written;
+          factsDropped += factResult.dropped;
+          for (const [reason, n] of Object.entries(factResult.dropReasons)) {
+            factDropReasons[reason] = (factDropReasons[reason] ?? 0) + n;
+          }
+          selfNamedLoopIds.push(...factResult.selfNamedLoops);
+          console.log(
+            `[ingest]     facts: ${factResult.written} written, ${factResult.dropped} dropped` +
+              (factResult.dropped > 0 ? ` (${JSON.stringify(factResult.dropReasons)})` : '')
+          );
+        } catch (err) {
+          // A graph failure must not lose the batch: observations below still
+          // persist, and the origin keys make a retry safe.
+          console.error(`[ingest]     facts FAILED: ${(err as Error).message}`);
+          factWriteErrors.push((err as Error).message);
+        }
+      }
 
       // 5a. Persist observations from this batch.
       const batchObservationIds: string[] = [];
@@ -432,6 +492,11 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         insights_created: aggregateResult.insights.length,
         goal_candidates_created: aggregateResult.goal_candidates.length,
         identity_inferences_created: aggregateResult.identity_inferences.length,
+        facts_written: factsWritten,
+        facts_dropped: factsDropped,
+        fact_drop_reasons: factDropReasons,
+        self_named_loops: selfNamedLoopIds.length,
+        fact_write_errors: factWriteErrors,
         raw_content_processed: newRawContent.length,
         batches_run: batches.length,
         user_understanding_version: null,

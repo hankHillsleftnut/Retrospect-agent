@@ -85,6 +85,7 @@ Extract identity_inferences first, then observations, insights, and any goal_can
   });
 
   return {
+    fact_candidates: data.fact_candidates ?? [],
     identity_inferences: data.identity_inferences ?? [],
     observations: data.observations ?? [],
     insights: data.insights ?? [],
