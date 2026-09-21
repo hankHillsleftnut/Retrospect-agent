@@ -24,8 +24,7 @@
     "integration:schedule": "tsx src/jobs/integration-scheduler.ts",
     "security:check": "node scripts/check-secrets.cjs",
     "test": "tsx --test $(find tests -name '*.test.ts')",
-    "setup": "tsx scripts/setup.ts",
-    "lint:brain": "tsx scripts/lint.ts"
+    "setup": "tsx scripts/setup.ts"
   },
   "keywords": [
     "agent",
