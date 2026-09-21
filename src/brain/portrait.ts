@@ -162,15 +162,24 @@ export function patchDocument(
   if (goalsBlock.populated) {
     const prior = Array.isArray(doc.active_goals) ? (doc.active_goals as any[]) : [];
     doc.active_goals = goalsBlock.lines.map((title, i) => {
-      const match = prior.find(
-        (g) => typeof g?.title === 'string' && g.title.toLowerCase() === title.toLowerCase()
-      );
+      const assertionId = goalsBlock.sourceAssertionIds[i] ?? null;
+      // Match on the underlying fact first. Titles are rendered text and drift
+      // between runs ("half marathon" -> "the half marathon"); matching on them
+      // alone drops goal_id, which the API's onboarding flow reads to link a
+      // goal back to its row in the goals table.
+      const match =
+        (assertionId
+          ? prior.find((g) => g?.source_assertion_id === assertionId)
+          : undefined) ??
+        prior.find(
+          (g) => typeof g?.title === 'string' && g.title.toLowerCase() === title.toLowerCase()
+        );
       return {
         // Shape preserved exactly: goal_id, title, what_its_really_about.
         goal_id: match?.goal_id ?? null,
         title,
         what_its_really_about: match?.what_its_really_about ?? '',
-        source_assertion_id: goalsBlock.sourceAssertionIds[i] ?? null,
+        source_assertion_id: assertionId,
       };
     });
   }
