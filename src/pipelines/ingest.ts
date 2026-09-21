@@ -2,6 +2,9 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent, contentCharLimit } from '../agents/ingestion-agent';
+import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
+import { RequestTooLargeError } from '../services/openai';
+import { countTokens, contentTokenBudget } from '../services/token-budget';
 import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
 import { buildPortrait, patchDocument } from '../brain/portrait';
@@ -68,44 +71,71 @@ export interface IngestSummary {
 }
 
 /**
- * Soft cap on the raw_content character budget per ingestion-agent call.
- * Conservative against OpenAI Tier-1 TPM (30K tokens/min). With ~10K tokens
- * of overhead (system prompt + document block + goals/insights/candidates),
- * that leaves ~20K input tokens for the raw_content blocks themselves.
- * 35000 chars ≈ 9K tokens, fits comfortably.
+ * The batch budget is now measured, not assumed.
  *
- * This was briefly raised to 60000 so a single long brain dump could not be
- * split mid-thought. That reasoning was sound but the arithmetic was not: at
- * 60000 the request came to ~35K tokens against a 30K ceiling, so a full batch
- * could never succeed -- not under load, but always. A single oversized entry
- * is still sent whole (see batchRawContent), which serves the same purpose
- * without putting every ordinary batch over the limit.
+ * This used to be a character constant converted to tokens with a fixed ratio.
+ * That ratio is not fixed -- prose, JSON connector payloads and transcripts
+ * tokenize very differently -- and a character budget can only ever approximate
+ * a limit that is expressed in tokens. When the approximation was wrong in the
+ * unsafe direction the request was refused outright and the entries were marked
+ * permanently failed.
+ *
+ * Tokens are now counted locally, which costs microseconds and nothing in
+ * money. Residual error is covered by the split-on-refusal path in runIngest:
+ * the aim is to be right nearly always and to recover cleanly when we are not.
  */
-export const MAX_BATCH_CHARS = 35000;
 
-/**
- * Per-entry content cap. Delegates to the agent so the two cannot disagree:
- * this is the measurement the batch budget is spent against, and if it reads
- * low the batcher overfills every request without ever knowing it did.
- */
-export function estimateEntryChars(rc: DbRawContent): number {
-  return Math.min(rc.content.length, contentCharLimit(rc.content_type));
+/** Tokens one entry will actually contribute, measured on the truncated body. */
+export function estimateEntryTokens(rc: DbRawContent): number {
+  return countTokens(rc.content.slice(0, contentCharLimit(rc.content_type)));
 }
 
-export function batchRawContent(entries: DbRawContent[]): DbRawContent[][] {
+/**
+ * The fixed cost of a call, measured from the real context about to be sent
+ * rather than assumed. Approximate only in that the agent renders these values
+ * slightly differently from JSON; it is far closer than the flat 10k guess it
+ * replaces, and errs high, which is the safe direction.
+ */
+export function measureOverheadTokens(input: {
+  recentInsights: unknown;
+  activeGoals: unknown;
+  openGoalCandidates: unknown;
+  currentDocument: unknown;
+}): number {
+  return (
+    countTokens(INGESTION_SYSTEM_PROMPT) +
+    countTokens(JSON.stringify(input.recentInsights ?? [])) +
+    countTokens(JSON.stringify(input.activeGoals ?? [])) +
+    countTokens(JSON.stringify(input.openGoalCandidates ?? [])) +
+    countTokens(JSON.stringify(input.currentDocument ?? {}))
+  );
+}
+
+/** Halve a refused batch. Pure, so the arithmetic can be tested on its own. */
+export function splitBatch<T>(batch: T[]): [T[], T[]] {
+  const mid = Math.ceil(batch.length / 2);
+  return [batch.slice(0, mid), batch.slice(mid)];
+}
+
+export function batchRawContent(
+  entries: DbRawContent[],
+  budgetTokens: number,
+): DbRawContent[][] {
   const batches: DbRawContent[][] = [];
   let current: DbRawContent[] = [];
-  let currentChars = 0;
+  let currentTokens = 0;
   for (const entry of entries) {
-    const size = estimateEntryChars(entry);
-    // Always include at least one entry per batch, even if it alone exceeds the cap.
-    if (current.length > 0 && currentChars + size > MAX_BATCH_CHARS) {
+    const size = estimateEntryTokens(entry);
+    // Always include at least one entry per batch, even if it alone exceeds the
+    // budget: a single long entry must not be split mid-thought, and the
+    // split-on-refusal path cannot help a batch of one anyway.
+    if (current.length > 0 && currentTokens + size > budgetTokens) {
       batches.push(current);
       current = [];
-      currentChars = 0;
+      currentTokens = 0;
     }
     current.push(entry);
-    currentChars += size;
+    currentTokens += size;
   }
   if (current.length > 0) batches.push(current);
   return batches;
@@ -309,9 +339,22 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     //    own ingestion-agent call; results are persisted per-batch (since
     //    insight/inference indexes are local to each agent response). Cook 0
     //    runs once at the end with all accumulated new inferences.
-    const batches = batchRawContent(newRawContent);
+    const overheadTokens = measureOverheadTokens({
+      recentInsights,
+      activeGoals,
+      openGoalCandidates,
+      currentDocument,
+    });
+    const budgetTokens = contentTokenBudget(overheadTokens);
+
+    // A queue rather than a fixed list: when the model refuses a batch as too
+    // large, that batch is replaced in place by its two halves and the loop
+    // picks them up. The budget above should make this rare; the point is that
+    // being wrong costs one extra call instead of losing the entries.
+    const batches = batchRawContent(newRawContent, budgetTokens);
     console.log(
-      `[ingest] user=${options.userId} content=${newRawContent.length} batches=${batches.length}`
+      `[ingest] user=${options.userId} content=${newRawContent.length} batches=${batches.length} ` +
+        `overhead=${overheadTokens}tok budget=${budgetTokens}tok`
     );
 
     const aggregateResult: IngestionResult = {
@@ -332,6 +375,8 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     const selfNamedLoopIds: string[] = [];
     const factWriteErrors: string[] = [];
 
+    let splitCount = 0;
+
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       const batch = batches[batchIdx]!;
       const isDryRun = !!options.dryRun;
@@ -340,14 +385,36 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         `[ingest]   batch ${batchIdx + 1}/${batches.length}: ${batch.length} entries`
       );
 
-      const result = await runIngestionAgent({
-        newRawContent: batch,
-        recentInsights,
-        activeGoals,
-        openGoalCandidates,
-        currentDocument,
-        trace,
-      });
+      let result: IngestionResult & { fact_candidates?: unknown[]; processingNotes?: string };
+      try {
+        result = await runIngestionAgent({
+          newRawContent: batch,
+          recentInsights,
+          activeGoals,
+          openGoalCandidates,
+          currentDocument,
+          trace,
+        });
+      } catch (err) {
+        // Too large is the one failure we can answer intelligently: halve the
+        // batch and try again. Retrying the identical request -- which is what
+        // happened before -- can only ever fail identically.
+        if (err instanceof RequestTooLargeError && batch.length > 1) {
+          const [first, second] = splitBatch(batch);
+          batches.splice(batchIdx, 1, first, second);
+          splitCount += 1;
+          console.warn(
+            `[ingest]   batch ${batchIdx + 1} refused as too large — split into ${first.length} + ${second.length}`
+          );
+          batchIdx -= 1; // reprocess this position, now holding the first half
+          continue;
+        }
+        // A single entry that still will not fit cannot be split further. It is
+        // already truncated at the per-entry cap, so this means the cap itself
+        // is too high for the account -- worth failing loudly rather than
+        // silently dropping the entry.
+        throw err;
+      }
 
       aggregateResult.observations.push(...result.observations);
       aggregateResult.insights.push(...result.insights);
