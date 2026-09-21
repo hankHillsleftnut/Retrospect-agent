@@ -49,7 +49,8 @@ test('origin key is caller-supplied and used verbatim', async () => {
   const { db, calls } = fakeDb();
   await writeFact({
     userId: 'u1', subjectEntityId: 'self', predicate: 'p',
-    objectValue: { v: 1 }, originKey: 'journal:raw-1:p:x', evidence: [],
+    objectValue: { v: 1 }, originKey: 'journal:raw-1:p:x',
+    evidence: [{ rawContentId: 'raw-1' }],
   }, db);
   assert.equal(calls[0].rows.origin_key, 'journal:raw-1:p:x');
   assert.deepEqual(calls[0].opts, { onConflict: 'user_id,origin_key' });
@@ -58,7 +59,7 @@ test('origin key is caller-supplied and used verbatim', async () => {
 test('refuses to write without an origin key', async () => {
   const { db } = fakeDb();
   await assert.rejects(
-    () => writeFact({ userId: 'u1', subjectEntityId: 's', predicate: 'p', objectValue: { v: 1 }, originKey: '', evidence: [] }, db),
+    () => writeFact({ userId: 'u1', subjectEntityId: 's', predicate: 'p', objectValue: { v: 1 }, originKey: '', evidence: [{ rawContentId: 'r1' }] }, db),
     /originKey is required/
   );
 });
@@ -66,7 +67,7 @@ test('refuses to write without an origin key', async () => {
 test('refuses a fact with neither an object entity nor an object value', async () => {
   const { db } = fakeDb();
   await assert.rejects(
-    () => writeFact({ userId: 'u1', subjectEntityId: 's', predicate: 'p', originKey: 'k', evidence: [] }, db),
+    () => writeFact({ userId: 'u1', subjectEntityId: 's', predicate: 'p', originKey: 'k', evidence: [{ rawContentId: 'r1' }] }, db),
     /objectEntityId or objectValue/
   );
 });
@@ -75,7 +76,8 @@ test('carries lineage: source_run_id reaches the row', async () => {
   const { db, calls } = fakeDb();
   await writeFact({
     userId: 'u1', subjectEntityId: 's', predicate: 'p', objectValue: { v: 1 },
-    originKey: 'k', sourceRunId: 'run-42', modelVersion: 'm1', evidence: [],
+    originKey: 'k', sourceRunId: 'run-42', modelVersion: 'm1',
+    evidence: [{ rawContentId: 'r1' }],
   }, db);
   assert.equal(calls[0].rows.source_run_id, 'run-42');
   assert.equal(calls[0].rows.model_version, 'm1');
@@ -154,4 +156,61 @@ test('integration evidence keeps analysis_unit and source_item, never raw_conten
   assert.equal(ev.analysis_unit_id, 'au-1');
   assert.equal(ev.source_item_id, 'si-1');
   assert.equal(ev.raw_content_id, null, 'integration facts never carry raw_content_id');
+});
+
+// --- review fixes: the write path must not create what lint calls a bug ---
+
+test('refuses to write a Fact with no evidence at all', async () => {
+  const { db } = fakeDb();
+  await assert.rejects(
+    () => writeFact({
+      userId: 'u1', subjectEntityId: 's', predicate: 'p',
+      objectValue: { v: 1 }, originKey: 'k', evidence: [],
+    }, db),
+    /at least one evidence row/,
+    'an evidence-less fact cannot show its receipts, and is exactly lint check F2'
+  );
+});
+
+test('refuses evidence that points at no source', async () => {
+  const { db } = fakeDb();
+  await assert.rejects(
+    () => writeFact({
+      userId: 'u1', subjectEntityId: 's', predicate: 'p', objectValue: { v: 1 },
+      originKey: 'k', evidence: [{ excerpt: 'orphaned' }],
+    }, db),
+    /rawContentId, sourceItemId or analysisUnitId/,
+    'better a readable error than an opaque CHECK violation from Postgres'
+  );
+});
+
+test('omits columns the caller did not supply, so an upsert cannot null them', async () => {
+  const { db, calls } = fakeDb();
+  await writeFact({
+    userId: 'u1', subjectEntityId: 's', predicate: 'p', objectValue: { v: 1 },
+    originKey: 'k', evidence: [{ rawContentId: 'r1' }],
+  }, db);
+  const row = calls[0].rows;
+  assert.ok(!('model_version' in row), 'an upsert overwrites every column in the payload');
+  assert.ok(!('source_run_id' in row));
+});
+
+test('still writes them when they ARE supplied', async () => {
+  const { db, calls } = fakeDb();
+  await writeFact({
+    userId: 'u1', subjectEntityId: 's', predicate: 'p', objectValue: { v: 1 },
+    originKey: 'k', modelVersion: 'm1', sourceRunId: 'run-1',
+    evidence: [{ rawContentId: 'r1' }],
+  }, db);
+  assert.equal(calls[0].rows.model_version, 'm1');
+  assert.equal(calls[0].rows.source_run_id, 'run-1');
+});
+
+test('the integration path is unaffected: no null model_version written', async () => {
+  const { db, calls } = fakeDb();
+  await writeObservedAssertion({
+    userId: 'u1', record, providerId: 'google_calendar',
+    subjectEntityId: 'self', predicate: 'attended', objectEntityId: 'e-1',
+  }, db);
+  assert.ok(!('model_version' in calls[0].rows), 'byte-identical to the pre-refactor payload');
 });
