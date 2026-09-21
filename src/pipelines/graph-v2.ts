@@ -1,7 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { publicSourceIntelligenceProfile } from '../integrations/source-intelligence';
-import { classifyRelation, type ClaimShape } from '../brain/supersession';
+import { classifyRelation, RETIRED_BY, type ClaimShape } from '../brain/supersession';
 
 interface SourceRecord {
   id: string;
@@ -208,12 +208,21 @@ export async function supersedeContradicted(options: {
   incoming: ClaimShape;
   eventTime?: string | null;
 }, db: FactDb = supabase): Promise<string[]> {
+  // Only predicates the classifier could possibly retire. Without this the
+  // query pulls every active fact about the subject -- and since almost
+  // everything hangs off Self, that is a full scan per candidate on every
+  // ingest, growing with the bank.
+  const candidatePredicates = [
+    ...new Set([options.incoming.predicate, ...(RETIRED_BY[options.incoming.predicate] ?? [])]),
+  ];
+
   const { data: existing, error } = await db.from(Tables.ASSERTIONS)
-    .select('id,predicate,object_value,event_time')
+    .select('id,predicate,object_value,event_time,observed_at')
     .eq('user_id', options.userId)
     .eq('subject_entity_id', options.subjectEntityId)
     .eq('status', 'active')
-    .is('valid_to', null);
+    .is('valid_to', null)
+    .in('predicate', candidatePredicates);
   if (error) throw new Error(`Supersession lookup failed: ${error.message}`);
 
   const retired: string[] = [];
@@ -228,21 +237,38 @@ export async function supersedeContradicted(options: {
     };
     if (classifyRelation(prior, options.incoming) !== 'supersedes') continue;
 
+    // A fact must never retire something NEWER than itself. Backfilling
+    // history feeds facts in arbitrary order, so without this an old journal
+    // reprocessed today would retire the current truth: a January "training
+    // for the half" would silently replace the March "I quit".
+    const priorTime = row.event_time ?? row.observed_at;
+    const incomingTime = options.incoming.eventTime ?? options.eventTime;
+    if (priorTime && incomingTime && new Date(incomingTime) < new Date(priorTime)) continue;
+
     const { error: updErr } = await db.from(Tables.ASSERTIONS)
       .update({ valid_to: closedAt, status: 'superseded' })
       .eq('id', row.id);
     if (updErr) throw new Error(`Retire assertion failed: ${updErr.message}`);
 
-    await db.from(Tables.ASSERTIONS)
-      .update({ supersedes_id: row.id })
-      .eq('id', options.newAssertionId);
+    // These two were unchecked. A failure here leaves a retired fact with no
+    // pointer to what replaced it -- precisely the broken chain lint check F5
+    // reports, manufactured silently by the code meant to prevent it.
+    // supersedes_id holds one link, so only the first retirement claims it;
+    // assertion_relations records every one.
+    if (retired.length === 0) {
+      const { error: linkErr } = await db.from(Tables.ASSERTIONS)
+        .update({ supersedes_id: row.id })
+        .eq('id', options.newAssertionId);
+      if (linkErr) throw new Error(`Link supersedes_id failed: ${linkErr.message}`);
+    }
 
-    await db.from(Tables.ASSERTION_RELATIONS).upsert({
+    const { error: relErr } = await db.from(Tables.ASSERTION_RELATIONS).upsert({
       user_id: options.userId,
       from_assertion_id: options.newAssertionId,
       to_assertion_id: row.id,
       relation_type: 'supersedes',
     }, { onConflict: 'from_assertion_id,to_assertion_id,relation_type' });
+    if (relErr) throw new Error(`Write supersession relation failed: ${relErr.message}`);
 
     retired.push(row.id);
   }

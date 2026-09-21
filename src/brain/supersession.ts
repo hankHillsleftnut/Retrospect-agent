@@ -42,6 +42,10 @@ const RETIRES: Record<string, string[]> = {
   quit_or_stopped: ['stated_goal'],
 };
 
+/** Exported so the write path can narrow its lookup to predicates that could
+ *  actually be retired, instead of scanning every active fact about a subject. */
+export const RETIRED_BY = RETIRES;
+
 export type Relation = 'duplicate' | 'supersedes' | 'refines' | 'unrelated';
 
 export interface ClaimShape {

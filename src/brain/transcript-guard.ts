@@ -55,10 +55,26 @@ const PREDICTION_PATTERNS: RegExp[] = [
   /\byou're going to (?:skip|avoid|cancel|struggle|fail)\b/i,
 ];
 
+/**
+ * A QUESTION about the future is not a prediction.
+ *
+ * "Do you think you'll skip it again?" hands the person agency; "next week
+ * you'll skip it again" takes it. They are opposites, and an earlier version
+ * of this guard flagged both -- which would have blocked the interrogative
+ * mode the emotional-theme work makes mandatory, and the founder heuristic of
+ * giving the pieces without naming the realisation.
+ *
+ * So predictions are matched per sentence, and interrogative sentences are
+ * exempt. Declarative forecasting is still refused.
+ */
 export function findPrediction(text: string): string | null {
-  for (const re of PREDICTION_PATTERNS) {
-    const m = text.match(re);
-    if (m) return m[0];
+  const sentences = text.split(/(?<=[.!?])\s+/);
+  for (const sentence of sentences) {
+    if (sentence.trim().endsWith('?')) continue;
+    for (const re of PREDICTION_PATTERNS) {
+      const m = sentence.match(re);
+      if (m) return m[0];
+    }
   }
   return null;
 }

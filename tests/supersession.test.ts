@@ -92,3 +92,26 @@ test('an unknown predicate refuses to guess', () => {
   assert.equal(classifyRelation(a, b), 'unrelated',
     'a stale fact beats erased history');
 });
+
+// --- review fix: a fact must not retire something newer than itself ---
+
+test('the backfill hazard: an older fact must not retire the current truth', () => {
+  // Reprocessing 2,034 historical rows feeds facts in arbitrary order. The
+  // classifier alone says "supersedes" in BOTH directions here, because it
+  // only compares shape. Time ordering is what stops a January statement
+  // replacing the March one.
+  const january = { predicate: 'stated_goal', object: 'half_marathon', eventTime: '2026-01-08' };
+  const march = { predicate: 'stated_goal', object: 'half_marathon_sub_two', eventTime: '2026-03-05' };
+
+  assert.equal(classifyRelation(january, march), 'supersedes', 'newer over older: correct');
+  assert.equal(classifyRelation(march, january), 'supersedes',
+    'the classifier is time-blind by design; the write path must apply the ordering');
+});
+
+test('supersession direction is a property of time, not of shape', () => {
+  const a = { predicate: 'stated_goal', object: 'half_marathon', eventTime: '2026-01-08' };
+  const b = { predicate: 'stated_goal', object: 'half_marathon', eventTime: '2026-03-05' };
+  // Identical objects are a duplicate regardless of order -- no retirement.
+  assert.equal(classifyRelation(a, b), 'duplicate');
+  assert.equal(classifyRelation(b, a), 'duplicate');
+});

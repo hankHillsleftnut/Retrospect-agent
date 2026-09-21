@@ -133,3 +133,31 @@ test('Cook C is told not to predict', () => {
 test('Cook C keeps the founder heuristic about not always naming it', () => {
   assert.match(FINAL_TRANSCRIPT_SYSTEM_PROMPT, /DON'T ALWAYS NAME THE REALISATION/);
 });
+
+// --- review fix: a question about the future is not a prediction ---
+
+test('questions about the future are allowed', () => {
+  for (const line of [
+    "What do you think you'll do differently next Thursday?",
+    "Do you think you'll skip it again?",
+    "Is next week going to look different?",
+  ]) {
+    assert.equal(findPrediction(line), null,
+      `a question hands agency back; a prediction takes it: ${line}`);
+  }
+});
+
+test('declarative forecasting is still refused', () => {
+  for (const line of [
+    "Next week you'll skip it again.",
+    "You're going to avoid that conversation.",
+    "I predict this continues.",
+  ]) {
+    assert.ok(findPrediction(line), `should still flag: ${line}`);
+  }
+});
+
+test('a prediction is caught even when a question sits beside it', () => {
+  const mixed = "Do you think you'll go? Next week you'll skip it again.";
+  assert.ok(findPrediction(mixed), 'exempting questions must not exempt the whole segment');
+});

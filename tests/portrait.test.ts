@@ -112,3 +112,25 @@ test('patching twice is a no-op', () => {
   const twice = patchDocument(once, p);
   assert.deepEqual(twice.active_goals, once.active_goals);
 });
+
+// --- review fix: goal_id must survive the title being reworded ---
+
+test('a goal keeps its id when the rendered title drifts', () => {
+  const prior = {
+    active_goals: [{
+      goal_id: 'g-7', title: 'half marathon',
+      what_its_really_about: 'proving consistency', source_assertion_id: 'a1',
+    }],
+  };
+  // Same underlying fact, slightly different wording next run.
+  const doc = patchDocument(prior, portrait(['the half marathon'], ['a1']));
+  const g = (doc.active_goals as any[])[0];
+  assert.equal(g.goal_id, 'g-7', 'the API reads goal_id to reach the goals table row');
+  assert.equal(g.what_its_really_about, 'proving consistency');
+});
+
+test('title matching still works for goals written before ids were stored', () => {
+  const prior = { active_goals: [{ goal_id: 'g-7', title: 'half marathon', what_its_really_about: 'x' }] };
+  const doc = patchDocument(prior, portrait(['half marathon'], ['a-new']));
+  assert.equal((doc.active_goals as any[])[0].goal_id, 'g-7');
+});
