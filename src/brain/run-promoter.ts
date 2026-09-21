@@ -15,6 +15,8 @@ import {
 import { canInferWhy, sanitizeWhy, shouldRetireWhy } from './why';
 
 export const PROMOTER_VERSION = 'v1';
+/** Facts considered per run. A user past this sees only the newest slice. */
+export const PROMOTER_FACT_LIMIT = 2000;
 
 export interface PromoterRunResult {
   groupsConsidered: number;
@@ -48,7 +50,12 @@ export async function runPromoter(options: {
   const { data: rows, error } = await supabase.from(Tables.ASSERTIONS)
     .select('id,predicate,object_value,event_time,observed_at,metadata,status,valid_to')
     .eq('user_id', options.userId).eq('status', 'active').is('valid_to', null)
-    .gte('observed_at', since).limit(2000);
+    // Explicit order matters: with no ORDER BY, a user past the limit gets an
+    // arbitrary subset, and which facts the promoter sees would drift between
+    // runs. Newest first, so the slice is at least meaningful and stable.
+    .gte('observed_at', since)
+    .order('observed_at', { ascending: false })
+    .limit(PROMOTER_FACT_LIMIT);
   if (error) throw new Error(`runPromoter load failed: ${error.message}`);
 
   const facts: FactForPromotion[] = (rows ?? []).map((r: any) => ({
