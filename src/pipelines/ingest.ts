@@ -1,7 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
-import { runIngestionAgent } from '../agents/ingestion-agent';
+import { runIngestionAgent, contentCharLimit } from '../agents/ingestion-agent';
 import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
 import { buildPortrait, patchDocument } from '../brain/portrait';
@@ -73,18 +73,26 @@ export interface IngestSummary {
  * of overhead (system prompt + document block + goals/insights/candidates),
  * that leaves ~20K input tokens for the raw_content blocks themselves.
  * 35000 chars ≈ 9K tokens, fits comfortably.
+ *
+ * This was briefly raised to 60000 so a single long brain dump could not be
+ * split mid-thought. That reasoning was sound but the arithmetic was not: at
+ * 60000 the request came to ~35K tokens against a 30K ceiling, so a full batch
+ * could never succeed -- not under load, but always. A single oversized entry
+ * is still sent whole (see batchRawContent), which serves the same purpose
+ * without putting every ordinary batch over the limit.
  */
-// One long brain dump must never be split mid-thought across LLM calls, so
-// the batch budget has to comfortably exceed the per-entry cap (16k).
-const MAX_BATCH_CHARS = 60000;
+export const MAX_BATCH_CHARS = 35000;
 
-/** Per-entry content cap (matches the slice in ingestion-agent.ts). */
-function estimateEntryChars(rc: DbRawContent): number {
-  const cap = rc.content_type === 'onboarding_profile' ? 10000 : 4000;
-  return Math.min(rc.content.length, cap);
+/**
+ * Per-entry content cap. Delegates to the agent so the two cannot disagree:
+ * this is the measurement the batch budget is spent against, and if it reads
+ * low the batcher overfills every request without ever knowing it did.
+ */
+export function estimateEntryChars(rc: DbRawContent): number {
+  return Math.min(rc.content.length, contentCharLimit(rc.content_type));
 }
 
-function batchRawContent(entries: DbRawContent[]): DbRawContent[][] {
+export function batchRawContent(entries: DbRawContent[]): DbRawContent[][] {
   const batches: DbRawContent[][] = [];
   let current: DbRawContent[] = [];
   let currentChars = 0;
