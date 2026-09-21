@@ -202,6 +202,21 @@ export async function writeFact(
   if (!options.objectEntityId && !options.objectValue) {
     throw new Error('writeFact: one of objectEntityId or objectValue is required');
   }
+  // A Fact with no evidence cannot show its receipts, and is exactly what lint
+  // check F2 flags as a bug. The single write path must not be able to create
+  // the condition lint exists to catch.
+  if (options.evidence.length === 0) {
+    throw new Error(`writeFact: at least one evidence row is required (origin_key ${options.originKey})`);
+  }
+  // assertion_evidence CHECKs that one of the three source references is set.
+  // Fail here with a readable message instead of an opaque constraint error.
+  for (const entry of options.evidence) {
+    if (!entry.analysisUnitId && !entry.sourceItemId && !entry.rawContentId) {
+      throw new Error(
+        `writeFact: evidence needs rawContentId, sourceItemId or analysisUnitId (origin_key ${options.originKey})`
+      );
+    }
+  }
 
   const { data: assertion, error } = await db.from(Tables.ASSERTIONS).upsert({
     user_id: options.userId,
@@ -214,10 +229,13 @@ export async function writeFact(
     event_time: options.eventTime ?? null,
     observed_at: new Date().toISOString(),
     normalizer_version: options.normalizerVersion ?? null,
-    model_version: options.modelVersion ?? null,
-    source_run_id: options.sourceRunId ?? null,
     origin_key: options.originKey,
     metadata: options.metadata ?? {},
+    // Sent only when supplied. An upsert overwrites every column in the
+    // payload, so including these unconditionally would null them on an
+    // existing row whose original writer did set them.
+    ...(options.modelVersion !== undefined ? { model_version: options.modelVersion } : {}),
+    ...(options.sourceRunId !== undefined ? { source_run_id: options.sourceRunId } : {}),
   }, { onConflict: 'user_id,origin_key' }).select('id').single();
   if (error || !assertion) throw new Error(`Write graph assertion failed: ${error?.message ?? 'no row'}`);
 
@@ -231,8 +249,8 @@ export async function writeFact(
       evidence_role: entry.role ?? 'supports',
       weight: entry.weight ?? 1,
       excerpt: entry.excerpt ?? null,
-      char_start: entry.charStart ?? null,
-      char_end: entry.charEnd ?? null,
+      ...(entry.charStart !== undefined ? { char_start: entry.charStart } : {}),
+      ...(entry.charEnd !== undefined ? { char_end: entry.charEnd } : {}),
     }));
     const { error: evidenceError } = await db.from(Tables.ASSERTION_EVIDENCE)
       .upsert(evidence, { onConflict: 'assertion_id,analysis_unit_id,source_item_id,raw_content_id,evidence_role' });
