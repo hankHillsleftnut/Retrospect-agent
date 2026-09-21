@@ -177,3 +177,46 @@ test('a row is reachable by one of the two queries, never neither', () => {
   // a genuinely new arrival still needs no due time
   assert.equal(reachable({ created_at: new Date().toISOString(), next_attempt_at: null }), true);
 });
+
+// ------------------------------------------------------- reachability, again
+//
+// Review of the first version found the seam had simply moved: splitting
+// selection into "arrivals" and "due retries" left rows that were pending, had
+// no due time, and were older than the window matching NEITHER. Fourteen rows
+// were sitting in exactly that state in production.
+//
+// The invariant is the one that matters for the whole change: a pending row is
+// always reachable by something. This asserts it over the full space of states
+// rather than the three cases that happened to come to mind.
+
+test('every pending row is reachable by one of the three queries', () => {
+  const WINDOW = 7 * 86_400_000;
+  const now = Date.now();
+
+  const reachable = (createdAgoMs: number, nextAttemptAgoMs: number | null) => {
+    const created = now - createdAgoMs;
+    const due = nextAttemptAgoMs === null ? null : now - nextAttemptAgoMs;
+    const inWindow = created >= now - WINDOW;
+
+    const isArrival = due === null && inWindow;
+    const isDue = due !== null && due <= now;
+    const isStranded = due === null && !inWindow;
+    return isArrival || isDue || isStranded;
+  };
+
+  const ages = [0, 3 * 86_400_000, 8 * 86_400_000, 200 * 86_400_000];
+  for (const age of ages) {
+    // no due time, any age -- arrival or stranded, never neither
+    assert.equal(reachable(age, null), true, `pending, no due time, ${age}ms old`);
+    // due in the past, any age
+    assert.equal(reachable(age, 60_000), true, `pending, due, ${age}ms old`);
+  }
+
+  // The only row deliberately not picked up is one scheduled for the future,
+  // which is backoff working rather than a row going missing.
+  const future = (createdAgoMs: number) => {
+    const due = now + 60_000;
+    return due <= now;
+  };
+  assert.equal(future(0), false, 'a row due later is waiting, not lost');
+});

@@ -17,6 +17,7 @@
 
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { failureUpdate, MAX_ATTEMPTS } from '../pipelines/retry-policy';
 
 /** How long a run may go silent before its work is considered abandoned. */
 export const LEASE_TTL_MS = 15 * 60 * 1000;
@@ -34,6 +35,47 @@ export interface ReclaimResult {
  * Safe to call concurrently: the status filter means two workers racing will
  * simply both see fewer rows, never double-claim.
  */
+/**
+ * Return rows to the queue, counting the reclaim as an attempt.
+ *
+ * Reclaiming without incrementing attempt_count leaves a hole in the attempt
+ * ceiling. A row whose content kills the worker mid-batch -- an out-of-memory,
+ * a hard timeout, an unhandled parser crash -- never reaches the failure
+ * handler that does the counting, so it would be leased, orphaned, reclaimed
+ * and leased again without limit, burning a call every cycle. The ceiling has
+ * to apply to every path out of `processing`, not just the tidy one.
+ */
+async function requeueOrphaned(
+  rows: { id: string; attempt_count: number | null }[],
+  reason: string,
+): Promise<string[]> {
+  const byAttempt = new Map<number, string[]>();
+  for (const row of rows) {
+    const n = row.attempt_count ?? 0;
+    if (!byAttempt.has(n)) byAttempt.set(n, []);
+    byAttempt.get(n)!.push(row.id);
+  }
+
+  const touched: string[] = [];
+  for (const [attempts, ids] of byAttempt) {
+    const update = failureUpdate(reason, attempts);
+    const { error } = await supabase
+      .from(Tables.RAW_CONTENT)
+      .update({ ...update, processing_started_at: null })
+      .in('id', ids)
+      .eq('processing_status', 'processing');
+    if (error) throw new Error(`Reclaim update failed: ${error.message}`);
+    touched.push(...ids);
+
+    if (update.processing_status === 'failed') {
+      console.warn(
+        `[lease] ${ids.length} row(s) reclaimed for the last time (attempt ${update.attempt_count}/${MAX_ATTEMPTS}); giving up`
+      );
+    }
+  }
+  return touched;
+}
+
 export async function reclaimExpiredLeases(options: {
   userId?: string;
   ttlMs?: number;
@@ -42,25 +84,19 @@ export async function reclaimExpiredLeases(options: {
 
   let query = supabase
     .from(Tables.RAW_CONTENT)
-    .update({
-      processing_status: 'pending',
-      processing_started_at: null,
-      processing_error: 'lease expired; reclaimed for retry',
-      // Due immediately, and explicitly IN the retry queue rather than treated
-      // as fresh arrivals. A reclaimed row keeps its original created_at, so
-      // leaving this null would put an old row back under the "recent content"
-      // window it can never satisfy -- reclaimed, and unreachable all the same.
-      next_attempt_at: new Date().toISOString(),
-    })
+    .select('id, attempt_count')
     .eq('processing_status', 'processing')
     .lt('processing_started_at', cutoff);
 
   if (options.userId) query = query.eq('user_id', options.userId);
 
-  const { data, error } = await query.select('id');
+  const { data, error } = await query;
   if (error) throw new Error(`Reclaim expired leases failed: ${error.message}`);
 
-  const ids = (data ?? []).map((r: { id: string }) => r.id);
+  const ids = await requeueOrphaned(
+    (data ?? []) as { id: string; attempt_count: number | null }[],
+    'lease expired; reclaimed for retry',
+  );
   return { reclaimed: ids.length, ids };
 }
 
@@ -71,18 +107,18 @@ export async function reclaimExpiredLeases(options: {
 export async function reclaimUnstampedLeases(userId?: string): Promise<ReclaimResult> {
   let query = supabase
     .from(Tables.RAW_CONTENT)
-    .update({
-      processing_status: 'pending',
-      processing_error: 'processing with no lease stamp; reclaimed for retry',
-      next_attempt_at: new Date().toISOString(),
-    })
+    .select('id, attempt_count')
     .eq('processing_status', 'processing')
     .is('processing_started_at', null);
   if (userId) query = query.eq('user_id', userId);
 
-  const { data, error } = await query.select('id');
+  const { data, error } = await query;
   if (error) throw new Error(`Reclaim unstamped leases failed: ${error.message}`);
-  const ids = (data ?? []).map((r: { id: string }) => r.id);
+
+  const ids = await requeueOrphaned(
+    (data ?? []) as { id: string; attempt_count: number | null }[],
+    'processing with no lease stamp; reclaimed for retry',
+  );
   return { reclaimed: ids.length, ids };
 }
 

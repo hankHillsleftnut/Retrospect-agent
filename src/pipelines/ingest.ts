@@ -4,7 +4,7 @@ import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent, contentCharLimit, renderPromptContext } from '../agents/ingestion-agent';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
-import { countTokens, contentTokenBudget } from '../services/token-budget';
+import { countTokens, contentTokenBudget, envInt } from '../services/token-budget';
 import { failureUpdate, MAX_ATTEMPTS } from './retry-policy';
 import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
@@ -53,6 +53,9 @@ export interface IngestSummary {
   /** Claims discarded because their quote was not in the source. A high
    *  number here means the extraction prompt is wrong, not the verifier. */
   facts_dropped?: number;
+  /** How many batches the model refused as too large and we had to halve.
+   *  Persistently non-zero means the token budget is set too high. */
+  batches_split?: number;
   fact_drop_reasons?: Record<string, number>;
   /** Candidates where the user named their own loop -- promoter seeds. */
   self_named_loops?: number;
@@ -93,7 +96,17 @@ export interface IngestSummary {
  * ships would try to process all of them at once -- an unbounded spend and a
  * guaranteed rate limit. The queue drains over successive runs instead.
  */
-export const RETRY_LIMIT_PER_RUN = Number(process.env.INGEST_RETRY_LIMIT ?? 25);
+export const RETRY_LIMIT_PER_RUN = envInt('INGEST_RETRY_LIMIT', 25);
+
+/**
+ * Bound on NEW content too, not just retries.
+ *
+ * Retries were bounded and arrivals were not, which protects the backlog and
+ * leaves the front door open: a bulk import or a connector backfill landing
+ * hundreds of rows inside the window would issue hundreds of calls in a single
+ * unbounded pass. Both sides drain over successive runs now.
+ */
+export const FRESH_LIMIT_PER_RUN = envInt('INGEST_FRESH_LIMIT', 200);
 
 /** Tokens one entry will actually contribute, measured on the truncated body. */
 export function estimateEntryTokens(rc: DbRawContent): number {
@@ -239,6 +252,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     } else {
       const nowIso = new Date().toISOString();
 
+      // 1. Arrivals: pending, no due time, inside the window.
       const { data: fresh, error: freshErr } = await supabase
         .from(Tables.RAW_CONTENT)
         .select('*')
@@ -246,9 +260,11 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         .eq('processing_status', 'pending')
         .is('next_attempt_at', null)
         .gte('created_at', sinceIso)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(FRESH_LIMIT_PER_RUN);
       if (freshErr) throw new Error(`Fetch raw_content failed: ${freshErr.message}`);
 
+      // 2. Scheduled retries: due now, at any age.
       const { data: due, error: dueErr } = await supabase
         .from(Tables.RAW_CONTENT)
         .select('*')
@@ -260,8 +276,30 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         .limit(RETRY_LIMIT_PER_RUN);
       if (dueErr) throw new Error(`Fetch due retries failed: ${dueErr.message}`);
 
+      // 3. Stranded: pending, no due time, and OUTSIDE the window.
+      //
+      // Splitting the first two queries apart left a gap exactly where the old
+      // bug lived. A row in this state matches neither: too old for the
+      // arrivals window, no due time for the retry queue. Fourteen rows were
+      // sitting in it in production -- pending, never processed, and after the
+      // split, unreachable by anything.
+      //
+      // Nothing should be able to sit in `pending` and never be looked at. The
+      // window is an optimisation for finding new work quickly, not a statement
+      // that older work has stopped mattering.
+      const { data: stranded, error: strandedErr } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', options.userId)
+        .eq('processing_status', 'pending')
+        .is('next_attempt_at', null)
+        .lt('created_at', sinceIso)
+        .order('created_at', { ascending: true })
+        .limit(RETRY_LIMIT_PER_RUN);
+      if (strandedErr) throw new Error(`Fetch stranded pending failed: ${strandedErr.message}`);
+
       const seen = new Set<string>();
-      newRawContent = [...(fresh ?? []), ...(due ?? [])].filter((r) => {
+      newRawContent = [...(fresh ?? []), ...(due ?? []), ...(stranded ?? [])].filter((r) => {
         const row = r as DbRawContent;
         if (seen.has(row.id)) return false;
         seen.add(row.id);
@@ -270,6 +308,9 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
       if ((due ?? []).length > 0) {
         console.log(`[ingest]   including ${(due ?? []).length} due retries (limit ${RETRY_LIMIT_PER_RUN})`);
+      }
+      if ((stranded ?? []).length > 0) {
+        console.log(`[ingest]   including ${(stranded ?? []).length} stranded pending rows older than the window`);
       }
     }
 
@@ -729,6 +770,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         fact_write_errors: factWriteErrors,
         raw_content_processed: newRawContent.length,
         batches_run: batches.length,
+        batches_split: splitCount,
         user_understanding_version: null,
         cook0_failed: false,
         result: aggregateResult,
@@ -835,6 +877,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       identity_inferences_created: allInferenceIds.length,
       raw_content_processed: newRawContent.length,
       batches_run: batches.length,
+      batches_split: splitCount,
       user_understanding_version: newUnderstandingVersion,
       cook0_failed: cook0Failed,
       cook0_error: cook0Error,
