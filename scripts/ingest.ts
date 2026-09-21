@@ -21,11 +21,19 @@ async function main() {
   });
 
   const out = writeOutput('ingest.json', result);
+  // Facts first. They are what the product now rests on -- a span-verified
+  // claim with the words that prove it. Observations and insights are the older
+  // layer kept alive for surfaces that have not moved across yet, and reporting
+  // them as the headline made a run look successful when the fact bank had
+  // gained nothing at all.
   console.log(`\nresult:`);
+  console.log(`  facts written:           ${result.facts_written ?? 0}`);
+  console.log(`  facts dropped (no span): ${result.facts_dropped ?? 0}`);
+  console.log(`  raw content processed:   ${result.raw_content_processed}`);
+  console.log(`  --- legacy shim ---`);
   console.log(`  observations created:    ${result.observations_created}`);
   console.log(`  insights created:        ${result.insights_created}`);
   console.log(`  goal candidates created: ${result.goal_candidates_created}`);
-  console.log(`  raw content processed:   ${result.raw_content_processed}`);
   console.log(`  trace:                   ${result.traceId ?? '(dry-run)'}`);
   console.log(`  output saved:            ${out}`);
 }

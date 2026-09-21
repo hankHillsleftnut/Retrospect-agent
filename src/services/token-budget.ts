@@ -15,18 +15,38 @@ import { encode } from 'gpt-tokenizer';
  */
 
 /**
+ * Read a positive integer from the environment, or fall back.
+ *
+ * Number() alone is not safe here. `OPENAI_TPM_LIMIT=30k` yields NaN, and NaN
+ * does not throw -- it spreads. Every comparison against it is false, so the
+ * batch-size guard silently stops firing and one enormous request goes out:
+ * the original bug, reintroduced by a typo in an env var, with no error to
+ * explain it. A bad value falls back loudly instead.
+ */
+export function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) {
+    console.warn(`[token-budget] ${name}="${raw}" is not a positive number; using ${fallback}`);
+    return fallback;
+  }
+  return Math.floor(n);
+}
+
+/**
  * Tokens per minute the account may spend. OpenAI Tier 1 is 30,000 for gpt-4o.
  * Configurable because the ceiling moves with the account tier, and hard-coding
  * it is how the previous constant drifted out of date.
  */
-export const TPM_LIMIT = Number(process.env.OPENAI_TPM_LIMIT ?? 30_000);
+export const TPM_LIMIT = envInt('OPENAI_TPM_LIMIT', 30_000);
 
 /**
  * Held back from the budget for the model's reply. Must be at least the
  * max_tokens the call asks for, or the request is over the limit before the
  * model writes a word.
  */
-export const OUTPUT_RESERVE = Number(process.env.OPENAI_OUTPUT_RESERVE ?? 4_096);
+export const OUTPUT_RESERVE = envInt('OPENAI_OUTPUT_RESERVE', 4_096);
 
 /**
  * Left over after overhead and output. Not spent down to the last token: the
@@ -50,9 +70,4 @@ export function contentTokenBudget(overheadTokens: number): number {
   // Never return a budget so small that no entry could ever be sent; the caller
   // sends an oversized entry alone and lets the split-on-refusal path handle it.
   return Math.max(Math.floor(usable), 1_000);
-}
-
-/** True when the whole request, as measured, should fit under the ceiling. */
-export function fitsInLimit(totalTokens: number): boolean {
-  return totalTokens + OUTPUT_RESERVE <= TPM_LIMIT;
 }

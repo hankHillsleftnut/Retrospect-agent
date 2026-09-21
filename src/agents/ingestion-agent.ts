@@ -45,6 +45,52 @@ interface IngestionInput {
   trace?: Trace;
 }
 
+type PromptContext = Pick<
+  IngestionInput,
+  'recentInsights' | 'activeGoals' | 'openGoalCandidates' | 'currentDocument'
+>;
+
+/**
+ * Everything in the prompt that is NOT the raw content: the document block,
+ * goals, recent insights, open candidates.
+ *
+ * Exported so the batcher can measure the real fixed cost of a call instead of
+ * estimating it. The first attempt at that estimate ran JSON.stringify over
+ * these objects and came back with 614,896 tokens -- the stored document and
+ * the full insight rows are far larger than what is actually rendered here,
+ * where insights are capped at 25 and reduced to a line each. That estimate
+ * collapsed the content budget to its floor and turned one call into 411.
+ *
+ * Rendering it once, the way it is actually sent, removes the guess.
+ */
+export function renderPromptContext(input: PromptContext): string {
+  const goalLines = input.activeGoals.map(
+    (g) => `- [${g.id}] "${g.title}"${g.description ? `: ${g.description}` : ''}`
+  );
+
+  const insightLines = input.recentInsights
+    .slice(0, 25)
+    .map(
+      (i) =>
+        `- (${i.created_at.slice(0, 10)}) "${i.title}": ${i.content}\n    Goal: ${i.goal_id}`
+    );
+
+  const candidateLines = input.openGoalCandidates.map(
+    (c) => `- [${c.id}] "${c.title}"${c.description ? `: ${c.description}` : ''}`
+  );
+
+  return `${formatDocumentForAgent(input.currentDocument)}
+
+# Active Goals
+${goalLines.join('\n') || '(none — propose goal candidates freely)'}
+
+# Recent Insights (last 2-4 weeks, for context only)
+${insightLines.join('\n') || '(none)'}
+
+# Open Goal Candidates (already-noticed patterns awaiting user confirmation)
+${candidateLines.join('\n') || '(none)'}`;
+}
+
 export async function runIngestionAgent(input: IngestionInput): Promise<IngestionResult> {
   const goalLines = input.activeGoals.map(
     (g) => `- [${g.id}] "${g.title}"${g.description ? `: ${g.description}` : ''}`

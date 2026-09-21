@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import OpenAI from 'openai';
 import { contentCharLimit } from '../src/agents/ingestion-agent';
 import { classifyRateLimit, RequestTooLargeError } from '../src/services/openai';
-import { countTokens, contentTokenBudget, TPM_LIMIT, OUTPUT_RESERVE } from '../src/services/token-budget';
+import { countTokens, contentTokenBudget, envInt, TPM_LIMIT, OUTPUT_RESERVE } from '../src/services/token-budget';
 import { estimateEntryTokens, batchRawContent, splitBatch } from '../src/pipelines/ingest';
 import type { DbRawContent } from '../src/types';
 
@@ -129,4 +129,39 @@ test('splitting a pair yields two batches of one, so it always terminates', () =
   const [a, b] = splitBatch(['x', 'y']);
   assert.equal(a.length, 1);
   assert.equal(b.length, 1);
+});
+
+// ----------------------------------------------------------- env parsing
+//
+// Review found that Number() on a malformed env var yields NaN, and NaN does
+// not throw -- it spreads. Every comparison against a NaN budget is false, so
+// the batch-size guard stops firing entirely and one enormous request goes out.
+// That is the original bug, reintroduced by a typo, with nothing to explain it.
+
+test('a malformed env value falls back instead of poisoning the budget', () => {
+  const prev = process.env.TEST_BUDGET_VAR;
+  try {
+    for (const bad of ['30k', 'abc', '', '-5', '0', 'NaN']) {
+      process.env.TEST_BUDGET_VAR = bad;
+      const v = envInt('TEST_BUDGET_VAR', 30_000);
+      assert.ok(Number.isFinite(v) && v > 0, `"${bad}" produced ${v}`);
+      assert.equal(v, 30_000, `"${bad}" should fall back`);
+    }
+    process.env.TEST_BUDGET_VAR = '12000';
+    assert.equal(envInt('TEST_BUDGET_VAR', 30_000), 12_000, 'a good value is used');
+  } finally {
+    if (prev === undefined) delete process.env.TEST_BUDGET_VAR;
+    else process.env.TEST_BUDGET_VAR = prev;
+  }
+});
+
+test('a NaN budget would disable batching entirely — proving why the guard matters', () => {
+  // Demonstrates the failure mode directly: with NaN every entry lands in one
+  // batch, because `total + size > NaN` is false for all inputs.
+  const entries = Array.from({ length: 40 }, () => entry('journal_entry', 8_000));
+  const withNaN = batchRawContent(entries, Number.NaN);
+  assert.equal(withNaN.length, 1, 'NaN collapses 40 entries into a single request');
+
+  const withReal = batchRawContent(entries, 5_000);
+  assert.ok(withReal.length > 1, 'a real budget splits them');
 });
