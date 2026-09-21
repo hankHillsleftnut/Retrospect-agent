@@ -1,0 +1,31 @@
+name: Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run security:check
+      - run: npm run typecheck
+      # Unit tests inject a fake database client and never reach the network,
+      # but src/config.ts validates these at import time, so the module graph
+      # will not load without them. Placeholders, not credentials.
+      - run: npm test
+        env:
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_SERVICE_KEY: ci-placeholder-not-a-real-key
+          SUPABASE_ANON_KEY: ci-placeholder-not-a-real-key
+          OPENAI_API_KEY: ci-placeholder-not-a-real-key
+          ANTHROPIC_API_KEY: ci-placeholder-not-a-real-key
+          INTERNAL_API_SECRET: ci-placeholder
+      - run: npm run build

@@ -3,11 +3,13 @@ import { searchInsightsTool } from './search-insights';
 import { searchPreviousPodcastsTool } from './search-previous-podcasts';
 import { searchRawContentTool } from './search-raw-content';
 import { searchIdentityInferencesTool } from './search-identity-inferences';
+import { searchPersonalGraphTool } from './search-personal-graph';
 import { internetResearchTool } from './internet-research';
 import type { AgentTool } from './types';
 
 export const ALL_TOOLS = [
   searchIdentityInferencesTool,
+  searchPersonalGraphTool,
   searchInsightsTool,
   searchObservationsTool,
   searchPreviousPodcastsTool,
@@ -25,6 +27,7 @@ export {
   searchPreviousPodcastsTool,
   searchRawContentTool,
   searchIdentityInferencesTool,
+  searchPersonalGraphTool,
   internetResearchTool,
 };
 export type { AgentTool, ToolContext } from './types';

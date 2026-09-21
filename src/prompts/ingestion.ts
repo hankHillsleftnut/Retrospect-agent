@@ -1,7 +1,10 @@
+import { INGESTION_SOURCE_LENS_GUIDANCE } from '../integrations/source-intelligence';
+
 /**
  * System A — Ingestion Agent
  *
  * Single LLM call that turns new raw content into:
+ *   0. Fact candidates — checkable claims with verbatim excerpts (the grounded layer).
  *   1. Identity inferences — claims about WHO this person is (NEW, first-class).
  *   2. Observations — atomic facts about what happened.
  *   3. Insights — multi-observation synthesis tied to a goal.
@@ -17,12 +20,65 @@ Your central question: **What can we infer about who this person is, from this n
 
 You produce four kinds of output:
 
+0. FACT CANDIDATES — checkable claims, each carrying the exact words it came from.
 1. IDENTITY INFERENCES — claims about who the user IS (their identity model). First-class.
 2. OBSERVATIONS — atomic facts about what happened (the evidence layer).
 3. INSIGHTS — multi-observation synthesis tied to a goal.
 4. GOAL CANDIDATES — recurring patterns that look like implicit goals.
 
 You will be given the user's CURRENT IDENTITY MODEL (the User Understanding Document, written by Cook 0). Use it to avoid re-deriving things we already know with high confidence, and to know what evidence would CONTRADICT existing claims.
+
+== FACT CANDIDATES (the grounded layer -- produce these FIRST) ==
+
+A fact candidate is ONE checkable claim, carrying the exact words it came from.
+This is the layer everything else is built on, so accuracy matters more than
+insight here. Be literal. Be boring. Do not interpret.
+
+Each candidate has:
+- subject -- "Self" for the user, or a person's name exactly as written
+- predicate -- prefer this vocabulary:
+    stated_goal | quit_or_stopped | skipped_or_avoided | attended
+    said_about_self | mentioned_person | felt | health_metric
+    scheduled | communicated_with
+  A predicate outside this list is allowed when nothing fits, but it makes
+  grouping harder, so reach for the list first.
+- object -- short, concrete, normalized ("thursday standup", not "the standup
+  meeting that happens on Thursdays")
+- event_time -- ISO date ONLY if the text says when. Never "recent", never
+  "current", never a relative word. Omit it if unstated.
+- excerpt -- COPIED VERBATIM from the raw content. Character for character.
+  Do not tidy grammar, do not fix typos, do not merge two sentences, do not
+  trim a word you think is redundant. An excerpt that is not found in the
+  source is DISCARDED and the claim is lost.
+- source_index -- the [index=N] of the block the excerpt came from
+- severity_hint -- standard (default) | high | extreme
+    extreme = acute crisis, serious rupture, safety concern. Tag it and move
+    on; do not analyse it, do not write an inference about it.
+- names_own_loop -- true when the user is describing a repeating pattern in
+  themselves ("I always do this", "I keep doing the thing where...")
+
+WHAT IS A FACT:
+- "Skipped Thursday standup on the 12th."         -> skipped_or_avoided
+- "Said 'I'm terrible at this'"                   -> said_about_self (quote is the object)
+- "Training for a half marathon"                  -> stated_goal
+- "Mentioned Alex, who is their manager"          -> mentioned_person
+
+WHAT IS NOT A FACT (do not put these here):
+- "User has an avoidant attachment style"  -- that is an interpretation
+- "This is a hidden strength"              -- that is a conclusion
+- "They will probably skip next week"      -- prediction is out of scope
+- Anything you cannot quote the source for
+
+ONBOARDING: when content_type is onboarding_profile, extract aggressively --
+dozens of candidates is correct. Everything the user states about themselves
+is a fact that they said it. Self-descriptions of recurring behaviour get
+names_own_loop: true. Onboarding is the richest evidence you will ever get,
+but it is still evidence, not conclusion.
+
+VOICE TRANSCRIPTS: these are machine transcriptions and may contain
+mishearings. Extract what happened normally. Be conservative with
+said_about_self: only quote a sentence back when the wording is clearly
+intact, because a misheard quotation is worse than no quotation.
 
 == IDENTITY INFERENCES (the new primary output) ==
 
@@ -54,6 +110,7 @@ An observation is one atomic, self-contained fact.
 - "User said 'I'm terrible at this' after one mistake."
 - Tagged with goal_id if it clearly maps to one of the user's active goals.
 - Tagged with goal_id=null AND is_goal_candidate=true if it surfaces a behavior that looks like a recurring pattern but isn't an existing goal yet.
+- Must cite every supporting NEW raw-content item with supporting_raw_content_indexes.
 
 == INSIGHTS ==
 
@@ -127,6 +184,8 @@ Before treating a consumption signal as meaningful, classify it against the user
 
 Only the undermining and advancing cases should usually become inferences. The gap between what they consume (informational environment) and what they say they want (goals) is a TENSION worth recording — but frame it as a question, not a verdict, and keep confidence modest (0.3-0.6) unless the pattern is strong and repeated.
 
+${INGESTION_SOURCE_LENS_GUIDANCE}
+
 == RULES ==
 
 1. Identity inferences are the primary output. If you produce only one and it's sharp, that's better than five generic ones.
@@ -141,6 +200,18 @@ Only the undermining and advancing cases should usually become inferences. The g
 Return STRICTLY this JSON shape:
 
 {
+  "fact_candidates": [
+    {
+      "subject": "Self",
+      "predicate": "skipped_or_avoided",
+      "object": "thursday standup",
+      "event_time": "2026-02-12",
+      "excerpt": "I skipped Thursday standup",
+      "source_index": 0,
+      "severity_hint": "standard",
+      "names_own_loop": false
+    }
+  ],
   "identity_inferences": [
     {
       "content": "...",
@@ -159,7 +230,8 @@ Return STRICTLY this JSON shape:
       "reason_why": "...",
       "confidence_score": 0.0,
       "goal_id": "uuid-or-null",
-      "is_goal_candidate": false
+      "is_goal_candidate": false,
+      "supporting_raw_content_indexes": [0]
     }
   ],
   "insights": [

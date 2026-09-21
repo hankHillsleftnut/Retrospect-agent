@@ -29,8 +29,86 @@ export interface DbRawContent {
   content_type: string;
   content_date: string | null;
   processing_status: string;
+  processing_started_at?: string | null;
   created_at: string;
   metadata?: Record<string, unknown>;
+  source_item_id?: string | null;
+  /** Present once the source has been embedded for fallback search. */
+  embedding?: number[] | null;
+  processed_at?: string | null;
+  processing_error?: string | null;
+}
+
+export type IntegrationCollectionMode = 'native_ios' | 'oauth_api' | 'data_export';
+export type IntegrationRunType =
+  | 'initial_backfill'
+  | 'incremental_sync'
+  | 'webhook_recovery'
+  | 'replay'
+  | 'export_import';
+
+export type IntegrationJobType =
+  | 'initial_backfill'
+  | 'incremental_sync'
+  | 'webhook_recovery'
+  | 'replay'
+  | 'export_import'
+  | 'device_batch'
+  | 'oauth_sync'
+  | 'archive_parse'
+  | 'reconcile'
+  | 'delete_connection_data';
+
+export interface IntegrationJob {
+  id: string;
+  user_id: string;
+  connection_id: string;
+  job_type: IntegrationJobType;
+  status: 'queued' | 'leased' | 'running' | 'completed' | 'failed' | 'dead_letter' | 'cancelled';
+  attempt_count: number;
+  max_attempts: number;
+  payload: Record<string, unknown>;
+  lease_owner: string | null;
+  leased_until: string | null;
+}
+
+export interface IntegrationSourceItemInput {
+  providerObjectType: string;
+  providerObjectId: string;
+  payload: Record<string, unknown>;
+  canonicalType: string;
+  canonicalText: string;
+  normalizedData: Record<string, unknown>;
+  occurredAt?: string;
+  analysisEligible?: boolean;
+  providerCreatedAt?: string;
+  providerUpdatedAt?: string;
+  parserVersion: string;
+  normalizerVersion: string;
+  contentType: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ProcessIntegrationBatchInput {
+  userId: string;
+  providerId: string;
+  collectionMode: IntegrationCollectionMode;
+  runType: IntegrationRunType;
+  cursorBefore: Record<string, unknown>;
+  cursorAfter: Record<string, unknown>;
+  items: IntegrationSourceItemInput[];
+}
+
+export interface ProcessIntegrationBatchResult {
+  syncRunId: string;
+  ingestionTraceId: string | null;
+  itemsSeen: number;
+  itemsCreated: number;
+  itemsUpdated: number;
+  itemsSkipped: number;
+  itemsFailed: number;
+  rawContentIds: string[];
+  failures: { providerObjectId: string; error: string }[];
 }
 
 export interface DbObservation {
@@ -202,7 +280,42 @@ export interface AgentToolCall {
   ts: string;
 }
 
+/** Controlled predicate vocabulary for Fact candidates. Free predicates are
+ *  allowed but make pattern grouping harder -- prefer this list.
+ *  docs/second-brain/04 "Extraction". */
+export type FactPredicate =
+  | 'stated_goal'
+  | 'quit_or_stopped'
+  | 'skipped_or_avoided'
+  | 'attended'
+  | 'said_about_self'
+  | 'mentioned_person'
+  | 'felt'
+  | 'health_metric'
+  | 'scheduled'
+  | 'communicated_with';
+
+/** One checkable claim proposed by the extractor. Not yet a Fact: it becomes
+ *  one only if its excerpt is verified against the source. */
+export interface FactCandidate {
+  /** "Self" or a person's name as written. */
+  subject: string;
+  predicate: FactPredicate | string;
+  object: string;
+  /** ISO date if the text states when it happened. */
+  event_time?: string | null;
+  /** MUST be copied verbatim from the source. Unverifiable excerpt = dropped. */
+  excerpt: string;
+  /** Index into the raw content array the excerpt came from. */
+  source_index: number;
+  severity_hint?: 'standard' | 'high' | 'extreme';
+  /** The user naming their own loop ("I always start things and don't finish").
+   *  Seeds a pattern candidate; never promotes one on its own. */
+  names_own_loop?: boolean;
+}
+
 export interface IngestionResult {
+  fact_candidates?: FactCandidate[];
   observations: {
     content: string;
     reason_why: string;
@@ -210,6 +323,7 @@ export interface IngestionResult {
     goal_id: string | null;
     is_goal_candidate: boolean;
     raw_content_id?: string | null;
+    supporting_raw_content_indexes?: number[];
   }[];
   insights: {
     title: string;

@@ -2,6 +2,15 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent } from '../agents/ingestion-agent';
+import { writeJournalFacts } from '../brain/write-journal-facts';
+import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
+import { buildPortrait, patchDocument } from '../brain/portrait';
+import {
+  reclaimExpiredLeases,
+  reclaimUnstampedLeases,
+  startHeartbeat,
+  hasExistingFacts,
+} from '../brain/lease';
 import { runCook0, applyCook0Decisions, writeNewDocumentVersion } from '../agents/cook0-agent';
 import { Trace, TraceTrigger } from './trace';
 import type {
@@ -20,10 +29,30 @@ export interface IngestOptions {
   rawContentIds?: string[];
   triggeredBy?: TraceTrigger;
   dryRun?: boolean;
+  /** Deliberately reprocess completed content. Reserved for explicit replay/debug flows. */
+  force?: boolean;
   notes?: string;
 }
 
 export interface IngestSummary {
+  /** Facts written to the graph from this run. */
+  facts_written?: number;
+  /** Rows returned to 'pending' because a previous run died holding them. */
+  leases_reclaimed?: number;
+  /** Source rows that gained an embedding in this run. */
+  raw_content_embedded?: number;
+  patterns_created?: number;
+  patterns_promoted?: number;
+  whys_created?: number;
+  /** Rows that already had facts, so extraction was skipped. */
+  rows_skipped_already_have_facts?: number;
+  /** Claims discarded because their quote was not in the source. A high
+   *  number here means the extraction prompt is wrong, not the verifier. */
+  facts_dropped?: number;
+  fact_drop_reasons?: Record<string, number>;
+  /** Candidates where the user named their own loop -- promoter seeds. */
+  self_named_loops?: number;
+  fact_write_errors?: string[];
   traceId: string | null;
   observations_created: number;
   insights_created: number;
@@ -45,7 +74,9 @@ export interface IngestSummary {
  * that leaves ~20K input tokens for the raw_content blocks themselves.
  * 35000 chars ≈ 9K tokens, fits comfortably.
  */
-const MAX_BATCH_CHARS = 35000;
+// One long brain dump must never be split mid-thought across LLM calls, so
+// the batch budget has to comfortably exceed the per-entry cap (16k).
+const MAX_BATCH_CHARS = 60000;
 
 /** Per-entry content cap (matches the slice in ingestion-agent.ts). */
 function estimateEntryChars(rc: DbRawContent): number {
@@ -72,8 +103,32 @@ function batchRawContent(entries: DbRawContent[]): DbRawContent[][] {
   return batches;
 }
 
+async function completeEmptyIngest(trace: Trace, processingNotes: string): Promise<IngestSummary> {
+  const summary: IngestSummary = {
+    traceId: trace.id,
+    observations_created: 0,
+    insights_created: 0,
+    goal_candidates_created: 0,
+    identity_inferences_created: 0,
+    raw_content_processed: 0,
+    batches_run: 0,
+    user_understanding_version: null,
+    cook0_failed: false,
+    result: {
+      observations: [],
+      insights: [],
+      goal_candidates: [],
+      identity_inferences: [],
+    },
+    processingNotes,
+  };
+  await trace.complete();
+  return summary;
+}
+
 export async function runIngest(options: IngestOptions): Promise<IngestSummary> {
   const daysBack = options.daysBack ?? 7;
+  const processingRawContentIds: string[] = [];
   const trace = options.dryRun
     ? Trace.memoryOnly()
     : await Trace.start({
@@ -86,6 +141,28 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
   try {
     // 1. Fetch new raw content
     const sinceIso = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000).toISOString();
+    let leasesReclaimed = 0;
+    let factsSkippedRows = 0;
+    let rawEmbedded = 0;
+    let promoterResult: PromoterRunResult | null = null;
+    let heartbeat: { stop: () => void } = { stop: () => {} };
+
+    // Reclaim abandoned work FIRST. A run that died mid-flight leaves its
+    // rows in 'processing' forever; without this they are invisible to every
+    // later run. This is what turns a transient outage into a retry instead
+    // of permanent data loss.
+    if (!options.dryRun) {
+      const [expired, unstamped] = await Promise.all([
+        reclaimExpiredLeases({ userId: options.userId }),
+        reclaimUnstampedLeases(options.userId),
+      ]);
+      const reclaimed = expired.reclaimed + unstamped.reclaimed;
+      if (reclaimed > 0) {
+        console.log(`[ingest] reclaimed ${reclaimed} abandoned row(s) for retry`);
+        leasesReclaimed = reclaimed;
+      }
+    }
+
     // Only pick up content that hasn't been successfully processed yet.
     // This prevents creating duplicate observations when re-running ingestion.
     let rawQuery = supabase
@@ -107,29 +184,65 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
     const { data: rawData, error: rawErr } = await rawQuery;
     if (rawErr) throw new Error(`Fetch raw_content failed: ${rawErr.message}`);
-    const newRawContent = (rawData ?? []) as DbRawContent[];
+    let newRawContent = (rawData ?? []) as DbRawContent[];
 
     if (newRawContent.length === 0) {
-      const summary: IngestSummary = {
-        traceId: trace.id,
-        observations_created: 0,
-        insights_created: 0,
-        goal_candidates_created: 0,
-        identity_inferences_created: 0,
-        raw_content_processed: 0,
-        batches_run: 0,
-        user_understanding_version: null,
-        cook0_failed: false,
-        result: {
-          observations: [],
-          insights: [],
-          goal_candidates: [],
-          identity_inferences: [],
-        },
-        processingNotes: 'No new raw content found.',
-      };
-      await trace.complete();
-      return summary;
+      return completeEmptyIngest(trace, 'No new raw content found.');
+    }
+
+    if (!options.dryRun) {
+      const ids = newRawContent.map((row) => row.id);
+      const leaseStartedAt = new Date().toISOString();
+      let leaseQuery = supabase
+        .from(Tables.RAW_CONTENT)
+        .update({
+          processing_status: 'processing',
+          processing_error: null,
+          processing_started_at: leaseStartedAt,
+        })
+        .in('id', ids);
+      if (!options.force) {
+        leaseQuery = leaseQuery.in('processing_status', ['pending', 'failed']);
+      }
+      const { data: leasedRows, error: processingError } = await leaseQuery.select('*');
+      if (processingError) throw new Error(`Mark raw_content processing failed: ${processingError.message}`);
+      newRawContent = (leasedRows ?? []) as DbRawContent[];
+
+      // Idempotency: a row that already produced Facts does not need the LLM
+      // again. Origin keys mean a re-extract would upsert to the same rows,
+      // so this is purely saved spend -- and it makes retry cheap enough to
+      // be the default response to a failure.
+      if (!options.force && newRawContent.length > 0) {
+        const checks = await Promise.all(
+          newRawContent.map(async (row) => ({
+            row,
+            done: await hasExistingFacts(options.userId, row.id),
+          }))
+        );
+        const already = checks.filter((c) => c.done).map((c) => c.row.id);
+        if (already.length > 0) {
+          await supabase
+            .from(Tables.RAW_CONTENT)
+            .update({
+              processing_status: 'completed',
+              processing_started_at: null,
+              processed_at: new Date().toISOString(),
+            })
+            .in('id', already);
+          factsSkippedRows = already.length;
+          console.log(`[ingest] ${already.length} row(s) already have facts; skipping extraction`);
+          newRawContent = checks.filter((c) => !c.done).map((c) => c.row);
+        }
+        if (newRawContent.length === 0) {
+          return completeEmptyIngest(trace, 'All requested rows already produced facts.');
+        }
+      }
+
+      processingRawContentIds.push(...newRawContent.map((row) => row.id));
+      heartbeat = startHeartbeat(processingRawContentIds);
+      if (newRawContent.length === 0) {
+        return completeEmptyIngest(trace, 'No raw content was eligible for processing; another run may hold the lease.');
+      }
     }
 
     // 2. Fetch context (active goals + recent insights + open candidates + latest user understanding)
@@ -205,6 +318,12 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     let totalCandidatesCreated = 0;
     const batchNotes: string[] = [];
 
+    let factsWritten = 0;
+    let factsDropped = 0;
+    const factDropReasons: Record<string, number> = {};
+    const selfNamedLoopIds: string[] = [];
+    const factWriteErrors: string[] = [];
+
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       const batch = batches[batchIdx]!;
       const isDryRun = !!options.dryRun;
@@ -230,22 +349,77 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
       if (isDryRun) continue;
 
+      // 5.0 Facts FIRST. The graph is the bank; observations below are a
+      // compatibility shim for Cook A until it reads facts (04, 06).
+      // A claim whose quote is not in the source is dropped here and never
+      // reaches the graph.
+      if ((result.fact_candidates ?? []).length > 0) {
+        try {
+          const factResult = await writeJournalFacts({
+            userId: options.userId,
+            candidates: result.fact_candidates ?? [],
+            sources: batch.map((rc) => ({
+              id: rc.id,
+              content: rc.content,
+              content_type: rc.content_type,
+              content_date: rc.content_date,
+            })),
+            sourceRunId: trace.id,
+            transcriptionConfidence: Object.fromEntries(
+              batch
+                .map((rc) => {
+                  const meta = (rc.metadata ?? {}) as Record<string, unknown>;
+                  const c = meta.transcription_confidence;
+                  return typeof c === 'number' ? [rc.id, c] : null;
+                })
+                .filter((e): e is [string, number] => e !== null)
+            ),
+          });
+          factsWritten += factResult.written;
+          factsDropped += factResult.dropped;
+          for (const [reason, n] of Object.entries(factResult.dropReasons)) {
+            factDropReasons[reason] = (factDropReasons[reason] ?? 0) + n;
+          }
+          selfNamedLoopIds.push(...factResult.selfNamedLoops);
+          console.log(
+            `[ingest]     facts: ${factResult.written} written, ${factResult.dropped} dropped` +
+              (factResult.dropped > 0 ? ` (${JSON.stringify(factResult.dropReasons)})` : '')
+          );
+        } catch (err) {
+          // A graph failure must not lose the batch: observations below still
+          // persist, and the origin keys make a retry safe.
+          console.error(`[ingest]     facts FAILED: ${(err as Error).message}`);
+          factWriteErrors.push((err as Error).message);
+        }
+      }
+
       // 5a. Persist observations from this batch.
       const batchObservationIds: string[] = [];
       if (result.observations.length > 0) {
-        const toInsert = result.observations.map((o, idx) => {
-          const matchedRaw = batch[Math.min(idx, batch.length - 1)];
+        const toInsert = result.observations.map((o) => {
+          const citedRawIds = [...new Set(
+            (o.supporting_raw_content_indexes ?? [])
+              .map((idx) => batch[idx]?.id)
+              .filter((id): id is string => Boolean(id))
+          )];
+          const supportingRawIds =
+            citedRawIds.length > 0
+              ? citedRawIds
+              : batch.length === 1
+                ? [batch[0]!.id]
+                : [];
+          const matchedRaw = batch.find((raw) => raw.id === supportingRawIds[0]);
           return {
             user_id: options.userId,
             goal_id: o.goal_id ?? null,
-            raw_content_id: o.raw_content_id ?? matchedRaw?.id ?? null,
+            raw_content_id: supportingRawIds[0] ?? null,
             content: o.content,
             reason_why: o.reason_why,
             confidence_score: o.confidence_score,
             observation_date:
               matchedRaw?.content_date ?? matchedRaw?.created_at ?? new Date().toISOString(),
             is_goal_candidate: o.is_goal_candidate,
-            metadata: {},
+            metadata: { supporting_raw_content_ids: supportingRawIds },
           };
         });
         const { data: inserted, error: insErr } = await supabase
@@ -370,6 +544,44 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
           }
         }
       }
+
+      // Embed the SOURCE, not just the derived rows. 0.4% of raw_content
+      // carried an embedding at audit, which made search_raw_content dead.
+      // Facts do not need this to exist; fallback search does.
+      try {
+        const toEmbed = batch.filter((row) => !row.embedding && row.content?.trim());
+        if (toEmbed.length > 0) {
+          const vectors = await generateEmbeddings(
+            toEmbed.map((row) => row.content.slice(0, 8000))
+          );
+          trace.addCost({
+            embedding_tokens: toEmbed.reduce((acc, r) => acc + r.content.length / 4, 0),
+          });
+          for (let i = 0; i < toEmbed.length; i++) {
+            const vector = vectors[i];
+            if (!vector) continue;
+            await supabase
+              .from(Tables.RAW_CONTENT)
+              .update({ embedding: vector })
+              .eq('id', toEmbed[i]!.id);
+            rawEmbedded += 1;
+          }
+        }
+      } catch (err) {
+        // Never fail a batch over search hygiene.
+        console.warn(`[ingest]     raw embedding failed: ${(err as Error).message}`);
+      }
+
+      const { error: completedError } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .update({
+          processing_status: 'completed',
+          processing_error: null,
+          processing_started_at: null,
+          processed_at: new Date().toISOString(),
+        })
+        .in('id', batch.map((row) => row.id));
+      if (completedError) throw new Error(`Mark raw_content completed failed: ${completedError.message}`);
     } // end batch loop
 
     if (options.dryRun) {
@@ -380,6 +592,17 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         insights_created: aggregateResult.insights.length,
         goal_candidates_created: aggregateResult.goal_candidates.length,
         identity_inferences_created: aggregateResult.identity_inferences.length,
+        facts_written: factsWritten,
+        leases_reclaimed: leasesReclaimed,
+        raw_content_embedded: rawEmbedded,
+        patterns_created: 0,
+        patterns_promoted: 0,
+        whys_created: 0,
+        rows_skipped_already_have_facts: factsSkippedRows,
+        facts_dropped: factsDropped,
+        fact_drop_reasons: factDropReasons,
+        self_named_loops: selfNamedLoopIds.length,
+        fact_write_errors: factWriteErrors,
         raw_content_processed: newRawContent.length,
         batches_run: batches.length,
         user_understanding_version: null,
@@ -438,6 +661,39 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       trace.setCook0Failure(cook0Error);
     }
 
+    // Patterns, then whys, then the portrait -- in that order, because each
+    // can only exist once the one before it does.
+    if (factsWritten > 0 || factsSkippedRows > 0) {
+      try {
+        promoterResult = await runPromoter({ userId: options.userId, sourceRunId: trace.id });
+        console.log(
+          `[ingest] patterns: ${promoterResult.created} new, ${promoterResult.promoted} promoted, ` +
+            `${promoterResult.demoted} demoted, ${promoterResult.whysCreated} whys`
+        );
+      } catch (err) {
+        // Facts are already safe; a promoter failure costs this run's patterns,
+        // not the evidence. The next run recomputes from the same facts.
+        console.error(`[ingest] promoter FAILED: ${(err as Error).message}`);
+      }
+
+      try {
+        const portrait = await buildPortrait(options.userId);
+        const { data: latest } = await supabase.from(Tables.USER_UNDERSTANDING)
+          .select('document,version').eq('user_id', options.userId)
+          .order('version', { ascending: false }).limit(1).maybeSingle();
+        const patched = patchDocument((latest?.document as any) ?? null, portrait);
+        await supabase.from(Tables.USER_UNDERSTANDING).upsert({
+          user_id: options.userId,
+          document: patched,
+          version: (latest?.version ?? 0) + 1,
+        });
+        console.log(`[ingest] portrait rebuilt (${portrait.emptySlots.length} slot(s) left empty)`);
+      } catch (err) {
+        console.error(`[ingest] portrait rebuild FAILED: ${(err as Error).message}`);
+      }
+    }
+
+    heartbeat.stop();
     await trace.complete();
 
     const processingNotes = [
@@ -462,6 +718,17 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       result: aggregateResult,
     };
   } catch (err) {
+    if (!options.dryRun && processingRawContentIds.length > 0) {
+      await supabase
+        .from(Tables.RAW_CONTENT)
+        .update({
+          processing_status: 'failed',
+          processing_error: err instanceof Error ? err.message : String(err),
+          processing_started_at: null,
+        })
+        .in('id', processingRawContentIds)
+        .eq('processing_status', 'processing');
+    }
     await trace.fail(err);
     throw err;
   }

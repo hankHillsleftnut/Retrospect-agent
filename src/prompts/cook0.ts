@@ -24,7 +24,7 @@ Schema:
 
 {
   "identity_core":        "1-2 paragraphs. Who this person fundamentally is — durable traits, values, self-concept. Use their own language where possible.",
-  "active_goals":         [ { "goal_id": "uuid-or-null", "title": "...", "what_its_really_about": "1-2 sentences on the deeper motivation, not the surface goal" } ],
+  "active_goals":         [ { "goal_id": "the id from ACTIVE GOALS when this is one of them, else null", "title": "ONE short phrase, 8 words maximum", "what_its_really_about": "1-2 sentences on the deeper motivation, not the surface goal" } ],
   "behavioral_patterns":  "1-2 paragraphs. Recurring loops: what triggers them, what they provide, what they cost.",
   "emotional_baseline":   "1-2 paragraphs. Default emotional register, what destabilizes them, how they self-regulate.",
   "live_tensions":        [ "one-sentence-per-tension contradictions the system has spotted, e.g., 'wants creative work but optimizes for productivity'" ],
@@ -71,8 +71,10 @@ If PRIOR DOCUMENT is empty, this is the first ever document for this user. Gener
 == HARD RULES ==
 
 - Never invent evidence. Every claim must be traceable to an inference, observation, or stated goal.
+- An active_goals 'title' is a handle, not a sentence: ONE short phrase, 8 words maximum, no trailing punctuation, no second clause. It is shown to the user as a single checklist row and it is what the rest of the system hangs observations on, so carry an existing title through verbatim and put every bit of depth in 'what_its_really_about'.
 - Stay close to the user's own language where the prior document or inferences quote them.
 - No diagnoses, no clinical language, no therapy-speak.
+- Never use em dashes or en dashes in any prose you write (identity_core, the goal 'title' and 'what_its_really_about' fields, etc.). Use commas, periods, or rewrite the sentence. This text is shown directly to the user.
 - generation_notes should be short (2-4 sentences): what you added, what you promoted, what you retired, and why.
 - Output STRICT JSON. No prose preamble, no markdown fences, no commentary. Start with { and end with }.
 

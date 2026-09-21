@@ -40,6 +40,14 @@
 
   /* ── Users view ── */
   #view-users { width: 100%; padding: 24px; overflow-y: auto; display: none; }
+  #view-integrations { width: 100%; padding: 24px; overflow-y: auto; display: none; }
+  .integration-layout { display:grid; grid-template-columns:minmax(420px, 0.9fr) minmax(520px, 1.4fr); gap:16px; }
+  .integration-list { display:flex; flex-direction:column; gap:8px; }
+  .integration-row { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px 14px; cursor:pointer; }
+  .integration-row:hover { border-color:var(--accent); }
+  .integration-row .top { display:flex; justify-content:space-between; gap:12px; }
+  .integration-row .provider { font-weight:700; }
+  .integration-row .counts { color:var(--muted); font-size:11px; margin-top:5px; }
   .user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-bottom: 28px; }
   .user-card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; cursor: pointer; transition: border-color .15s; }
   .user-card:hover { border-color: var(--accent); }
@@ -88,6 +96,7 @@
 <header>
   <h1>retrospect-agent</h1>
   <button class="tab-btn active" id="tab-runs" onclick="switchTab('runs')">Runs</button>
+  <button class="tab-btn" id="tab-integrations" onclick="switchTab('integrations')">Integrations</button>
   <button class="tab-btn" id="tab-users" onclick="switchTab('users')">Users</button>
   <a href="/podcast-test" style="margin-left:auto;">podcast test</a>
 </header>
@@ -96,6 +105,18 @@
   <div id="view-users">
     <div id="totals-bar" class="totals-bar"></div>
     <div id="user-grid" class="user-grid"></div>
+  </div>
+
+  <div id="view-integrations">
+    <div class="integration-layout">
+      <div>
+        <h2 style="font-size:14px;margin:0 0 12px;">Integration sync runs</h2>
+        <div id="integration-list" class="integration-list"></div>
+      </div>
+      <div id="integration-detail">
+        <div class="empty">Pick an integration sync run.</div>
+      </div>
+    </div>
   </div>
 
   <!-- RUNS TAB -->
@@ -123,9 +144,12 @@
     activeTab = tab;
     document.getElementById('view-runs').style.display = tab === 'runs' ? 'flex' : 'none';
     document.getElementById('view-users').style.display = tab === 'users' ? 'block' : 'none';
+    document.getElementById('view-integrations').style.display = tab === 'integrations' ? 'block' : 'none';
     document.getElementById('tab-runs').classList.toggle('active', tab === 'runs');
     document.getElementById('tab-users').classList.toggle('active', tab === 'users');
+    document.getElementById('tab-integrations').classList.toggle('active', tab === 'integrations');
     if (tab === 'users') loadUsers();
+    if (tab === 'integrations') loadIntegrationRuns();
   }
 
   function clearFilter() {
@@ -380,6 +404,58 @@
     document.getElementById('filter-user').value = userId;
     switchTab('runs');
     loadList();
+  }
+
+  async function loadIntegrationRuns() {
+    const list = document.getElementById('integration-list');
+    list.innerHTML = '<div class="empty">Loading integration sync runs…</div>';
+    const res = await fetch('/runs/integrations?json=1');
+    const payload = await res.json();
+    if (!res.ok) {
+      list.innerHTML = `<div class="empty" style="color:var(--bad);">Integration runs unavailable.<br><span class="meta">${escapeHtml(payload.error ?? `HTTP ${res.status}`)}</span></div>`;
+      return;
+    }
+    const { integration_runs = [] } = payload;
+    list.innerHTML = integration_runs.length
+      ? integration_runs.map(run => `<div class="integration-row" onclick="loadIntegrationRun('${run.id}')">
+          <div class="top">
+            <span class="provider">${escapeHtml(run.connection?.provider_id ?? 'unknown')}</span>
+            <span class="status-${run.status}">${escapeHtml(run.status)}</span>
+          </div>
+          <div class="counts">${escapeHtml(run.run_type)} · ${run.items_created ?? 0} created · ${run.items_updated ?? 0} updated · ${run.items_skipped ?? 0} skipped</div>
+          <div class="meta">${new Date(run.started_at).toLocaleString()} · ${escapeHtml(run.connection?.user_id ?? '')}</div>
+        </div>`).join('')
+      : '<div class="empty">No integration sync runs yet.</div>';
+  }
+
+  async function loadIntegrationRun(id) {
+    const res = await fetch(`/runs/integrations/${id}?json=1`);
+    if (!res.ok) {
+      const payload = await res.json();
+      document.getElementById('integration-detail').innerHTML =
+        `<div class="empty" style="color:var(--bad);">Integration run unavailable.<br><span class="meta">${escapeHtml(payload.error ?? `HTTP ${res.status}`)}</span></div>`;
+      return;
+    }
+    const { integration_run: run } = await res.json();
+    const sections = [];
+    sections.push(panel('integration-meta', `${escapeHtml(run.connection?.provider_id ?? 'Integration')} <span class="pill">${escapeHtml(run.status)}</span>`, `
+      <div class="meta">sync run: ${escapeHtml(run.id)}</div>
+      <div class="meta">user: ${escapeHtml(run.connection?.user_id ?? '')}</div>
+      <div class="meta">mode: ${escapeHtml(run.connection?.collection_mode ?? '')}</div>
+      <div class="meta">run type: ${escapeHtml(run.run_type)}</div>
+      <div class="meta">items: ${run.items_seen ?? 0} seen · ${run.items_created ?? 0} created · ${run.items_updated ?? 0} updated · ${run.items_deleted ?? 0} deleted · ${run.items_skipped ?? 0} skipped</div>
+      ${run.ingestion_trace ? `<div style="margin-top:8px;"><a href="/runs/${run.ingestion_trace.id}" style="color:var(--accent);">open linked agent trace</a></div>` : ''}
+    `));
+    sections.push(panel('integration-cursors', 'Cursors and errors', fmtJson({
+      cursor_before: run.cursor_before,
+      cursor_after: run.cursor_after,
+      error_summary: run.error_summary,
+    }), { collapsed: true }));
+    sections.push(panel('integration-items', `Normalized source items (${run.source_items?.length ?? 0})`, fmtJson(run.source_items ?? [])));
+    sections.push(panel('integration-payloads', `Immutable source payloads (${run.payloads?.length ?? 0})`, fmtJson(run.payloads ?? []), { collapsed: true }));
+    sections.push(panel('integration-evidence', `Evidence links (${run.evidence_links?.length ?? 0})`, fmtJson(run.evidence_links ?? [])));
+    sections.push(panel('integration-tests', `Test runs (${run.test_runs?.length ?? 0})`, fmtJson(run.test_runs ?? []), { collapsed: true }));
+    document.getElementById('integration-detail').innerHTML = sections.join('');
   }
 
   // ── Init ──────────────────────────────────────────────────────────────────

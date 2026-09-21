@@ -6,8 +6,10 @@
 #   - This is a PRIVATE service (type: pserv). It has NO public URL.
 #     Only other services in the same Render account can reach it.
 #     The existing retrospect-api backend talks to it via the internal hostname.
-#   - Cron jobs (daily ingestion at 5am UTC, weekly podcasts at 6am UTC Sunday)
-#     run IN-PROCESS inside this server, gated by the ENABLE_AGENT_CRONS env flag.
+#   - For the current production phase, integration scheduling and worker loops
+#     run inside this same service via ENABLE_INTEGRATION_RUNTIME=true.
+#     The code still preserves queue leases, idempotency, cursors, and retries so
+#     worker/scheduler can be split into separate Render services later.
 #   - To inspect /runs dashboard during dev: run `npm run dev` locally pointing at
 #     prod Supabase, open http://localhost:3001/runs.
 
@@ -17,6 +19,7 @@ services:
     env: node
     region: oregon
     plan: starter
+    autoDeploy: false
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
@@ -24,10 +27,20 @@ services:
         value: production
       - key: PORT
         value: 3001
-      # Enable the in-process daily ingestion + weekly podcast crons.
-      # Flip to "false" to silence the agent's autonomous scheduling.
       - key: ENABLE_AGENT_CRONS
+        value: "false"
+      - key: ENABLE_INTEGRATION_RUNTIME
         value: "true"
+      - key: INTEGRATION_SCHEDULER_POLL_MINUTES
+        value: "15"
+      - key: INTEGRATION_SYNC_INTERVAL_MINUTES
+        value: "360"
+      - key: INTEGRATION_WORKER_CONCURRENCY
+        value: "3"
+      - key: INTEGRATION_WORKER_POLL_MS
+        value: "3000"
+      - key: INTEGRATION_WORKER_LEASE_SECONDS
+        value: "1800"
       # Shared secret used by the existing retrospect-api backend to call this service.
       # Set the same value in retrospect-api's env. Generate with: openssl rand -hex 32
       - key: INTERNAL_API_SECRET
@@ -50,4 +63,42 @@ services:
         sync: false
       # Optional — Anthropic (not currently required by the agent but available for future use).
       - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: INTEGRATION_KMS_KEY_ID
+        sync: false
+      - key: AWS_REGION
+        value: us-west-2
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: REDDIT_CLIENT_ID
+        sync: false
+      - key: REDDIT_CLIENT_SECRET
+        sync: false
+      - key: PINTEREST_CLIENT_ID
+        sync: false
+      - key: PINTEREST_CLIENT_SECRET
+        sync: false
+      - key: TIKTOK_CLIENT_KEY
+        sync: false
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_CLIENT_ID
+        sync: false
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: X_CLIENT_ID
+        sync: false
+      - key: X_CLIENT_SECRET
+        sync: false
+      - key: SENTRY_DSN
         sync: false

@@ -50,6 +50,25 @@ export const config = {
     podcastDaysBack: 14,
     agentMaxIterations: 6,
   },
+  integrations: {
+    kmsKeyId: optional('INTEGRATION_KMS_KEY_ID'),
+    kmsRegion: optional('AWS_REGION', 'us-west-2'),
+    localEncryptionKey: optional('INTEGRATION_LOCAL_ENCRYPTION_KEY'),
+    googleClientId: optional('GOOGLE_OAUTH_CLIENT_ID'),
+    googleClientSecret: optional('GOOGLE_OAUTH_CLIENT_SECRET'),
+    spotifyClientId: optional('SPOTIFY_CLIENT_ID'),
+    spotifyClientSecret: optional('SPOTIFY_CLIENT_SECRET'),
+    redditClientId: optional('REDDIT_CLIENT_ID'),
+    redditClientSecret: optional('REDDIT_CLIENT_SECRET'),
+    pinterestClientId: optional('PINTEREST_CLIENT_ID'),
+    pinterestClientSecret: optional('PINTEREST_CLIENT_SECRET'),
+    tiktokClientKey: optional('TIKTOK_CLIENT_KEY'),
+    tiktokClientSecret: optional('TIKTOK_CLIENT_SECRET'),
+    linkedinClientId: optional('LINKEDIN_CLIENT_ID'),
+    linkedinClientSecret: optional('LINKEDIN_CLIENT_SECRET'),
+    xClientId: optional('X_CLIENT_ID'),
+    xClientSecret: optional('X_CLIENT_SECRET'),
+  },
 } as const;
 
 export type AppConfig = typeof config;

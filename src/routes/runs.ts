@@ -96,6 +96,83 @@ runsRouter.get('/latest', async (req, res) => {
   return res.redirect(`/runs/${id}?json=1`);
 });
 
+runsRouter.get('/integrations', async (req, res) => {
+  const { userId, limit = 100 } = req.query;
+  let q = supabase
+    .from(Tables.INTEGRATION_SYNC_RUNS)
+    .select('*')
+    .order('started_at', { ascending: false })
+    .limit(Number(limit));
+
+  const { data: runs, error } = await q;
+  if (error) return res.status(500).json({ error: error.message });
+
+  const connectionIds = [...new Set((runs ?? []).map((run) => run.connection_id))];
+  const { data: connections } = connectionIds.length > 0
+    ? await supabase
+      .from(Tables.INTEGRATION_CONNECTIONS)
+      .select('id, user_id, provider_id, collection_mode, status, provider_account_label, last_verified_at')
+      .in('id', connectionIds)
+    : { data: [] };
+  const connectionById = new Map((connections ?? []).map((connection) => [connection.id, connection]));
+
+  const hydrated = (runs ?? [])
+    .map((run) => ({ ...run, connection: connectionById.get(run.connection_id) ?? null }))
+    .filter((run) => !userId || run.connection?.user_id === userId);
+
+  return res.json({ integration_runs: hydrated });
+});
+
+runsRouter.get('/integrations/:id', async (req, res) => {
+  const { data: run, error } = await supabase
+    .from(Tables.INTEGRATION_SYNC_RUNS)
+    .select('*')
+    .eq('id', req.params.id)
+    .single();
+  if (error || !run) return res.status(404).json({ error: error?.message ?? 'run not found' });
+
+  const [{ data: connection }, { data: payloads }] = await Promise.all([
+    supabase.from(Tables.INTEGRATION_CONNECTIONS).select('*').eq('id', run.connection_id).maybeSingle(),
+    supabase.from(Tables.SOURCE_PAYLOADS).select('*').eq('sync_run_id', run.id).order('captured_at', { ascending: false }),
+  ]);
+
+  const payloadIds = (payloads ?? []).map((payload) => payload.id);
+  const { data: sourceItems } = payloadIds.length > 0
+    ? await supabase
+      .from(Tables.SOURCE_ITEMS)
+      .select('*')
+      .in('latest_payload_id', payloadIds)
+    : { data: [] };
+
+  const sourceItemIds = (sourceItems ?? []).map((item) => item.id);
+  const [{ data: analysisUnits }, { data: tests }, { data: trace }] = await Promise.all([
+    sourceItemIds.length > 0
+      ? supabase.from(Tables.ANALYSIS_UNITS).select('*').in('source_item_id', sourceItemIds)
+      : Promise.resolve({ data: [] }),
+    supabase.from(Tables.INTEGRATION_TEST_RUNS).select('*').eq('connection_id', run.connection_id).order('started_at', { ascending: false }).limit(20),
+    run.ingestion_trace_id
+      ? supabase.from(Tables.PIPELINE_RUN_TRACES).select('id, kind, status, started_at, finished_at, error_message').eq('id', run.ingestion_trace_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  const analysisUnitIds = (analysisUnits ?? []).map((unit) => unit.id);
+  const { data: evidenceLinks } = analysisUnitIds.length > 0
+    ? await supabase.from(Tables.EVIDENCE_LINKS).select('*').in('analysis_unit_id', analysisUnitIds)
+    : { data: [] };
+
+  return res.json({
+    integration_run: {
+      ...run,
+      connection,
+      payloads: payloads ?? [],
+      source_items: sourceItems ?? [],
+      analysis_units: analysisUnits ?? [],
+      evidence_links: evidenceLinks ?? [],
+      test_runs: tests ?? [],
+      ingestion_trace: trace ?? null,
+    },
+  });
+});
+
 runsRouter.get('/:id', async (req, res) => {
   if (req.accepts('html') && !req.query.json) {
     return res.sendFile(DASHBOARD_HTML);

@@ -206,6 +206,116 @@ async function checkSchema(supabase: any) {
       fix: 'apply supabase/migrations/101_pipeline_run_traces.sql',
     });
   }
+
+  console.log(`\n${BOLD}── integrations and graph v2 (migrations 106–109) ──${RESET}`);
+  const integrationTables = [
+    'integration_connections',
+    'integration_sync_states',
+    'integration_jobs',
+    'integration_sync_runs',
+    'source_payloads',
+    'source_items',
+    'source_item_relations',
+    'analysis_units',
+    'evidence_links',
+    'integration_test_runs',
+    'integration_credentials',
+    'integration_imports',
+    'source_assets',
+    'integration_audit_events',
+    'integration_oauth_states',
+    'entities',
+    'entity_aliases',
+    'entity_resolution_candidates',
+    'assertions',
+    'assertion_evidence',
+    'assertion_relations',
+  ];
+  for (const table of integrationTables) {
+    const { error } = await supabase.from(table).select('id').limit(1);
+    record({
+      name: `table ${table}`,
+      ok: !error,
+      detail: error ? error.message.split('\n')[0] : 'exists',
+      fix: table === 'integration_connections' || table === 'source_items'
+        ? 'apply supabase/migrations/106_integration_foundation.sql'
+        : 'apply through supabase/migrations/108_integration_operations_graph_v2.sql',
+    });
+  }
+
+  for (const check of [
+    { table: 'raw_content', column: 'source_item_id', migration: '106_integration_foundation.sql' },
+    { table: 'raw_content', column: 'processing_started_at', migration: '106_integration_foundation.sql' },
+    { table: 'source_items', column: 'analysis_eligible', migration: '106_integration_foundation.sql' },
+    { table: 'integration_sync_runs', column: 'ingestion_trace_id', migration: '107_integration_agent_linkage.sql' },
+    { table: 'integration_jobs', column: 'idempotency_key', migration: '108_integration_operations_graph_v2.sql' },
+    { table: 'assertions', column: 'origin_key', migration: '108_integration_operations_graph_v2.sql' },
+  ]) {
+    const { error } = await supabase.from(check.table).select(check.column).limit(1);
+    record({
+      name: `${check.table}.${check.column}`,
+      ok: !error,
+      detail: error ? error.message.split('\n')[0] : 'exists',
+      fix: `apply supabase/migrations/${check.migration}`,
+    });
+  }
+
+  const { error: integrationRpcError } = await supabase.rpc('ingest_integration_source_item', {
+    p_user_id: '00000000-0000-0000-0000-000000000000',
+    p_provider_id: '__doctor__',
+    p_collection_mode: 'native_ios',
+    p_sync_run_id: '00000000-0000-0000-0000-000000000000',
+    p_provider_object_type: '__doctor__',
+    p_provider_object_id: '__doctor__',
+    p_payload: {},
+    p_payload_hash: '__doctor__',
+    p_canonical_type: '__doctor__',
+    p_canonical_text: '__doctor__',
+    p_normalized_data: {},
+    p_occurred_at: new Date(0).toISOString(),
+    p_analysis_eligible: false,
+    p_provider_created_at: null,
+    p_provider_updated_at: null,
+    p_parser_version: '__doctor__',
+    p_normalizer_version: '__doctor__',
+    p_content_type: '__doctor__',
+    p_metadata: {},
+  });
+  const rpcMissing = integrationRpcError?.code === 'PGRST202'
+    || integrationRpcError?.message?.includes('Could not find the function');
+  record({
+    name: 'rpc ingest_integration_source_item',
+    ok: !rpcMissing && !integrationRpcError?.message?.includes('ambiguous'),
+    detail: rpcMissing || integrationRpcError?.message?.includes('ambiguous')
+      ? integrationRpcError.message.split('\n')[0]
+      : 'callable',
+    fix: integrationRpcError?.message?.includes('ambiguous')
+      ? 'apply supabase/migrations/109_fix_integration_ingestion_rpc_ambiguity.sql'
+      : 'apply supabase/migrations/106_integration_foundation.sql',
+  });
+
+  const { error: leaseRpcError } = await supabase.rpc('lease_integration_jobs', {
+    p_worker_id: '__doctor__',
+    p_limit: 1,
+    p_lease_seconds: 1,
+  });
+  record({
+    name: 'rpc lease_integration_jobs',
+    ok: !leaseRpcError,
+    detail: leaseRpcError ? leaseRpcError.message.split('\n')[0] : 'callable',
+    fix: 'apply supabase/migrations/108_integration_operations_graph_v2.sql',
+  });
+  const { error: heartbeatRpcError } = await supabase.rpc('heartbeat_integration_job', {
+    p_job_id: '00000000-0000-0000-0000-000000000000',
+    p_worker_id: '__doctor__',
+    p_lease_seconds: 1,
+  });
+  record({
+    name: 'rpc heartbeat_integration_job',
+    ok: !heartbeatRpcError,
+    detail: heartbeatRpcError ? heartbeatRpcError.message.split('\n')[0] : 'callable',
+    fix: 'apply supabase/migrations/108_integration_operations_graph_v2.sql',
+  });
 }
 
 async function checkStorage(supabase: any) {
@@ -229,6 +339,15 @@ async function checkStorage(supabase: any) {
     detail: has ? 'exists' : 'missing',
     fix: 'Supabase dashboard -> Storage -> New Bucket -> name: podcast-audio (public). Only needed for non-skip-tts runs.',
   });
+  for (const bucket of ['integration-imports', 'integration-evidence', 'integration-media']) {
+    const exists = (data ?? []).some((b: { name: string }) => b.name === bucket);
+    record({
+      name: `bucket ${bucket}`,
+      ok: exists,
+      detail: exists ? 'exists and private' : 'missing',
+      fix: 'apply supabase/migrations/108_integration_operations_graph_v2.sql',
+    });
+  }
 }
 
 async function checkOpenAI() {
@@ -259,6 +378,10 @@ async function checkFiles() {
   const expected = [
     'supabase/migrations/100_agent_extensions.sql',
     'supabase/migrations/101_pipeline_run_traces.sql',
+    'supabase/migrations/106_integration_foundation.sql',
+    'supabase/migrations/107_integration_agent_linkage.sql',
+    'supabase/migrations/108_integration_operations_graph_v2.sql',
+    'supabase/migrations/109_fix_integration_ingestion_rpc_ambiguity.sql',
     'src/index.ts',
     '.env',
   ];

@@ -42,9 +42,26 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
   const rawBlocks = input.newRawContent.map((rc, idx) => {
     const date = rc.content_date ?? rc.created_at;
     const isOnboarding = rc.content_type === 'onboarding_profile';
-    const limit = isOnboarding ? 10000 : 4000;
+    // Long-form writing the user actually sat down to produce is the richest
+    // evidence there is. A brain dump runs well past 4,000 characters, and
+    // truncating it silently loses whatever they got to last -- usually the
+    // part they were working up to. Structured connector payloads stay capped
+    // because they are repetitive and cheap to sample.
+    const LONGFORM_TYPES = new Set([
+      'journal_entry', 'text_entry', 'voice_journal', 'voice_recording', 'google_docs',
+    ]);
+    const limit = isOnboarding ? 20000 : LONGFORM_TYPES.has(rc.content_type) ? 16000 : 4000;
     const label = isOnboarding ? 'FOUNDATIONAL ONBOARDING PROFILE' : 'Raw content';
-    return `### [index=${idx}] ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${rc.content.slice(0, limit)}`;
+
+    const body = rc.content.slice(0, limit);
+    if (rc.content.length > limit) {
+      // Never silent. A dropped tail is a dropped fact.
+      console.warn(
+        `[ingestion] TRUNCATED ${rc.content_type} ${rc.id}: ${rc.content.length} chars -> ${limit}. ` +
+          `${rc.content.length - limit} characters were not analysed.`
+      );
+    }
+    return `### [index=${idx}] ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${body}`;
   });
 
   const onboardingInstruction =
@@ -71,7 +88,7 @@ ${candidateLines.join('\n') || '(none)'}
 # NEW Raw Content to Process
 ${rawBlocks.join('\n\n---\n\n') || '(nothing new — return empty arrays)'}
 
-Extract identity_inferences first, then observations, insights, and any goal_candidates from the NEW raw content above. Use raw_content indexes (shown in each ### heading) to cite evidence in identity_inferences.supporting_raw_content_indexes.`;
+Extract identity_inferences first, then observations, insights, and any goal_candidates from the NEW raw content above. Use raw_content indexes (shown in each ### heading) to cite evidence in both identity_inferences.supporting_raw_content_indexes and observations.supporting_raw_content_indexes.`;
 
   const { data, usage } = await jsonChatCompletion<IngestionResult>(
     INGESTION_SYSTEM_PROMPT,
@@ -85,6 +102,7 @@ Extract identity_inferences first, then observations, insights, and any goal_can
   });
 
   return {
+    fact_candidates: data.fact_candidates ?? [],
     identity_inferences: data.identity_inferences ?? [],
     observations: data.observations ?? [],
     insights: data.insights ?? [],
