@@ -30,6 +30,13 @@ export interface DbRawContent {
   content_date: string | null;
   processing_status: string;
   processing_started_at?: string | null;
+  /** Who wrote this: 'self' (the user), 'other' (a third party or a sensor),
+   *  'unknown' (collected material). Only 'self' may yield claims about the
+   *  user -- see src/prompts/ingestion.ts. */
+  authorship?: 'self' | 'other' | 'unknown' | null;
+  attempt_count?: number | null;
+  next_attempt_at?: string | null;
+  failure_kind?: 'transient' | 'terminal' | null;
   created_at: string;
   metadata?: Record<string, unknown>;
   source_item_id?: string | null;
