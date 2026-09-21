@@ -10,6 +10,7 @@
  * here happens by accident. It reports first, applies only when told to, and is
  * bounded every time. There is no flag that means "all of it".
  */
+import { createHash } from 'node:crypto';
 import { parseArgs, requireArg, optNum, optBool, optStr } from './_args';
 import { supabase } from '../src/db/supabase';
 import { Tables } from '../src/db/tables';
@@ -23,12 +24,39 @@ const EST_USD_PER_ENTRY = 0.02;
 
 type Row = { id: string; processing_error: string | null; created_at: string; content: string | null };
 
+/**
+ * Collapse rows holding identical content down to one apiece.
+ *
+ * This is a correctness requirement, not an economy. A broken importer wrote
+ * the same 18 documents 1,357 times -- one of them 264 times on a single day.
+ * The promoter decides what counts as a pattern by counting how often
+ * something recurs, so requeuing those as-is would hand it 264 instances of a
+ * single Tuesday and let a sync bug present itself as a person's defining
+ * habit. Money is the smaller problem.
+ *
+ * The oldest copy is kept, since its created_at is the one that reflects when
+ * the material actually arrived.
+ */
+function dedupe(rows: Row[]): { kept: Row[]; collapsed: number } {
+  const byHash = new Map<string, Row>();
+  for (const r of rows) {
+    const hash = createHash('sha1').update(r.content ?? '').digest('hex');
+    const existing = byHash.get(hash);
+    if (!existing || r.created_at < existing.created_at) byHash.set(hash, r);
+  }
+  const kept = [...byHash.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return { kept, collapsed: rows.length - kept.length };
+}
+
 async function main() {
   const args = parseArgs();
   const userId = requireArg(args, 'user');
   const limit = Math.min(optNum(args, 'limit') ?? 50, HARD_CAP);
   const apply = optBool(args, 'apply');
   const only = optStr(args, 'only'); // optional substring filter on the error
+  // Deduplication is ON unless explicitly disabled: requeuing duplicates is
+  // actively harmful to the fact bank, so it should take a deliberate act.
+  const noDedupe = optBool(args, 'no-dedupe');
 
   const { data, error } = await supabase
     .from(Tables.RAW_CONTENT)
@@ -69,15 +97,27 @@ async function main() {
     ? retryable.filter((r) => (r.processing_error ?? '').toLowerCase().includes(only.toLowerCase()))
     : retryable;
 
-  const selected = filtered.slice(0, limit);
+  const { kept, collapsed } = noDedupe
+    ? { kept: filtered, collapsed: 0 }
+    : dedupe(filtered);
+
+  if (collapsed > 0) {
+    console.log(
+      `\n  ${collapsed} duplicate row(s) collapsed -> ${kept.length} distinct document(s)` +
+        `${noDedupe ? '' : '   (pass --no-dedupe to requeue every copy)'}`,
+    );
+  }
+
+  const selected = kept.slice(0, limit);
   const chars = selected.reduce((n, r) => n + (r.content?.length ?? 0), 0);
 
   console.log(`\n  retryable (transient): ${retryable.length}`);
   if (only) console.log(`  matching --only "${only}": ${filtered.length}`);
+  console.log(`  distinct after dedupe: ${kept.length}`);
   console.log(`  would requeue now:     ${selected.length} (limit ${limit}, hard cap ${HARD_CAP})`);
   console.log(`  content:               ${chars.toLocaleString()} chars`);
   console.log(`  rough cost:            ~$${(selected.length * EST_USD_PER_ENTRY).toFixed(2)}`);
-  console.log(`  remaining after:       ${filtered.length - selected.length}`);
+  console.log(`  remaining after:       ${kept.length - selected.length}`);
 
   if (!apply) {
     console.log(`\nDry run. Nothing written. Re-run with --apply to requeue these ${selected.length}.`);
