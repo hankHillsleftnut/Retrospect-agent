@@ -27,8 +27,11 @@ services:
         value: production
       - key: PORT
         value: 3001
+      # The daily retry pass. This was "false", which meant nothing in this
+      # system ever retried anything: an entry that failed once stayed failed
+      # forever. Two thousand of them did.
       - key: ENABLE_AGENT_CRONS
-        value: "false"
+        value: "true"
       - key: ENABLE_INTEGRATION_RUNTIME
         value: "true"
       - key: INTEGRATION_SCHEDULER_POLL_MINUTES

@@ -25,7 +25,8 @@
     "security:check": "node scripts/check-secrets.cjs",
     "test": "tsx --test $(find tests -name '*.test.ts')",
     "setup": "tsx scripts/setup.ts",
-    "lint:brain": "tsx scripts/lint.ts"
+    "lint:brain": "tsx scripts/lint.ts",
+    "requeue": "tsx scripts/requeue-failed.ts"
   },
   "keywords": [
     "agent",
@@ -51,6 +52,7 @@
     "csv-parse": "^7.0.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "gpt-tokenizer": "^4.0.0",
     "node-cron": "^3.0.3",
     "openai": "^4.24.0",
     "typescript": "^5.3.3",

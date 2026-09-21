@@ -1,7 +1,11 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
-import { runIngestionAgent, contentCharLimit } from '../agents/ingestion-agent';
+import { runIngestionAgent, contentCharLimit, renderPromptContext } from '../agents/ingestion-agent';
+import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
+import { RequestTooLargeError } from '../services/openai';
+import { countTokens, contentTokenBudget, envInt } from '../services/token-budget';
+import { failureUpdate, MAX_ATTEMPTS } from './retry-policy';
 import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
 import { buildPortrait, patchDocument } from '../brain/portrait';
@@ -49,6 +53,9 @@ export interface IngestSummary {
   /** Claims discarded because their quote was not in the source. A high
    *  number here means the extraction prompt is wrong, not the verifier. */
   facts_dropped?: number;
+  /** How many batches the model refused as too large and we had to halve.
+   *  Persistently non-zero means the token budget is set too high. */
+  batches_split?: number;
   fact_drop_reasons?: Record<string, number>;
   /** Candidates where the user named their own loop -- promoter seeds. */
   self_named_loops?: number;
@@ -68,44 +75,89 @@ export interface IngestSummary {
 }
 
 /**
- * Soft cap on the raw_content character budget per ingestion-agent call.
- * Conservative against OpenAI Tier-1 TPM (30K tokens/min). With ~10K tokens
- * of overhead (system prompt + document block + goals/insights/candidates),
- * that leaves ~20K input tokens for the raw_content blocks themselves.
- * 35000 chars ≈ 9K tokens, fits comfortably.
+ * The batch budget is now measured, not assumed.
  *
- * This was briefly raised to 60000 so a single long brain dump could not be
- * split mid-thought. That reasoning was sound but the arithmetic was not: at
- * 60000 the request came to ~35K tokens against a 30K ceiling, so a full batch
- * could never succeed -- not under load, but always. A single oversized entry
- * is still sent whole (see batchRawContent), which serves the same purpose
- * without putting every ordinary batch over the limit.
+ * This used to be a character constant converted to tokens with a fixed ratio.
+ * That ratio is not fixed -- prose, JSON connector payloads and transcripts
+ * tokenize very differently -- and a character budget can only ever approximate
+ * a limit that is expressed in tokens. When the approximation was wrong in the
+ * unsafe direction the request was refused outright and the entries were marked
+ * permanently failed.
+ *
+ * Tokens are now counted locally, which costs microseconds and nothing in
+ * money. Residual error is covered by the split-on-refusal path in runIngest:
+ * the aim is to be right nearly always and to recover cleanly when we are not.
  */
-export const MAX_BATCH_CHARS = 35000;
 
 /**
- * Per-entry content cap. Delegates to the agent so the two cannot disagree:
- * this is the measurement the batch budget is spent against, and if it reads
- * low the batcher overfills every request without ever knowing it did.
+ * How many overdue rows one run may pick up on top of new content.
+ *
+ * The backlog is thousands of rows. Without a bound, the first run after this
+ * ships would try to process all of them at once -- an unbounded spend and a
+ * guaranteed rate limit. The queue drains over successive runs instead.
  */
-export function estimateEntryChars(rc: DbRawContent): number {
-  return Math.min(rc.content.length, contentCharLimit(rc.content_type));
+export const RETRY_LIMIT_PER_RUN = envInt('INGEST_RETRY_LIMIT', 25);
+
+/**
+ * Bound on NEW content too, not just retries.
+ *
+ * Retries were bounded and arrivals were not, which protects the backlog and
+ * leaves the front door open: a bulk import or a connector backfill landing
+ * hundreds of rows inside the window would issue hundreds of calls in a single
+ * unbounded pass. Both sides drain over successive runs now.
+ */
+export const FRESH_LIMIT_PER_RUN = envInt('INGEST_FRESH_LIMIT', 200);
+
+/** Tokens one entry will actually contribute, measured on the truncated body. */
+export function estimateEntryTokens(rc: DbRawContent): number {
+  return countTokens(rc.content.slice(0, contentCharLimit(rc.content_type)));
 }
 
-export function batchRawContent(entries: DbRawContent[]): DbRawContent[][] {
+/**
+ * The fixed cost of a call, measured by rendering the real prompt context.
+ *
+ * An earlier version of this ran JSON.stringify over the raw objects and
+ * reported 614,896 tokens, because the stored document and the full insight
+ * rows are vastly larger than what is actually sent -- insights are capped at
+ * 25 and reduced to one line each. The content budget collapsed to its floor
+ * and a single run became 411 calls of one entry, which is the exact waste
+ * batching exists to avoid.
+ *
+ * Measuring the rendered string removes the guess entirely.
+ */
+export function measureOverheadTokens(input: {
+  recentInsights: DbInsight[];
+  activeGoals: DbGoal[];
+  openGoalCandidates: { id: string; title: string; description: string | null }[];
+  currentDocument: UserUnderstandingDocument | null;
+}): number {
+  return countTokens(INGESTION_SYSTEM_PROMPT) + countTokens(renderPromptContext(input));
+}
+
+export function splitBatch<T>(batch: T[]): [T[], T[]] {
+  const mid = Math.ceil(batch.length / 2);
+  return [batch.slice(0, mid), batch.slice(mid)];
+}
+
+export function batchRawContent(
+  entries: DbRawContent[],
+  budgetTokens: number,
+): DbRawContent[][] {
   const batches: DbRawContent[][] = [];
   let current: DbRawContent[] = [];
-  let currentChars = 0;
+  let currentTokens = 0;
   for (const entry of entries) {
-    const size = estimateEntryChars(entry);
-    // Always include at least one entry per batch, even if it alone exceeds the cap.
-    if (current.length > 0 && currentChars + size > MAX_BATCH_CHARS) {
+    const size = estimateEntryTokens(entry);
+    // Always include at least one entry per batch, even if it alone exceeds the
+    // budget: a single long entry must not be split mid-thought, and the
+    // split-on-refusal path cannot help a batch of one anyway.
+    if (current.length > 0 && currentTokens + size > budgetTokens) {
       batches.push(current);
       current = [];
-      currentChars = 0;
+      currentTokens = 0;
     }
     current.push(entry);
-    currentChars += size;
+    currentTokens += size;
   }
   if (current.length > 0) batches.push(current);
   return batches;
@@ -171,28 +223,96 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       }
     }
 
-    // Only pick up content that hasn't been successfully processed yet.
-    // This prevents creating duplicate observations when re-running ingestion.
-    let rawQuery = supabase
-      .from(Tables.RAW_CONTENT)
-      .select('*')
-      .eq('user_id', options.userId)
-      .in('processing_status', ['pending', 'failed'])
-      .gte('created_at', sinceIso)
-      .order('created_at', { ascending: true });
+    // Work comes from two places, and conflating them is what made the backlog
+    // unreachable.
+    //
+    //   NEW content is windowed by created_at, because "what has arrived since
+    //   I last looked" is genuinely a question about recency.
+    //
+    //   DUE RETRIES are not windowed at all. A row that failed in March is
+    //   still work to do; it does not become less worth processing by getting
+    //   older. The previous query applied the seven-day window to both, so any
+    //   failure that aged past a week fell off the edge of the world -- which,
+    //   with the retry cron disabled, is where two thousand entries went.
+    //
+    // Retries are bounded per run so that turning this on cannot fire off a
+    // two-thousand-row spend in one go. The queue drains over several runs
+    // instead, oldest first.
+    let newRawContent: DbRawContent[];
 
     if (options.rawContentIds && options.rawContentIds.length > 0) {
-      // Specific IDs requested — fetch them regardless of status
-      rawQuery = supabase
+      // Specific IDs requested — fetch them regardless of status or age.
+      const { data, error } = await supabase
         .from(Tables.RAW_CONTENT)
         .select('*')
         .eq('user_id', options.userId)
         .in('id', options.rawContentIds);
-    }
+      if (error) throw new Error(`Fetch raw_content failed: ${error.message}`);
+      newRawContent = (data ?? []) as DbRawContent[];
+    } else {
+      const nowIso = new Date().toISOString();
 
-    const { data: rawData, error: rawErr } = await rawQuery;
-    if (rawErr) throw new Error(`Fetch raw_content failed: ${rawErr.message}`);
-    let newRawContent = (rawData ?? []) as DbRawContent[];
+      // 1. Arrivals: pending, no due time, inside the window.
+      const { data: fresh, error: freshErr } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', options.userId)
+        .eq('processing_status', 'pending')
+        .is('next_attempt_at', null)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: true })
+        .limit(FRESH_LIMIT_PER_RUN);
+      if (freshErr) throw new Error(`Fetch raw_content failed: ${freshErr.message}`);
+
+      // 2. Scheduled retries: due now, at any age.
+      const { data: due, error: dueErr } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', options.userId)
+        .eq('processing_status', 'pending')
+        .not('next_attempt_at', 'is', null)
+        .lte('next_attempt_at', nowIso)
+        .order('next_attempt_at', { ascending: true })
+        .limit(RETRY_LIMIT_PER_RUN);
+      if (dueErr) throw new Error(`Fetch due retries failed: ${dueErr.message}`);
+
+      // 3. Stranded: pending, no due time, and OUTSIDE the window.
+      //
+      // Splitting the first two queries apart left a gap exactly where the old
+      // bug lived. A row in this state matches neither: too old for the
+      // arrivals window, no due time for the retry queue. Fourteen rows were
+      // sitting in it in production -- pending, never processed, and after the
+      // split, unreachable by anything.
+      //
+      // Nothing should be able to sit in `pending` and never be looked at. The
+      // window is an optimisation for finding new work quickly, not a statement
+      // that older work has stopped mattering.
+      const { data: stranded, error: strandedErr } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', options.userId)
+        .eq('processing_status', 'pending')
+        .is('next_attempt_at', null)
+        .lt('created_at', sinceIso)
+        .order('created_at', { ascending: true })
+        .limit(RETRY_LIMIT_PER_RUN);
+      if (strandedErr) throw new Error(`Fetch stranded pending failed: ${strandedErr.message}`);
+
+      const seen = new Set<string>();
+      newRawContent = [...(fresh ?? []), ...(due ?? []), ...(stranded ?? [])].filter((r) => {
+        const row = r as DbRawContent;
+        if (seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      }) as DbRawContent[];
+
+      if ((due ?? []).length > 0) {
+        console.log(`[ingest]   including ${(due ?? []).length} due retries (limit ${RETRY_LIMIT_PER_RUN})`);
+      }
+      if ((stranded ?? []).length > 0) {
+        console.log(`[ingest]   including ${(stranded ?? []).length} stranded pending rows older than the window`);
+      }
+    }
 
     if (newRawContent.length === 0) {
       return completeEmptyIngest(trace, 'No new raw content found.');
@@ -309,9 +429,22 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     //    own ingestion-agent call; results are persisted per-batch (since
     //    insight/inference indexes are local to each agent response). Cook 0
     //    runs once at the end with all accumulated new inferences.
-    const batches = batchRawContent(newRawContent);
+    const overheadTokens = measureOverheadTokens({
+      recentInsights,
+      activeGoals,
+      openGoalCandidates,
+      currentDocument,
+    });
+    const budgetTokens = contentTokenBudget(overheadTokens);
+
+    // A queue rather than a fixed list: when the model refuses a batch as too
+    // large, that batch is replaced in place by its two halves and the loop
+    // picks them up. The budget above should make this rare; the point is that
+    // being wrong costs one extra call instead of losing the entries.
+    const batches = batchRawContent(newRawContent, budgetTokens);
     console.log(
-      `[ingest] user=${options.userId} content=${newRawContent.length} batches=${batches.length}`
+      `[ingest] user=${options.userId} content=${newRawContent.length} batches=${batches.length} ` +
+        `overhead=${overheadTokens}tok budget=${budgetTokens}tok`
     );
 
     const aggregateResult: IngestionResult = {
@@ -332,6 +465,8 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     const selfNamedLoopIds: string[] = [];
     const factWriteErrors: string[] = [];
 
+    let splitCount = 0;
+
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       const batch = batches[batchIdx]!;
       const isDryRun = !!options.dryRun;
@@ -340,14 +475,36 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         `[ingest]   batch ${batchIdx + 1}/${batches.length}: ${batch.length} entries`
       );
 
-      const result = await runIngestionAgent({
-        newRawContent: batch,
-        recentInsights,
-        activeGoals,
-        openGoalCandidates,
-        currentDocument,
-        trace,
-      });
+      let result: IngestionResult & { fact_candidates?: unknown[]; processingNotes?: string };
+      try {
+        result = await runIngestionAgent({
+          newRawContent: batch,
+          recentInsights,
+          activeGoals,
+          openGoalCandidates,
+          currentDocument,
+          trace,
+        });
+      } catch (err) {
+        // Too large is the one failure we can answer intelligently: halve the
+        // batch and try again. Retrying the identical request -- which is what
+        // happened before -- can only ever fail identically.
+        if (err instanceof RequestTooLargeError && batch.length > 1) {
+          const [first, second] = splitBatch(batch);
+          batches.splice(batchIdx, 1, first, second);
+          splitCount += 1;
+          console.warn(
+            `[ingest]   batch ${batchIdx + 1} refused as too large — split into ${first.length} + ${second.length}`
+          );
+          batchIdx -= 1; // reprocess this position, now holding the first half
+          continue;
+        }
+        // A single entry that still will not fit cannot be split further. It is
+        // already truncated at the per-entry cap, so this means the cap itself
+        // is too high for the account -- worth failing loudly rather than
+        // silently dropping the entry.
+        throw err;
+      }
 
       aggregateResult.observations.push(...result.observations);
       aggregateResult.insights.push(...result.insights);
@@ -613,6 +770,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
         fact_write_errors: factWriteErrors,
         raw_content_processed: newRawContent.length,
         batches_run: batches.length,
+        batches_split: splitCount,
         user_understanding_version: null,
         cook0_failed: false,
         result: aggregateResult,
@@ -719,6 +877,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       identity_inferences_created: allInferenceIds.length,
       raw_content_processed: newRawContent.length,
       batches_run: batches.length,
+      batches_split: splitCount,
       user_understanding_version: newUnderstandingVersion,
       cook0_failed: cook0Failed,
       cook0_error: cook0Error,
@@ -727,15 +886,45 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     };
   } catch (err) {
     if (!options.dryRun && processingRawContentIds.length > 0) {
-      await supabase
+      // A failure is a scheduling decision now, not a verdict.
+      //
+      // This used to write `failed` on every row in flight, whatever had gone
+      // wrong. A rate limit lasting ninety seconds and a genuinely
+      // unprocessable entry were recorded identically, and nothing ever looked
+      // at either again. Rows still worth retrying go back to `pending` with a
+      // due time; only rows that are out of attempts, or whose failure cannot
+      // be fixed by trying again, keep the word `failed`.
+      const message = err instanceof Error ? err.message : String(err);
+
+      const { data: rows } = await supabase
         .from(Tables.RAW_CONTENT)
-        .update({
-          processing_status: 'failed',
-          processing_error: err instanceof Error ? err.message : String(err),
-          processing_started_at: null,
-        })
+        .select('id, attempt_count')
         .in('id', processingRawContentIds)
         .eq('processing_status', 'processing');
+
+      // Rows sharing an attempt count share an update, so this is one or two
+      // statements in practice rather than one per row.
+      const byAttempt = new Map<number, string[]>();
+      for (const row of (rows ?? []) as { id: string; attempt_count: number | null }[]) {
+        const n = row.attempt_count ?? 0;
+        if (!byAttempt.has(n)) byAttempt.set(n, []);
+        byAttempt.get(n)!.push(row.id);
+      }
+
+      for (const [attempts, ids] of byAttempt) {
+        const update = failureUpdate(message, attempts);
+        await supabase
+          .from(Tables.RAW_CONTENT)
+          .update({ ...update, processing_started_at: null })
+          .in('id', ids)
+          .eq('processing_status', 'processing');
+
+        console.warn(
+          `[ingest]   ${ids.length} row(s) -> ${update.processing_status}` +
+            ` (attempt ${update.attempt_count}/${MAX_ATTEMPTS}, ${update.failure_kind}` +
+            `${update.next_attempt_at ? `, due ${update.next_attempt_at}` : ', no further attempts'})`
+        );
+      }
     }
     await trace.fail(err);
     throw err;
