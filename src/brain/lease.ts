@@ -46,6 +46,11 @@ export async function reclaimExpiredLeases(options: {
       processing_status: 'pending',
       processing_started_at: null,
       processing_error: 'lease expired; reclaimed for retry',
+      // Due immediately, and explicitly IN the retry queue rather than treated
+      // as fresh arrivals. A reclaimed row keeps its original created_at, so
+      // leaving this null would put an old row back under the "recent content"
+      // window it can never satisfy -- reclaimed, and unreachable all the same.
+      next_attempt_at: new Date().toISOString(),
     })
     .eq('processing_status', 'processing')
     .lt('processing_started_at', cutoff);
@@ -69,6 +74,7 @@ export async function reclaimUnstampedLeases(userId?: string): Promise<ReclaimRe
     .update({
       processing_status: 'pending',
       processing_error: 'processing with no lease stamp; reclaimed for retry',
+      next_attempt_at: new Date().toISOString(),
     })
     .eq('processing_status', 'processing')
     .is('processing_started_at', null);

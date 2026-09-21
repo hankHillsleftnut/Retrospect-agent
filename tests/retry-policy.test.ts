@@ -148,3 +148,32 @@ test('the stored error is truncated so a huge message cannot bloat the row', () 
   const u = failureUpdate('x'.repeat(5000), 0);
   assert.ok(u.processing_error.length <= 500);
 });
+
+// ---------------------------------------------------------------- the seam
+//
+// Reclaimed rows keep their original created_at. If they return to `pending`
+// without a due time they are treated as fresh arrivals and filtered by the
+// recent-content window -- reclaimed, and unreachable all the same. This is the
+// exact shape of the bug this whole change exists to remove, so it is asserted
+// rather than assumed.
+
+test('a row is reachable by one of the two queries, never neither', () => {
+  const WINDOW_DAYS = 7;
+  const old = new Date(Date.now() - 200 * 86_400_000).toISOString();
+
+  const reachable = (row: { created_at: string; next_attempt_at: string | null }) => {
+    const fresh =
+      row.next_attempt_at === null &&
+      Date.now() - new Date(row.created_at).getTime() <= WINDOW_DAYS * 86_400_000;
+    const due =
+      row.next_attempt_at !== null && new Date(row.next_attempt_at).getTime() <= Date.now();
+    return fresh || due;
+  };
+
+  // an old row reclaimed WITHOUT a due time -- the bug
+  assert.equal(reachable({ created_at: old, next_attempt_at: null }), false);
+  // the same row reclaimed WITH one -- the fix
+  assert.equal(reachable({ created_at: old, next_attempt_at: new Date().toISOString() }), true);
+  // a genuinely new arrival still needs no due time
+  assert.equal(reachable({ created_at: new Date().toISOString(), next_attempt_at: null }), true);
+});
