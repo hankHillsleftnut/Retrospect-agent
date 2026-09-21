@@ -1,7 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
-import { runIngestionAgent, contentCharLimit } from '../agents/ingestion-agent';
+import { runIngestionAgent, contentCharLimit, renderPromptContext } from '../agents/ingestion-agent';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
 import { countTokens, contentTokenBudget } from '../services/token-budget';
@@ -101,27 +101,26 @@ export function estimateEntryTokens(rc: DbRawContent): number {
 }
 
 /**
- * The fixed cost of a call, measured from the real context about to be sent
- * rather than assumed. Approximate only in that the agent renders these values
- * slightly differently from JSON; it is far closer than the flat 10k guess it
- * replaces, and errs high, which is the safe direction.
+ * The fixed cost of a call, measured by rendering the real prompt context.
+ *
+ * An earlier version of this ran JSON.stringify over the raw objects and
+ * reported 614,896 tokens, because the stored document and the full insight
+ * rows are vastly larger than what is actually sent -- insights are capped at
+ * 25 and reduced to one line each. The content budget collapsed to its floor
+ * and a single run became 411 calls of one entry, which is the exact waste
+ * batching exists to avoid.
+ *
+ * Measuring the rendered string removes the guess entirely.
  */
 export function measureOverheadTokens(input: {
-  recentInsights: unknown;
-  activeGoals: unknown;
-  openGoalCandidates: unknown;
-  currentDocument: unknown;
+  recentInsights: DbInsight[];
+  activeGoals: DbGoal[];
+  openGoalCandidates: { id: string; title: string; description: string | null }[];
+  currentDocument: UserUnderstandingDocument | null;
 }): number {
-  return (
-    countTokens(INGESTION_SYSTEM_PROMPT) +
-    countTokens(JSON.stringify(input.recentInsights ?? [])) +
-    countTokens(JSON.stringify(input.activeGoals ?? [])) +
-    countTokens(JSON.stringify(input.openGoalCandidates ?? [])) +
-    countTokens(JSON.stringify(input.currentDocument ?? {}))
-  );
+  return countTokens(INGESTION_SYSTEM_PROMPT) + countTokens(renderPromptContext(input));
 }
 
-/** Halve a refused batch. Pure, so the arithmetic can be tested on its own. */
 export function splitBatch<T>(batch: T[]): [T[], T[]] {
   const mid = Math.ceil(batch.length / 2);
   return [batch.slice(0, mid), batch.slice(mid)];
