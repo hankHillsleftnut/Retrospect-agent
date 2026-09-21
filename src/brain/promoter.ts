@@ -240,20 +240,44 @@ export function evaluateGroup(facts: FactForPromotion[]): PromotionDecision | nu
  * the token requirement is doing the real restraining.
  */
 export function groupFacts(facts: FactForPromotion[]): Map<string, FactForPromotion[]> {
-  const usable = facts.filter((f) => objectTokens(f.object).length > 0);
-  const clusters: { family: string; tokens: Set<string>; facts: FactForPromotion[] }[] = [];
+  // Deterministic input order. Without it the same facts can cluster
+  // differently between runs, because the database returns rows in no
+  // guaranteed order and clustering below is sensitive to sequence.
+  const usable = facts
+    .filter((f) => objectTokens(f.object).length > 0)
+    .slice()
+    .sort((a, b) =>
+      a.eventTime.localeCompare(b.eventTime) || a.assertionId.localeCompare(b.assertionId)
+    );
+
+  type Cluster = { family: string; tokens: Set<string>; facts: FactForPromotion[] };
+  const clusters: Cluster[] = [];
 
   for (const fact of usable) {
     const family = predicateFamily(fact.predicate);
     const tokens = new Set(objectTokens(fact.object));
-    const hit = clusters.find(
+
+    // A fact can bridge several existing clusters. Greedily joining only the
+    // FIRST match leaves the others unmerged, and which one is "first" depends
+    // on arrival order -- so the same facts produced different patterns on
+    // different runs. Absorb every cluster this fact connects to.
+    const matches = clusters.filter(
       (c) => c.family === family && [...tokens].some((t) => c.tokens.has(t))
     );
-    if (hit) {
-      hit.facts.push(fact);
-      for (const t of tokens) hit.tokens.add(t);
-    } else {
+
+    if (matches.length === 0) {
       clusters.push({ family, tokens, facts: [fact] });
+      continue;
+    }
+
+    const target = matches[0]!;
+    target.facts.push(fact);
+    for (const t of tokens) target.tokens.add(t);
+
+    for (const other of matches.slice(1)) {
+      target.facts.push(...other.facts);
+      for (const t of other.tokens) target.tokens.add(t);
+      clusters.splice(clusters.indexOf(other), 1);
     }
   }
 
@@ -261,7 +285,6 @@ export function groupFacts(facts: FactForPromotion[]): Map<string, FactForPromot
   for (const cluster of clusters) {
     const key = clusterKey(cluster.facts);
     if (!key) continue;
-    // Two clusters can land on the same anchor; merge rather than clobber.
     out.set(key, [...(out.get(key) ?? []), ...cluster.facts]);
   }
   return out;
