@@ -9,6 +9,32 @@ import type {
   UserUnderstandingDocument,
 } from '../types';
 
+/**
+ * Long-form writing the user actually sat down to produce is the richest
+ * evidence there is. A brain dump runs well past 4,000 characters, and
+ * truncating it silently loses whatever they got to last -- usually the part
+ * they were working up to. Structured connector payloads stay capped because
+ * they are repetitive and cheap to sample.
+ */
+const LONGFORM_TYPES = new Set([
+  'journal_entry', 'text_entry', 'voice_journal', 'voice_recording', 'google_docs',
+]);
+
+/**
+ * How many characters of one entry actually reach the model.
+ *
+ * Exported because the batcher in pipelines/ingest.ts has to agree with it. It
+ * previously carried its own copy of these numbers, drifted to a quarter of the
+ * real value, and so packed batches four times larger than it believed --
+ * putting every request over the account's tokens-per-minute ceiling. A batcher
+ * that cannot measure what it is sending will always eventually send too much,
+ * so there is now one definition and both sides read it.
+ */
+export function contentCharLimit(contentType: string): number {
+  if (contentType === 'onboarding_profile') return 20000;
+  return LONGFORM_TYPES.has(contentType) ? 16000 : 4000;
+}
+
 interface IngestionInput {
   newRawContent: DbRawContent[];
   recentInsights: DbInsight[];
@@ -42,15 +68,7 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
   const rawBlocks = input.newRawContent.map((rc, idx) => {
     const date = rc.content_date ?? rc.created_at;
     const isOnboarding = rc.content_type === 'onboarding_profile';
-    // Long-form writing the user actually sat down to produce is the richest
-    // evidence there is. A brain dump runs well past 4,000 characters, and
-    // truncating it silently loses whatever they got to last -- usually the
-    // part they were working up to. Structured connector payloads stay capped
-    // because they are repetitive and cheap to sample.
-    const LONGFORM_TYPES = new Set([
-      'journal_entry', 'text_entry', 'voice_journal', 'voice_recording', 'google_docs',
-    ]);
-    const limit = isOnboarding ? 20000 : LONGFORM_TYPES.has(rc.content_type) ? 16000 : 4000;
+    const limit = contentCharLimit(rc.content_type);
     const label = isOnboarding ? 'FOUNDATIONAL ONBOARDING PROFILE' : 'Raw content';
 
     const body = rc.content.slice(0, limit);
