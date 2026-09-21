@@ -5,6 +5,7 @@ import { runIngestionAgent, contentCharLimit } from '../agents/ingestion-agent';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
 import { countTokens, contentTokenBudget } from '../services/token-budget';
+import { failureUpdate, MAX_ATTEMPTS } from './retry-policy';
 import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
 import { buildPortrait, patchDocument } from '../brain/portrait';
@@ -84,6 +85,15 @@ export interface IngestSummary {
  * money. Residual error is covered by the split-on-refusal path in runIngest:
  * the aim is to be right nearly always and to recover cleanly when we are not.
  */
+
+/**
+ * How many overdue rows one run may pick up on top of new content.
+ *
+ * The backlog is thousands of rows. Without a bound, the first run after this
+ * ships would try to process all of them at once -- an unbounded spend and a
+ * guaranteed rate limit. The queue drains over successive runs instead.
+ */
+export const RETRY_LIMIT_PER_RUN = Number(process.env.INGEST_RETRY_LIMIT ?? 25);
 
 /** Tokens one entry will actually contribute, measured on the truncated body. */
 export function estimateEntryTokens(rc: DbRawContent): number {
@@ -201,28 +211,68 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       }
     }
 
-    // Only pick up content that hasn't been successfully processed yet.
-    // This prevents creating duplicate observations when re-running ingestion.
-    let rawQuery = supabase
-      .from(Tables.RAW_CONTENT)
-      .select('*')
-      .eq('user_id', options.userId)
-      .in('processing_status', ['pending', 'failed'])
-      .gte('created_at', sinceIso)
-      .order('created_at', { ascending: true });
+    // Work comes from two places, and conflating them is what made the backlog
+    // unreachable.
+    //
+    //   NEW content is windowed by created_at, because "what has arrived since
+    //   I last looked" is genuinely a question about recency.
+    //
+    //   DUE RETRIES are not windowed at all. A row that failed in March is
+    //   still work to do; it does not become less worth processing by getting
+    //   older. The previous query applied the seven-day window to both, so any
+    //   failure that aged past a week fell off the edge of the world -- which,
+    //   with the retry cron disabled, is where two thousand entries went.
+    //
+    // Retries are bounded per run so that turning this on cannot fire off a
+    // two-thousand-row spend in one go. The queue drains over several runs
+    // instead, oldest first.
+    let newRawContent: DbRawContent[];
 
     if (options.rawContentIds && options.rawContentIds.length > 0) {
-      // Specific IDs requested — fetch them regardless of status
-      rawQuery = supabase
+      // Specific IDs requested — fetch them regardless of status or age.
+      const { data, error } = await supabase
         .from(Tables.RAW_CONTENT)
         .select('*')
         .eq('user_id', options.userId)
         .in('id', options.rawContentIds);
-    }
+      if (error) throw new Error(`Fetch raw_content failed: ${error.message}`);
+      newRawContent = (data ?? []) as DbRawContent[];
+    } else {
+      const nowIso = new Date().toISOString();
 
-    const { data: rawData, error: rawErr } = await rawQuery;
-    if (rawErr) throw new Error(`Fetch raw_content failed: ${rawErr.message}`);
-    let newRawContent = (rawData ?? []) as DbRawContent[];
+      const { data: fresh, error: freshErr } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', options.userId)
+        .eq('processing_status', 'pending')
+        .is('next_attempt_at', null)
+        .gte('created_at', sinceIso)
+        .order('created_at', { ascending: true });
+      if (freshErr) throw new Error(`Fetch raw_content failed: ${freshErr.message}`);
+
+      const { data: due, error: dueErr } = await supabase
+        .from(Tables.RAW_CONTENT)
+        .select('*')
+        .eq('user_id', options.userId)
+        .eq('processing_status', 'pending')
+        .not('next_attempt_at', 'is', null)
+        .lte('next_attempt_at', nowIso)
+        .order('next_attempt_at', { ascending: true })
+        .limit(RETRY_LIMIT_PER_RUN);
+      if (dueErr) throw new Error(`Fetch due retries failed: ${dueErr.message}`);
+
+      const seen = new Set<string>();
+      newRawContent = [...(fresh ?? []), ...(due ?? [])].filter((r) => {
+        const row = r as DbRawContent;
+        if (seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      }) as DbRawContent[];
+
+      if ((due ?? []).length > 0) {
+        console.log(`[ingest]   including ${(due ?? []).length} due retries (limit ${RETRY_LIMIT_PER_RUN})`);
+      }
+    }
 
     if (newRawContent.length === 0) {
       return completeEmptyIngest(trace, 'No new raw content found.');
@@ -794,15 +844,45 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     };
   } catch (err) {
     if (!options.dryRun && processingRawContentIds.length > 0) {
-      await supabase
+      // A failure is a scheduling decision now, not a verdict.
+      //
+      // This used to write `failed` on every row in flight, whatever had gone
+      // wrong. A rate limit lasting ninety seconds and a genuinely
+      // unprocessable entry were recorded identically, and nothing ever looked
+      // at either again. Rows still worth retrying go back to `pending` with a
+      // due time; only rows that are out of attempts, or whose failure cannot
+      // be fixed by trying again, keep the word `failed`.
+      const message = err instanceof Error ? err.message : String(err);
+
+      const { data: rows } = await supabase
         .from(Tables.RAW_CONTENT)
-        .update({
-          processing_status: 'failed',
-          processing_error: err instanceof Error ? err.message : String(err),
-          processing_started_at: null,
-        })
+        .select('id, attempt_count')
         .in('id', processingRawContentIds)
         .eq('processing_status', 'processing');
+
+      // Rows sharing an attempt count share an update, so this is one or two
+      // statements in practice rather than one per row.
+      const byAttempt = new Map<number, string[]>();
+      for (const row of (rows ?? []) as { id: string; attempt_count: number | null }[]) {
+        const n = row.attempt_count ?? 0;
+        if (!byAttempt.has(n)) byAttempt.set(n, []);
+        byAttempt.get(n)!.push(row.id);
+      }
+
+      for (const [attempts, ids] of byAttempt) {
+        const update = failureUpdate(message, attempts);
+        await supabase
+          .from(Tables.RAW_CONTENT)
+          .update({ ...update, processing_started_at: null })
+          .in('id', ids)
+          .eq('processing_status', 'processing');
+
+        console.warn(
+          `[ingest]   ${ids.length} row(s) -> ${update.processing_status}` +
+            ` (attempt ${update.attempt_count}/${MAX_ATTEMPTS}, ${update.failure_kind}` +
+            `${update.next_attempt_at ? `, due ${update.next_attempt_at}` : ', no further attempts'})`
+        );
+      }
     }
     await trace.fail(err);
     throw err;

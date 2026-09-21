@@ -25,7 +25,8 @@
     "security:check": "node scripts/check-secrets.cjs",
     "test": "tsx --test $(find tests -name '*.test.ts')",
     "setup": "tsx scripts/setup.ts",
-    "lint:brain": "tsx scripts/lint.ts"
+    "lint:brain": "tsx scripts/lint.ts",
+    "requeue": "tsx scripts/requeue-failed.ts"
   },
   "keywords": [
     "agent",
