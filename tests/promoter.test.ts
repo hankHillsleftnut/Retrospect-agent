@@ -173,3 +173,33 @@ test('re-running the promoter yields the same key and verdict', () => {
   assert.equal(a.status, b.status);
   assert.equal(a.firstSeenAt, b.firstSeenAt, 'order must not change the span');
 });
+
+// --- review fix: clustering must not depend on the order rows arrive in ---
+
+test('the same facts cluster identically whatever order they arrive in', () => {
+  const A = f({ object: 'gym_session', eventTime: '2026-02-11T09:00:00Z' });
+  const B = f({ object: 'morning_walk', eventTime: '2026-02-12T09:00:00Z' });
+  const C = f({ object: 'gym_morning', eventTime: '2026-02-13T09:00:00Z' }); // bridges A and B
+
+  const orderings = [[A, B, C], [C, A, B], [B, A, C], [C, B, A], [B, C, A]];
+  const shapes = orderings.map((o) =>
+    JSON.stringify([...groupFacts(o).entries()]
+      .map(([k, v]) => [k, v.length])
+      .sort())
+  );
+
+  assert.equal(new Set(shapes).size, 1,
+    'the database returns rows in no guaranteed order; unstable clustering means the same facts become different patterns between runs');
+});
+
+test('a bridging fact merges the clusters it connects, not just the first', () => {
+  const A = f({ object: 'gym_session', eventTime: '2026-02-11T09:00:00Z' });
+  const B = f({ object: 'morning_walk', eventTime: '2026-02-12T09:00:00Z' });
+  const C = f({ object: 'gym_morning', eventTime: '2026-02-13T09:00:00Z' });
+  assert.equal(groupFacts([A, B, C]).size, 1, 'gym_morning shares a token with both');
+});
+
+test('genuinely unrelated loops still stay apart after the merge fix', () => {
+  const groups = groupFacts([...THURSDAYS, ...PRIYA]);
+  assert.equal(groups.size, 2, 'transitive merging must not become a mega-pattern machine');
+});
