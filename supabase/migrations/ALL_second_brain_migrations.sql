@@ -132,10 +132,13 @@ ALTER TABLE behavior_patterns      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE behavior_pattern_facts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE behavior_pattern_whys  ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "own behavior_patterns" ON behavior_patterns;
 CREATE POLICY "own behavior_patterns" ON behavior_patterns
     FOR ALL USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "own behavior_pattern_facts" ON behavior_pattern_facts;
 CREATE POLICY "own behavior_pattern_facts" ON behavior_pattern_facts
     FOR ALL USING (user_id = auth.uid());
+DROP POLICY IF EXISTS "own behavior_pattern_whys" ON behavior_pattern_whys;
 CREATE POLICY "own behavior_pattern_whys" ON behavior_pattern_whys
     FOR ALL USING (user_id = auth.uid());
 
@@ -207,6 +210,7 @@ CREATE INDEX IF NOT EXISTS idx_lint_findings_safety
     WHERE severity = 'safety' AND resolution = 'open';
 
 ALTER TABLE lint_findings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own lint findings" ON lint_findings;
 CREATE POLICY "own lint findings" ON lint_findings
     FOR ALL USING (user_id = auth.uid());
 
@@ -273,6 +277,7 @@ CREATE INDEX IF NOT EXISTS idx_remediation_log_targets
     ON remediation_log USING GIN (target_ids);
 
 ALTER TABLE remediation_log ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "own remediation log" ON remediation_log;
 CREATE POLICY "own remediation log" ON remediation_log
     FOR ALL USING (user_id = auth.uid());
 
