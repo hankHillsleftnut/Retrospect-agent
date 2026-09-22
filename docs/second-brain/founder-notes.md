@@ -476,3 +476,50 @@ Worth being deliberate about what is tracked, since the numbers get asked about:
 
 The last one matters in a room. A large list built slowly is a grind. A list
 that moved quickly off a few posts is a market.
+
+---
+
+## 2026-09-22 — The operating principle for the raise
+
+### In his words
+
+> Investors are looking for: *"Is this something I can't afford to be wrong
+> about?"* — rather than *"Is this the exact right thing that I need?"*
+
+### Annotation
+
+This is the organising principle for everything above, and it reorders the
+material.
+
+A fund returns on a small number of outsized outcomes. Backing something that
+fails costs one position. Missing something that works costs the fund's year.
+The downside is bounded and the upside is not, so the question they are actually
+answering is not *is this correct* but **what happens to me if this is right and
+I passed.**
+
+Which means correctness is the wrong thing to optimise the pitch for.
+Correctness is what makes someone comfortable — *"smart team, good thinking,
+early, let's stay close."* That sentence is a pass.
+
+**What this reorders:**
+
+- **Lead with the claim that is category-defining if true.** That is the
+  instrument claim — continuous longitudinal in-context affect data, the thing
+  the entire motivation literature builds expensive panels to approximate. If
+  that is right, it is a substrate, not a feature.
+- **Docs 17–22 go second, and answer a different question.** They are the
+  execution answer: this team knows why the obvious approaches fail and has
+  already found where the bodies are buried. Necessary, not sufficient, and they
+  do not create urgency on their own.
+- **The waitlist goes with the first claim, not the second.** It is evidence the
+  category is real, which is what makes passing expensive.
+
+**The test for any sentence in the pitch:** does this make it *harder to pass*,
+or does it make it *easier to feel good about passing*? Rigor, caveats and
+carefully stated limitations do the second. They belong in the room when asked,
+and in the docs, and not in the first five minutes.
+
+Which is a different instinct from everything else in these notes — the research
+work has been relentlessly about stating limits honestly, and that is correct
+for building the thing. It is not the same job as making someone afraid to miss
+it. Both are needed. Not in the same breath.
