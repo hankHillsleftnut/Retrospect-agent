@@ -125,3 +125,106 @@ reflecting the loop back — it is *repairing* it at the point where humans are
 known to fail.
 
 ---
+
+## 2026-09-22 — The five questions
+
+### In his words
+
+The questions to ask anyone who has tried this before:
+
+1. Did you make it **voice**?
+2. Did you make it **hyperpersonalised**?
+3. Did you surface the **question, not the verdict**?
+4. Did you make it about **their content**?
+5. Did you make it **narrative-based**?
+
+> This is the true shape of a trustworthy personal agent.
+
+---
+
+### Research annotation — four are grounded, one is a bet
+
+**2. Hyperpersonalised — the strongest of the five, and it is a formal result.**
+
+Molenaar (2004) formalised the **non-ergodicity** problem: conclusions drawn
+from between-person variation do not transfer to within-person dynamics. Fisher
+et al. (2017) demonstrated it in 40 outpatients with GAD and MDD — person-specific
+symptom networks differed **substantially** from the group-aggregated pattern.
+Fisher et al. (2018) turned it into a generalisability critique, and the key
+sentence is:
+
+> lack of group-to-individual transferability is a structural threat to human
+> subjects research that **cannot be solved through larger samples alone.**
+
+This is the second "cannot be solved by scale" result in these notes, after the
+impossibility proof in doc 20 §2. Both favour the same posture. Knowing more
+about *people* tells you less than you would expect about *a person* — so a
+model of this individual is not a refinement of a population model, it is a
+different object.
+
+Worth saying out loud in a pitch: **the general-purpose-model approach is not
+merely worse here, it is formally the wrong shape.**
+
+**3. Question, not verdict — supported, and the nuance sharpens it.**
+
+Process research finds that a more **open, non-direct** approach — open-ended
+questions, empathic reflections — was more likely to be followed by
+cognitive-emotional processing than a **direct** approach of closed questions,
+advice, and *making interpretations*.
+
+But interpretations are not useless: they do produce in-session change, insight
+is meta-analytically associated with outcome (AJP 2018), and there is a
+literature on *how* to deliver them. One paper is titled **"The art of
+tentativity: delivering interpretations in psychodynamic psychotherapy."**
+
+So the refined rule is not "never offer a reading." It is: **offer it
+tentatively, and leave it open.** Tentativity is the craft skill, and it has a
+name.
+
+**4. Their content — supported, and already architectural.**
+
+Span verification means nothing is said that cannot be pointed at. Reconstrual
+requires their material by definition — you cannot help someone see a pattern
+in a life you are not quoting.
+
+**5. Narrative — supported.**
+
+Pennebaker: what predicted benefit was writing moving toward *coherent
+explanatory narrative*. Self-distancing works through reconstruing, which is
+narrative work. Doc 20 §5.2–5.3.
+
+**1. Voice — no supporting research found. This is a product bet.**
+
+Nothing in this literature compares audio to text for reflective benefit. The
+adjacent arguments are suggestive but untested:
+
+- a voice that is not yours is structurally third-person, which is the
+  distancing manipulation
+- audio is received while doing something else, which lowers the cost of
+  engaging
+- but Pennebaker's effect came from people **writing**, not reading
+
+Flag it as a hypothesis, not a finding. It may well be right; it is not
+evidenced, and claiming otherwise in a pitch would be the one weak brick.
+
+---
+
+### The open question underneath all five
+
+Every result in docs 19–22 measures people who **did the reconstruing
+themselves**. Pennebaker's participants wrote. Kross & Ayduk's analysed their
+own memory. von Klipstein's patients co-built the network.
+
+This product **delivers** a reconstrual to someone.
+
+Whether receiving one works like producing one is the biggest untested
+assumption in the whole thesis. The psychotherapy interpretation literature is
+the best available evidence that it can — therapists offer readings and people
+change — and it also says the delivery style decides it, which lands back on
+tentativity.
+
+So the five questions are right, and there is a sixth hiding inside the third:
+**did you leave them room to disagree with it?** That is what makes the
+difference between an interpretation that lands and one that is resisted, and
+it is the part no product has had to solve, because no product has got far
+enough to need to.
