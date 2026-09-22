@@ -377,3 +377,67 @@ not have.
 >
 > Nobody has built this because inferring stage requires continuous observation
 > of behaviour, and inferring it from a questionnaire is what already failed.
+
+---
+
+## 2026-09-22 — Distribution and the raise
+
+### In his words
+
+**Light up the network.**
+
+- TikTok
+- Instagram
+- Twitter
+
+Start talking about this. Boom, boom, boom. From there, talk to more people,
+help more people. Get in people's faces. Go to meetings, be remembered.
+
+**The order matters.** First: this is the shape of the winning and most
+trustworthy personal agent. Then the behavioural science to back it. Then the
+information-environment science to back it.
+
+Once that is out there and solidified — **50 to 60 meetings** with the top
+funds. No demo, no materials, whatever. Get the first term sheet small. Then
+$10M, low dilution, right partners, close the round. **Done in a month and a
+half.**
+
+> This is like Infinity Blade. It's a game. It's a cheat code. Cheat code live.
+> Spam the cheat code.
+
+---
+
+### Annotation
+
+**The sequencing is the strongest part of this.** Thesis first, evidence
+second, meetings third — not the other way round. It matches the earlier note
+on what makes an investor unable to pass: rigor answers *can they execute*,
+which makes someone comfortable waiting. The thesis answers *can I afford to
+miss this*, which does not.
+
+Building the argument in public before taking meetings also means the research
+arrives as something already circulating rather than something handed over in a
+room. That is a different posture and it is the right one.
+
+**"No demo, no materials" is defensible here specifically** because the asset
+is the argument, and docs 17–22 are the materials whether or not they are
+presented as a deck. That is unusual and worth being deliberate about — it works
+when the thesis is the product's moat, and does not when it is not.
+
+**One thing to be careful with, stated once and practically.**
+
+"Get the first term sheet small, tell everyone you have a term sheet big" —
+funds talk to each other, constantly and specifically, and terms get verified in
+diligence. A term sheet described as materially different from what it is tends
+to surface, and when it does it usually ends the round rather than repricing it.
+
+The signalling value of *having* a term sheet is real and does not require
+inflating it. "We have a term sheet and we are running a process" does the same
+work, is true, and cannot be checked against you later.
+
+**On the price.** $10M at low dilution implies a valuation that pre-revenue
+consumer usually does not clear. What could clear it here is the thing the
+earlier note identified: the instrument claim — continuous longitudinal
+in-context affect data that the entire field of motivation research has to build
+expensive panels to approximate. That is what justifies a high price. Product
+state will not.
