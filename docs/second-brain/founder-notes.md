@@ -567,3 +567,43 @@ is right. It is to leave them slightly worried the train is moving. Fifty to
 sixty meetings compressed into weeks does that structurally — the calendar
 itself is the signal, and it is why the density matters more than any individual
 conversation.
+
+### On being asked for materials
+
+**In his words.** If they ask for a memo, if they ask for materials — ignore
+them.
+
+**Annotation.** There is a version of this that works and a version that costs
+the round, and they look similar from the outside.
+
+**What works: refusing to produce a deck.** Not having one is a posture and it
+is consistent with everything else here. Being pulled into producing bespoke
+materials on request hands over the pace, and pace is the whole mechanism. "We
+are not doing a deck" is a complete sentence and a strong one.
+
+**What costs the round: being unreachable.** These are different things. A
+partner who wants to champion this internally has a specific mechanical problem
+— they have to put it in front of their partnership on Monday, and they cannot
+do that with nothing. Silence does not read as scarcity from inside the fund.
+It reads as **unresponsive founder**, which is a known negative and is
+discussed in partner meetings as exactly that.
+
+So the distinction is:
+
+> Refuse to produce materials. Do not go quiet.
+
+"We're not putting a deck together — here's the thesis in three paragraphs,
+happy to talk again Thursday" is scarcity. No reply is flakiness, and the second
+one is not a stronger version of the first.
+
+**The asymmetric move available here.** There is already something to send that
+is not a pitch deck: docs 17–22. Six research papers with fifty-odd citations,
+written before the raise, that nobody asked for.
+
+Sending that is not capitulating to a materials request — it is the opposite. A
+deck says *here is what we want you to think*. A research corpus says *here is
+what we already know, and you are three months behind on it*. The second does
+the work of the previous entry — knowing things they don't — in a form they
+cannot skim in a taxi and cannot easily match.
+
+That is a better answer than silence and a much better answer than a deck.
