@@ -523,3 +523,47 @@ Which is a different instinct from everything else in these notes — the resear
 work has been relentlessly about stating limits honestly, and that is correct
 for building the thing. It is not the same job as making someone afraid to miss
 it. Both are needed. Not in the same breath.
+
+### Sharpened — it's about the people, and the fear is access
+
+**In his words.**
+
+> *"Fuck, dude, I can't be wrong about these guys. Let's invest. I like these
+> guys. We can't be wrong about them."*
+>
+> I'm scared we won't be able to get into the round — that this won't be one of
+> the plays we can set.
+
+**Annotation.** This is a sharper thing than the previous entry and it changes
+the target.
+
+"Can I afford to be wrong about the idea" is an analytical question and it has
+an analytical defence: wait and see, ask for more data, stay close. **"I can't
+be wrong about these guys"** is not analytical, and the fear attached to it is
+not about the thesis being false. It is about **not getting in.**
+
+Those are different emotions and only the second one moves quickly. An investor
+who thinks the idea might be huge will take another meeting. An investor who
+thinks the round might close without them will send terms.
+
+**What actually produces it, in rough order:**
+
+- **Knowing things they don't.** Not being smart in general — being specifically
+  ahead. The docs are useful here not as evidence but as a demonstration that
+  three months of this thinking has already happened and they are arriving late
+  to it.
+- **Doing it regardless.** Needing the money is repellent; the round happening
+  with or without them is the entire mechanism. This has to be true, not
+  performed, because it is legible either way.
+- **Other people wanting in.** Scarcity is the only thing that converts interest
+  into a decision. The waitlist does a version of this on the demand side; a
+  live process does it on the supply side.
+- **Being someone they want around for ten years.** "I like these guys" is not
+  decoration on the analysis. Early-stage is a decade-long relationship with no
+  exit, and people choose that on feel.
+
+**The reframe for the meetings:** the goal is not to convince anyone the thesis
+is right. It is to leave them slightly worried the train is moving. Fifty to
+sixty meetings compressed into weeks does that structurally — the calendar
+itself is the signal, and it is why the density matters more than any individual
+conversation.
