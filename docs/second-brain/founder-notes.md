@@ -607,3 +607,99 @@ the work of the previous entry — knowing things they don't — in a form they
 cannot skim in a taxi and cannot easily match.
 
 That is a better answer than silence and a much better answer than a deck.
+
+---
+
+## 2026-09-22 — Warming the network before the round
+
+### In his words
+
+Reinvigorate interest through Instagram and TikTok. Then warm the ability to
+meet people:
+
+- go to events
+- privately message people
+- make a list of people you want to talk to
+- understand what they're up to
+- find that they are the **roots to the actual investors** — angels, operators,
+  the people adjacent to capital
+
+**There is a round of conversations before the real round of conversations.**
+
+First "I'll be right back." Then "I'm famous" — and then you have conversations
+with people about what you're working on. Those people generate the investor
+list. Those investors get compacted into a very short window, where you mention
+you are *casually thinking about capital*. Then you wait for the first term
+sheet.
+
+**The question:** how do you have that conversation so they know you are open to
+their capital, but not looking for it — you don't need it, you are working out
+where and how you'd need capital and who you'd want to work with?
+
+---
+
+### Annotation — answering the question directly
+
+The structure is right, and the ordering is the part most people get wrong. Two
+things make it work.
+
+**1. The compression is doing more than convenience.**
+
+Investors talk constantly. Forty conversations across six months makes you
+*"been around a while"* — the most expensive phrase in fundraising, because it
+implies others looked and passed. Forty conversations in three weeks makes you
+*"everyone is talking to them."*
+
+Same conversations, opposite meaning, and the only variable is density. This is
+why the pre-round warming has to happen **before** any of it reads as a process,
+and why once it starts it cannot drift.
+
+**2. The roots matter more than the targets.**
+
+An angel or operator who introduces you is doing something a cold meeting can't:
+they are spending their own credibility. A warm introduction from someone
+respected arrives pre-validated, and funds weight that heavily because it is
+costly to give. The list to build first is not investors. It is **people whose
+introduction would carry**, which is a different and shorter list.
+
+---
+
+### How to have the conversation
+
+The specific question: signalling openness without need.
+
+**Ask for something other than money, and mean it.** "Can I get advice" is
+transparent and everyone knows the move. What is not transparent is a **specific
+question only that person can answer** — something about their portfolio, a
+market they know, a mistake they watched someone make. It is genuine, it is
+flattering in a way that isn't flattery, and it quietly inverts the frame:
+you are evaluating them.
+
+**Do not bring up the raise. Let them.** If the work is interesting, the
+question comes. When it does, the answer does the work — and it should be true:
+
+> *"We'll probably raise at some point. Honestly I'm still working out what
+> we'd actually spend it on, and who I'd want around the table. That's more of
+> the question for me than the money."*
+
+Four things happen in those three sentences. Openness is stated. Need is
+absent. Selectivity is implied — *who I'd want* means not everyone qualifies.
+And it is all true, which matters because the alternative is performed and
+performance is legible.
+
+**The tell to avoid: asking whether they're interested.** That hands over the
+frame and invites a soft no, which is easy to give and hard to reverse. Let them
+ask how to be involved. If they don't ask, the answer was no anyway and nothing
+was spent.
+
+**What makes "we don't need it" credible.** It cannot be asserted. It is either
+true or visible as false. The things that make it true: low burn, building it
+anyway, and having built a lot of it already. Docs 17–22 and a working pipeline
+are that evidence — they demonstrate months of work that happened with no
+funding, which is the only argument for "we'll do this regardless" that does not
+require being believed.
+
+**The last move is patience.** Compressed conversations, no ask, and then
+silence on the topic. The first term sheet arrives because someone decided the
+round was happening without them — which is the previous entry's mechanism, and
+it does not work if you are visibly waiting for it.
