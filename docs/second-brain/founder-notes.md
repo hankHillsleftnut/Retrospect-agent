@@ -228,3 +228,152 @@ So the five questions are right, and there is a sixth hiding inside the third:
 difference between an interpretation that lands and one that is resisted, and
 it is the part no product has had to solve, because no product has got far
 enough to need to.
+
+---
+
+## 2026-09-22 — The behaviour pipeline, and why personal agents miss it
+
+### In his words
+
+The whole arc has to be encoded:
+
+```
+not knowing you need to do the thing
+        ↓
+starting to do the thing
+        ↓
+trying
+        ↓
+failing
+        ↓
+succeeding once
+        ↓
+becoming intrinsic
+```
+
+Personal agents fail because they do not recognise this — the behavioural
+creation, adaptation and consolidation pattern. Encoding *that* is what makes an
+agent trustworthy. That is the shape.
+
+---
+
+### Research annotation — every stage has its own literature, and they disagree about what helps
+
+This is the useful finding: the arc is real, it is well studied, **and each
+stage responds to something different.** A single intervention applied across
+all of them is wrong at most of them.
+
+| stage | the literature | what actually helps here |
+|---|---|---|
+| **not knowing** | Transtheoretical Model — *precontemplation* | nothing action-shaped. The person does not see a problem; a reminder is noise or an insult |
+| **starting to consider** | *contemplation* → Motivational Interviewing | **discrepancy**. Their own words against their own behaviour. Not advice |
+| **trying** | Gollwitzer implementation intentions; Oettingen mental contrasting | a specific if-then plan, and naming the internal obstacle. Doc 20 §5.4 |
+| **failing** | TTM treats relapse as **normal and expected**, part of a spiral rather than a linear path | normalisation. Shame at this stage is the classic own-goal |
+| **succeeding once** | Bandura — **mastery experience** is the single strongest source of self-efficacy | noticing it happened, and attributing it correctly |
+| **repeating** | Lally et al. (2010) — automaticity rises on an asymptotic curve | consistent context, and patience |
+| **becoming intrinsic** | SDT internalisation: external → introjected → identified → integrated → intrinsic | withdrawing support, not adding it |
+
+**→ Why agents fail, stated precisely.** Almost every personal agent ships one
+intervention — a reminder, a nudge, a task — and applies it at every stage.
+That intervention belongs to the *trying* row and nowhere else.
+
+Used at **precontemplation** it is noise about a problem the person has not
+accepted. Used at **failing** it reads as reproach at the exact moment the
+research says normalise. Used at **intrinsic** it is actively harmful, because
+adding external structure to an internalised behaviour pushes it back down the
+continuum — that is the premature-automation trap from the earlier entry.
+
+So the failure is not that agents are bad at reminders. It is that **a reminder
+is the answer to one of seven questions and they ask it seven times.**
+
+---
+
+### The honest problem with this frame, which must be known before it is pitched
+
+The Transtheoretical Model splits into two claims, and they have very different
+evidence.
+
+**The descriptive claim — people differ in readiness to change — is
+uncontroversial and widely accepted.**
+
+**The prescriptive claim — that interventions should be matched to the person's
+current stage — has failed repeatedly in controlled trials.** The Cochrane
+review (Cahill, Lancaster & Green, 2010) found no consistent evidence that
+stage-based smoking interventions beat generic ones. A systematic review across
+multiple health behaviours concluded the evidence "does not support the use of
+stage-based interventions" and that "the limitations of the evidence are
+profound." Critics add that stage boundaries are arbitrary, transitions are not
+sequential, and people skip stages.
+
+**Do not claim stage-matching is proven. It is not.**
+
+But the *reason* it failed is worth understanding, because it is an argument for
+this product rather than against it. Stage-matched trials typically:
+
+- assessed stage **once**, with a questionnaire, at enrolment
+- assigned a person to one of five boxes on that basis
+- delivered a **generic leaflet** written for that box
+- and never re-assessed
+
+That is not personalisation. It is five-way segmentation from a single
+self-report — and doc 20 §1 says self-report of one's own readiness is exactly
+the unreliable channel, while §2.3 of doc 21 says predicting self-report
+reproduces self-concept rather than reality.
+
+The honest position:
+
+> Readiness varies — that part is settled. Stage-*matching* failed when stage
+> was a questionnaire answer and the intervention was a pamphlet. Whether it
+> works when stage is **inferred continuously from behaviour** and the response
+> is **generated from the person's own material** is untested, because nobody
+> has been able to do that.
+
+That is a claim about a gap, which is defensible. "Stage-matching works" is a
+claim about evidence, and it is false.
+
+---
+
+### The part that is measurable, and answers "when do we automate?"
+
+Lally et al. (2010) is the most directly useful study here. 96 volunteers, one
+daily behaviour each, 12 weeks, daily self-reported automaticity.
+
+Findings:
+
+- Automaticity rises on an **asymptotic curve** — fast at first, then slowing to
+  a plateau — and the curve **can be fitted at the individual level**, giving
+  plateau height, rate, and time to reach 95% of asymptote.
+- Median time to 95% of asymptote: **66 days.** Range: **18 to 254 days.**
+- **Missing a single day did not materially affect habit formation.**
+
+Three consequences.
+
+**1. The automation question has a measurable answer.** The earlier entry said
+"automate at integrated regulation, not before," which was directionally right
+but unmeasurable. Lally gives a proxy: **fit the automaticity curve for that
+behaviour, for that person, and act on where they are on it.** Support while the
+curve is climbing; withdraw as it plateaus. That is a computable stopping
+condition, not a judgement call.
+
+**2. The 66-day figure is a median with a 14× spread.** 18 to 254 days. Any
+product that assumes a fixed window — 21 days, 30 days, 66 days — is wrong for
+almost everyone. The curve is individual, which is the non-ergodicity point
+again: the average is not anybody.
+
+**3. Missing one day does not matter — so streaks are actively wrong.** This is
+the clearest case in the notes of the research contradicting standard product
+practice. Streak mechanics punish exactly the event the evidence says is
+harmless, and they do it at the *failing* stage where the literature says
+normalise. A streak breaking is a manufactured failure the behaviour itself did
+not have.
+
+---
+
+### The shape, restated
+
+> A trustworthy personal agent knows **which stage someone is in**, and knows
+> that the right move differs at each — that a nudge at precontemplation is
+> noise, at failure is reproach, and at intrinsic is sabotage.
+>
+> Nobody has built this because inferring stage requires continuous observation
+> of behaviour, and inferring it from a questionnaire is what already failed.
