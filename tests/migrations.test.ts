@@ -245,6 +245,40 @@ test('119: the app cannot call it, only the backend services can', async () => {
   assert.deepEqual(rows[0], { anon: false, authed: false, service: true });
 });
 
+// ── Migration 120 ───────────────────────────────────────────────────────────
+
+test('120: all 36 questions are there, numbered 1 to 36, each in a domain', async () => {
+  const { rows } = await db.query<{ id: number; domain_id: string }>(`SELECT id, domain_id FROM canonical_questions ORDER BY id`);
+  assert.deepEqual(rows.map((r) => r.id), Array.from({ length: 36 }, (_, i) => i + 1));
+  const { rows: empty } = await db.query(
+    `SELECT d.id FROM question_domains d LEFT JOIN canonical_questions q ON q.domain_id = d.id GROUP BY d.id HAVING count(q.id) = 0`,
+  );
+  assert.deepEqual(empty, [], 'no domain without questions');
+});
+
+test('120: feelings and wants can only be answered from their own words', async () => {
+  // The canonical-questions doc marks these answerable from W (their words)
+  // and nothing else. A calendar cannot say how someone is doing.
+  const { rows } = await db.query<{ id: number }>(`SELECT id FROM canonical_questions WHERE requires_own_words ORDER BY id`);
+  assert.deepEqual(rows.map((r) => r.id), [6, 9, 11, 23, 24, 27, 28, 29, 32, 33]);
+});
+
+test('120: the bar to speak rises with the cost of being wrong', async () => {
+  const { rows } = await db.query<{ id: string; speak_coverage: string; always_active: boolean }>(
+    `SELECT id, speak_coverage, always_active FROM question_domains ORDER BY position`,
+  );
+  const bar = Object.fromEntries(rows.map((r) => [r.id, Number(r.speak_coverage)]));
+  assert.equal(bar.who, 0.5);
+  assert.ok(bar.how! > bar.want! && bar.want! > bar.do!, 'feelings > wants > habits');
+  assert.equal(rows.find((r) => r.id === 'speak')!.always_active, true, 'how to speak to them is never silent');
+});
+
+test("120: one quote from your own words outweighs a day of health data", async () => {
+  const { rows } = await db.query<{ id: string; weight: string }>(`SELECT id, weight FROM evidence_kinds`);
+  const w = Object.fromEntries(rows.map((r) => [r.id, Number(r.weight)]));
+  assert.deepEqual([w.journal, w.sent_mail, w.calendar, w.health], [1, 0.6, 0.4, 0.15], 'the weights in the brief');
+});
+
 // ── Migration 123 ───────────────────────────────────────────────────────────
 
 test('123: restores the voice choice on a database that lost it, and changes nothing where it exists', async () => {
