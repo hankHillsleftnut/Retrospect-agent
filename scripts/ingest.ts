@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import { parseArgs, requireArg, optBool, optNum, optStr } from './_args';
 import { writeOutput } from './_io';
+import { readFileSync } from 'node:fs';
 import { runIngest } from '../src/pipelines/ingest';
 
 async function main() {
@@ -9,6 +10,15 @@ async function main() {
   const daysBack = optNum(args, 'days') ?? 7;
   const dryRun = optBool(args, 'dry-run');
   const notes = optStr(args, 'notes');
+  // --ids-file: one raw_content id per line; process exactly those, at any
+  // age or status. --force: re-read them even if they already produced facts
+  // (re-extracting history with a better extractor). Facts upsert on their
+  // origin key, so a re-read never duplicates.
+  const idsFile = optStr(args, 'ids-file');
+  const rawContentIds = idsFile
+    ? readFileSync(idsFile, 'utf8').split(/\s+/).filter(Boolean)
+    : undefined;
+  const force = optBool(args, 'force');
 
   console.log(`[ingest] user=${userId} daysBack=${daysBack} dryRun=${dryRun}`);
 
@@ -18,6 +28,8 @@ async function main() {
     dryRun,
     triggeredBy: 'cli',
     notes,
+    ...(rawContentIds ? { rawContentIds } : {}),
+    ...(force ? { force } : {}),
   });
 
   const out = writeOutput('ingest.json', result);

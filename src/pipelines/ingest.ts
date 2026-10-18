@@ -447,7 +447,13 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     // large, that batch is replaced in place by its two halves and the loop
     // picks them up. The budget above should make this rare; the point is that
     // being wrong costs one extra call instead of losing the entries.
-    const batches = batchRawContent(newRawContent, budgetTokens);
+    // Facts mode reads one entry per call, exactly as it was measured on the
+    // test bank. Packing ~15 entries into one call (sized for the old
+    // extractor's input limits) made the facts-only reply run past the output
+    // limit and fail on the first batch (18 October 2026).
+    const batches = config.extraction.mode === 'legacy'
+      ? batchRawContent(newRawContent, budgetTokens)
+      : newRawContent.map((rc) => [rc]);
     console.log(
       `[ingest] user=${options.userId} content=${newRawContent.length} batches=${batches.length} ` +
         `overhead=${overheadTokens}tok budget=${budgetTokens}tok`
@@ -940,6 +946,16 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       insights_created: totalInsightsCreated,
       goal_candidates_created: totalCandidatesCreated,
       identity_inferences_created: allInferenceIds.length,
+      // Facts are what the product now rests on. A real run used to omit
+      // them from its summary -- only the dry-run path reported them -- so a
+      // run that wrote 176 facts printed "facts written: 0" (18 October 2026).
+      facts_written: factsWritten,
+      facts_dropped: factsDropped,
+      fact_drop_reasons: factDropReasons,
+      rows_skipped_already_have_facts: factsSkippedRows,
+      patterns_created: promoterResult?.created ?? 0,
+      patterns_promoted: promoterResult?.promoted ?? 0,
+      whys_created: promoterResult?.whysCreated ?? 0,
       raw_content_processed: newRawContent.length,
       batches_run: batches.length,
       batches_split: splitCount,
