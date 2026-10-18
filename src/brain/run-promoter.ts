@@ -174,13 +174,21 @@ export async function runPromoter(options: {
         patternId: saved.id, mechanism,
         evidenceAssertionIds: decision.facts.map((f) => f.assertionId),
       });
-      await supabase.from(Tables.BEHAVIOR_PATTERN_WHYS).insert({
+      const { error: whyErr } = await supabase.from(Tables.BEHAVIOR_PATTERN_WHYS).insert({
         pattern_id: draft.patternId, user_id: options.userId,
         kind: 'inferred', mechanism: draft.mechanism, confidence: draft.confidence,
         status: 'provisional', evidence_assertion_ids: draft.evidenceAssertionIds,
         model_version: PROMOTER_VERSION,
       });
-      result.whysCreated += 1;
+      // Count only what was actually written. This used to increment whether or
+      // not the insert succeeded, so a failure was reported as a success.
+      if (!whyErr) {
+        result.whysCreated += 1;
+      } else if (whyErr.code !== '23505') {
+        // 23505 means a concurrent run already wrote this explanation (migration
+        // 118) -- the outcome wanted, so not an error. Anything else is.
+        console.error(`[promoter] why insert failed for pattern ${draft.patternId}: ${whyErr.message}`);
+      }
     }
   }
 
