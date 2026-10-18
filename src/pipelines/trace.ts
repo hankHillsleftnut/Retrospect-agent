@@ -137,6 +137,20 @@ export class Trace {
     this.id = id;
   }
 
+  /**
+   * A trace that never touches the database.
+   *
+   * `start()` is the only way to make a Trace and it inserts a row, so
+   * everything this class computes -- cost, extraction stats -- has been
+   * unreachable from a test. That is not a coincidence: the three pricing
+   * errors this class carried for months were all in code no test could call.
+   */
+  static forTesting(): Trace {
+    const t = new Trace(null);
+    t.persistDisabled = true;
+    return t;
+  }
+
   static async start(options: TraceOptions): Promise<Trace> {
     const { data, error } = await supabase
       .from(Tables.PIPELINE_RUN_TRACES)
@@ -195,6 +209,36 @@ export class Trace {
     this.fields.episode_id = id;
   }
 
+  /**
+   * What extraction saw, and what survived it.
+   *
+   * This is the health metric for interpretation, and until now it existed for
+   * a few milliseconds and was discarded: the counts were logged to stdout and
+   * returned to a caller that is fire-and-forget. So "why are there only 19
+   * facts" has never been answerable.
+   *
+   * The drop rate is only a truthfulness signal once every kind of claim has
+   * somewhere to be filed. Before that it conflates two opposite problems --
+   * the model inventing a quote, and us having no category for a true one --
+   * which is why the reasons are stored alongside the total rather than just
+   * the number.
+   */
+  setExtractionStats(stats: {
+    candidates: number;
+    written: number;
+    dropped: number;
+    drop_reasons: Record<string, number>;
+    rows_seen: number;
+    rows_skipped_idempotent: number;
+  }) {
+    this.fields.extraction_stats = {
+      ...stats,
+      // Stored rather than derived at read time, so a historical row keeps the
+      // rate it actually had even if the definition changes later.
+      drop_rate: stats.candidates > 0 ? stats.dropped / stats.candidates : null,
+    };
+  }
+
   setIdentityInferenceIds(ids: string[]) {
     this.fields.identity_inference_ids = ids;
   }
@@ -240,10 +284,23 @@ export class Trace {
     return usd;
   }
 
-  snapshot() {
+  /**
+   * Everything this trace would persist.
+   *
+   * The return type carries an index signature because `fields` is populated
+   * by the setX methods at runtime -- without it, TypeScript infers only the
+   * three keys written literally here and a caller cannot read
+   * `extraction_stats` or any other recorded field.
+   */
+  snapshot(): {
+    id: string | null;
+    agent_tool_calls: AgentToolCall[];
+    cost_breakdown: CostBreakdown;
+    [field: string]: unknown;
+  } {
     return {
-      id: this.id,
       ...this.fields,
+      id: this.id,
       agent_tool_calls: this.toolCalls,
       cost_breakdown: this.cost,
     };

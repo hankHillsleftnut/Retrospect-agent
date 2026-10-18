@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { estimateCostUsd } from '../src/pipelines/trace';
+import { estimateCostUsd, Trace } from '../src/pipelines/trace';
 import type { CostBreakdown } from '../src/types';
 
 /**
@@ -151,4 +151,57 @@ test('a realistic weekly episode comes to a believable figure', () => {
   assert.ok(usd > 2.6 && usd < 2.8, `expected ~$2.70, got $${usd}`);
   const speech = 6_000 * (0.3 / 1000);
   assert.ok(speech / (usd - speech) > 1.8, 'speech dominates the cost of an episode');
+});
+
+// ---------------------------------------------------------------------------
+// Extraction stats. Added 18 October 2026: these numbers were computed on every
+// ingest run, logged to stdout, and thrown away, so "why are there only 19
+// facts" could not be answered.
+// ---------------------------------------------------------------------------
+
+test('extraction stats are recorded with their drop rate', () => {
+  const trace = Trace.forTesting();
+
+  trace.setExtractionStats({
+    candidates: 50,
+    written: 19,
+    dropped: 31,
+    drop_reasons: { excerpt_not_found: 25, low_confidence_transcript_quote: 6 },
+    rows_seen: 12,
+    rows_skipped_idempotent: 3,
+  });
+
+  const stats = trace.snapshot().extraction_stats as Record<string, unknown>;
+
+  assert.equal(stats.written, 19);
+  assert.equal(stats.dropped, 31);
+  assert.equal(stats.drop_rate, 0.62);
+
+  // The reasons matter as much as the total: a dropped claim means either the
+  // model invented a quote or we had nowhere to file a true one, and those are
+  // opposite problems that currently share one counter.
+  assert.deepEqual(stats.drop_reasons, {
+    excerpt_not_found: 25,
+    low_confidence_transcript_quote: 6,
+  });
+});
+
+test('a run with no candidates reports no rate rather than dividing by zero', () => {
+  const trace = Trace.forTesting();
+
+  trace.setExtractionStats({
+    candidates: 0,
+    written: 0,
+    dropped: 0,
+    drop_reasons: {},
+    rows_seen: 4,
+    rows_skipped_idempotent: 4,
+  });
+
+  const stats = trace.snapshot().extraction_stats as Record<string, unknown>;
+
+  // Null, not zero. A run that extracted nothing has no drop rate; reporting
+  // 0% would read as perfect health.
+  assert.equal(stats.drop_rate, null);
+  assert.equal(stats.rows_skipped_idempotent, 4);
 });

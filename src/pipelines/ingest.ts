@@ -750,6 +750,16 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     } // end batch loop
 
     if (options.dryRun) {
+      // Record what extraction saw before the trace closes. Both exits need it:
+      // a dry run is exactly when you most want to know the drop rate.
+      trace.setExtractionStats({
+        candidates: factsWritten + factsDropped,
+        written: factsWritten,
+        dropped: factsDropped,
+        drop_reasons: factDropReasons,
+        rows_seen: newRawContent.length,
+        rows_skipped_idempotent: factsSkippedRows,
+      });
       await trace.complete();
       return {
         traceId: trace.id,
@@ -860,6 +870,16 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     }
 
     heartbeat.stop();
+    // Record what extraction saw before the trace closes. Both exits need it:
+    // a dry run is exactly when you most want to know the drop rate.
+    trace.setExtractionStats({
+      candidates: factsWritten + factsDropped,
+      written: factsWritten,
+      dropped: factsDropped,
+      drop_reasons: factDropReasons,
+      rows_seen: newRawContent.length,
+      rows_skipped_idempotent: factsSkippedRows,
+    });
     await trace.complete();
 
     const processingNotes = [
