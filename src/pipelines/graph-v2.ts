@@ -334,6 +334,33 @@ export async function writeFact(
   }, { onConflict: 'user_id,origin_key' }).select('id').single();
   if (error || !assertion) throw new Error(`Write graph assertion failed: ${error?.message ?? 'no row'}`);
 
+  // Evidence is written BEFORE supersession, deliberately.
+  //
+  // Supersession retires older facts this one contradicts. It used to run
+  // between the two writes, so a failed evidence write left the worst possible
+  // state: a new fact with no evidence that had already displaced an older,
+  // properly evidenced one. Good knowledge replaced by an unsupported claim.
+  //
+  // Now a failed evidence write throws here, before any other fact is touched.
+  // (The empty-evidence check above guarantees there is something to write.)
+  // The two writes are still separate calls; making them one transaction is a
+  // database-function change, done separately.
+  const evidence: AssertionEvidenceRow[] = options.evidence.map((entry) => ({
+    user_id: options.userId,
+    assertion_id: assertion.id,
+    analysis_unit_id: entry.analysisUnitId ?? null,
+    source_item_id: entry.sourceItemId ?? null,
+    raw_content_id: entry.rawContentId ?? null,
+    evidence_role: entry.role ?? 'supports',
+    weight: entry.weight ?? 1,
+    excerpt: entry.excerpt ?? null,
+    ...(entry.charStart !== undefined ? { char_start: entry.charStart } : {}),
+    ...(entry.charEnd !== undefined ? { char_end: entry.charEnd } : {}),
+  }));
+  const { error: evidenceError } = await db.from(Tables.ASSERTION_EVIDENCE)
+    .upsert(evidence, { onConflict: 'assertion_id,analysis_unit_id,source_item_id,raw_content_id,evidence_role' });
+  if (evidenceError) throw new Error(`Write assertion evidence failed: ${evidenceError.message}`);
+
   // Time is applied here, in code. The model proposed a claim; what that
   // claim does to what we already believed is not its decision.
   if (options.applySupersession !== false && options.objectValue) {
@@ -354,24 +381,6 @@ export async function writeFact(
       // lint check F3 will find the un-retired pair.
       console.warn(`[writeFact] supersession failed: ${(err as Error).message}`);
     }
-  }
-
-  if (options.evidence.length > 0) {
-    const evidence: AssertionEvidenceRow[] = options.evidence.map((entry) => ({
-      user_id: options.userId,
-      assertion_id: assertion.id,
-      analysis_unit_id: entry.analysisUnitId ?? null,
-      source_item_id: entry.sourceItemId ?? null,
-      raw_content_id: entry.rawContentId ?? null,
-      evidence_role: entry.role ?? 'supports',
-      weight: entry.weight ?? 1,
-      excerpt: entry.excerpt ?? null,
-      ...(entry.charStart !== undefined ? { char_start: entry.charStart } : {}),
-      ...(entry.charEnd !== undefined ? { char_end: entry.charEnd } : {}),
-    }));
-    const { error: evidenceError } = await db.from(Tables.ASSERTION_EVIDENCE)
-      .upsert(evidence, { onConflict: 'assertion_id,analysis_unit_id,source_item_id,raw_content_id,evidence_role' });
-    if (evidenceError) throw new Error(`Write assertion evidence failed: ${evidenceError.message}`);
   }
 
   return assertion.id;

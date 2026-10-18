@@ -240,3 +240,47 @@ test('a re-save never re-stamps when a fact was first observed', async () => {
     'observed_at must be left to the database default, never sent on upsert',
   );
 });
+
+test('if the evidence cannot be saved, no older fact is retired', async () => {
+  // Supersession retires older facts this one contradicts. It used to run
+  // between saving the fact and saving its evidence -- so a failed evidence
+  // write left a fact with no evidence that had ALREADY displaced an older,
+  // properly evidenced one. Good knowledge replaced by an unsupported claim.
+  //
+  // Supersession works by reading the user's other facts, so whether it ran is
+  // visible as whether anything read the assertions table.
+  let supersessionLookedAtOtherFacts = false;
+  const db = {
+    from(table: string) {
+      return {
+        upsert() {
+          const failing = table.includes('evidence');
+          return {
+            select: () => ({ single: async () => ({ data: { id: 'new-fact' }, error: null }) }),
+            then: (res: any) =>
+              Promise.resolve({ error: failing ? { message: 'connection reset' } : null }).then(res),
+          } as any;
+        },
+        select() {
+          supersessionLookedAtOtherFacts = true;
+          const chain: any = { eq: () => chain, is: () => chain, neq: () => chain, then: (r: any) => Promise.resolve({ data: [], error: null }).then(r) };
+          return chain;
+        },
+      };
+    },
+  } as unknown as FactDb;
+
+  await assert.rejects(
+    writeFact({
+      userId: 'u1',
+      subjectEntityId: 'self',
+      predicate: 'quit_or_stopped',
+      objectValue: { label: 'marathon', normalized: 'marathon' },
+      originKey: 'journal:raw-9:quit_or_stopped:marathon',
+      evidence: [{ rawContentId: 'raw-9', excerpt: 'I quit training for the marathon' }],
+    }, db),
+    /Write assertion evidence failed/,
+  );
+
+  assert.equal(supersessionLookedAtOtherFacts, false, 'nothing was retired on the strength of an unevidenced fact');
+});
