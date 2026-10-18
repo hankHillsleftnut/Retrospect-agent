@@ -5,6 +5,7 @@
  *   npm run bank:score                 all entries
  *   npm run bank:score -- --only 41    one entry (by its number)
  *   npm run bank:score -- --extractor facts-only   the Option F extractor instead of the live one
+ *   npm run bank:score -- --extractor facts-only --model claude-haiku-5-5   ...on another model
  *
  * Reads test-bank/ (local, never committed). Calls the extractor once per
  * entry, exactly as ingestion would for that one item, then a judge once per
@@ -51,6 +52,9 @@ async function main() {
   const args = parseArgs();
   const only = typeof args.only === 'string' ? args.only.padStart(2, '0') : null;
   const extractor = args.extractor === 'facts-only' ? 'facts-only' : 'live';
+  const model = typeof args.model === 'string' ? args.model : config.openai.chatModel;
+  if (extractor === 'live' && model !== config.openai.chatModel) throw new Error('--model applies to the facts-only extractor');
+  const seconds: number[] = [];
   console.log(`Extractor: ${extractor === 'live' ? 'live (ingestion-agent.ts)' : 'facts-only (fact-extractor.ts, Option F)'}\n`);
   const trace = Trace.forTesting();
   const files = readdirSync(join(BANK, 'expected')).filter((f) => f.endsWith('.yaml') && (!only || f.startsWith(only))).sort();
@@ -67,11 +71,13 @@ async function main() {
       authorship: type === 'google_docs' ? 'unknown' : 'self',
     } as any;
 
+    const started = Date.now();
     const raw = extractor === 'facts-only'
-      ? await extractFacts({ items: [rc], trace })
+      ? await extractFacts({ items: [rc], trace, model })
       : (await runIngestionAgent({
           newRawContent: [rc], recentInsights: [], activeGoals: [], openGoalCandidates: [], currentDocument: null, trace,
         })).fact_candidates ?? [];
+    seconds.push((Date.now() - started) / 1000);
     const candidates = (raw as any[]).map((c) => ({
       subject: String(c.subject ?? ''), predicate: String(c.predicate ?? ''), object: String(c.object ?? ''), excerpt: String(c.excerpt ?? ''),
     }));
@@ -98,16 +104,20 @@ async function main() {
   const t = totals(scores);
   const usd = estimateCostUsd(trace.snapshot().cost_breakdown).usd;
   console.log(`\nRecall ${t.found}/${t.expected} = ${Math.round(t.recall * 100)}%   False positives ${t.falsePositives}   Unverifiable quotes ${t.unverifiable}/${t.candidates}`);
+  const sorted = [...seconds].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
+  const p90 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.9))] ?? 0;
+  console.log(`Speed: ${median.toFixed(1)}s median, ${p90.toFixed(1)}s slowest-10% per entry (${model})`);
   const lines = costLines(trace.snapshot().cost_breakdown);
   console.log(`\nCost:\n${formatCostLines(lines, {
-    [config.openai.chatModel]: `the ${extractor} extractor being tested, one call per entry`,
+    [model]: `the ${extractor} extractor being tested, one call per entry`,
     [config.anthropic.questionsModel]: 'the judge checking extracted facts against the "should not" list',
   })}`);
   for (const s of scores) for (const f of s.falsePositives) console.log(`  WRONG in ${s.entry.slice(0, 30)}: "${f.candidate.object}" -- matches: ${f.matches}`);
 
   mkdirSync(join(BANK, 'results'), { recursive: true });
   const out = join(BANK, 'results', `${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-  writeFileSync(out, JSON.stringify({ extractor, model: config.openai.chatModel, totals: t, costUsd: usd, cost: lines, scores }, null, 2));
+  writeFileSync(out, JSON.stringify({ extractor, model, speed: { median, p90 }, totals: t, costUsd: usd, cost: lines, scores }, null, 2));
   console.log(`\nFull result: ${out}`);
 }
 

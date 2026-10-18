@@ -15,6 +15,7 @@
  */
 
 import { jsonChatCompletion } from '../services/openai';
+import { claudeJsonCompletion } from '../services/anthropic';
 import { config } from '../config';
 import { contentCharLimit } from './ingestion-agent';
 import { isHealthSummary, normalizeHealthSummary } from '../pipelines/health-summary';
@@ -76,11 +77,16 @@ export async function extractFacts(input: {
     const authorship = rc.authorship ?? 'self';
     return `### [index=${idx}] (type: ${rc.content_type}, authorship: ${authorship}, date: ${date})\n${source.slice(0, contentCharLimit(rc.content_type))}`;
   });
+  const user = `${blocks.join('\n\n---\n\n')}\n\nExtract every fact. Return STRICT JSON.`;
+  // Either provider, so the same instructions can be measured on any model.
+  if (model.startsWith('claude')) {
+    const { data, usage } = await claudeJsonCompletion<{ fact_candidates?: FactCandidate[] }>(
+      FACT_EXTRACTOR_SYSTEM, user, { maxTokens: 8000, model });
+    input.trace?.addCost({ anthropic_tokens_input: usage.inputTokens, anthropic_tokens_output: usage.outputTokens }, model);
+    return data.fact_candidates ?? [];
+  }
   const { data, usage } = await jsonChatCompletion<{ fact_candidates?: FactCandidate[] }>(
-    FACT_EXTRACTOR_SYSTEM,
-    `${blocks.join('\n\n---\n\n')}\n\nExtract every fact. Return STRICT JSON.`,
-    { temperature: 0.25, maxTokens: 8000, model },
-  );
+    FACT_EXTRACTOR_SYSTEM, user, { temperature: 0.25, maxTokens: 8000, model });
   input.trace?.addCost({ openai_tokens_input: usage.promptTokens, openai_tokens_output: usage.completionTokens }, model);
   return data.fact_candidates ?? [];
 }
