@@ -40,6 +40,8 @@ export interface DbRawContent {
   created_at: string;
   metadata?: Record<string, unknown>;
   source_item_id?: string | null;
+  /** Whose words these are (migration 115): self, other, or unknown. */
+  authorship?: 'self' | 'other' | 'unknown' | null;
   /** Present once the source has been embedded for fallback search. */
   embedding?: number[] | null;
   processed_at?: string | null;

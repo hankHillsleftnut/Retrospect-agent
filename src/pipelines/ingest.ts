@@ -2,6 +2,8 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent, contentCharLimit, renderPromptContext } from '../agents/ingestion-agent';
+import { extractFacts } from '../agents/fact-extractor';
+import { config } from '../config';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
 import { countTokens, contentTokenBudget, envInt } from '../services/token-budget';
@@ -481,14 +483,16 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
       let result: IngestionResult & { fact_candidates?: unknown[]; processingNotes?: string };
       try {
-        result = await runIngestionAgent({
-          newRawContent: batch,
-          recentInsights,
-          activeGoals,
-          openGoalCandidates,
-          currentDocument,
-          trace,
-        });
+        result = config.extraction.mode === 'legacy'
+          ? await runIngestionAgent({
+              newRawContent: batch,
+              recentInsights,
+              activeGoals,
+              openGoalCandidates,
+              currentDocument,
+              trace,
+            })
+          : factsOnlyResult(batch, await extractFacts({ items: batch, trace, model: config.extraction.model }));
       } catch (err) {
         // Too large is the one failure we can answer intelligently: halve the
         // batch and try again. Retrying the identical request -- which is what
@@ -836,7 +840,12 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     let cook0Failed = false;
     let cook0Error: string | undefined;
 
-    try {
+    // In facts mode no identity inferences are produced, so there is nothing
+    // new for Cook 0 to fold in; rewriting the portrait anyway would cost a
+    // call per ingest to say the same thing. The portrait is still patched
+    // from live facts below.
+    const skipCook0 = config.extraction.mode !== 'legacy' && allInferenceIds.length === 0;
+    if (!skipCook0) try {
       const cook0Result = await runCook0({
         userId: options.userId,
         currentDocument,
@@ -985,4 +994,26 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     await trace.fail(err);
     throw err;
   }
+}
+
+/**
+ * The facts-only extractor's output in the shape the rest of ingest expects.
+ * The old framework's outputs are empty, so its tables simply stop growing
+ * (architecture §6b) while the code that writes them stays in place.
+ *
+ * Defence in depth on whose words these are: a claim about the user ("Self")
+ * from an item not known to be theirs (authorship 'other' or 'unknown') is
+ * dropped here even if the model made one. Facts about the item's own
+ * subject (Ladder, Farza) are kept.
+ */
+export function factsOnlyResult(
+  batch: Array<{ authorship?: string | null }>,
+  candidates: Array<{ subject?: string; source_index?: number }>,
+): IngestionResult & { fact_candidates: unknown[] } {
+  const kept = candidates.filter((c) => {
+    const authorship = batch[Number(c.source_index ?? -1)]?.authorship;
+    const notTheirs = authorship === 'other' || authorship === 'unknown';
+    return !(notTheirs && /^self$/i.test(String(c.subject ?? '').trim()));
+  });
+  return { fact_candidates: kept, observations: [], insights: [], goal_candidates: [], identity_inferences: [] } as any;
 }
