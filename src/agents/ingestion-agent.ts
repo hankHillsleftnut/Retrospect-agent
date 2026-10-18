@@ -1,6 +1,7 @@
 import { jsonChatCompletion } from '../services/openai';
 import { config } from '../config';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
+import { isHealthSummary, normalizeHealthSummary } from '../pipelines/health-summary';
 import type { Trace } from '../pipelines/trace';
 import type {
   DbGoal,
@@ -155,7 +156,11 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
     const label = isOnboarding ? 'FOUNDATIONAL ONBOARDING PROFILE' : 'Raw content';
     const authorship = (rc.authorship as Authorship | null) ?? inferAuthorship(rc.content_type);
 
-    const body = rc.content.slice(0, limit);
+    // A health sensor reporting zero measured nothing; show the model "not
+    // recorded" so it cannot infer zero sleep from a sync gap. The stored row is
+    // untouched. See health-summary.ts.
+    const source = isHealthSummary(rc.content_type) ? normalizeHealthSummary(rc.content) : rc.content;
+    const body = source.slice(0, limit);
     if (rc.content.length > limit) {
       // Never silent. A dropped tail is a dropped fact.
       console.warn(
