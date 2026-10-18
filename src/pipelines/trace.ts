@@ -270,7 +270,8 @@ export class Trace {
 
     if (model) {
       const byModel = (this.cost.by_model ??= {});
-      const entry = (byModel[model] ??= { input: 0, output: 0 });
+      const entry = (byModel[model] ??= { input: 0, output: 0, calls: 0 });
+      entry.calls = (entry.calls ?? 0) + 1;
       entry.input += partial.openai_tokens_input ?? partial.anthropic_tokens_input ?? 0;
       entry.output += partial.openai_tokens_output ?? partial.anthropic_tokens_output ?? 0;
     }
@@ -339,4 +340,52 @@ export class Trace {
       console.warn(`[trace] Failed to persist trace ${this.id}: ${error.message}`);
     }
   }
+}
+
+export interface CostLine {
+  provider: 'Anthropic' | 'OpenAI' | 'unknown';
+  model: string;
+  calls: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  /** US dollars per million tokens, as charged by the price table. */
+  pricePerMTokIn: number;
+  pricePerMTokOut: number;
+  usd: number;
+  /** True when the model is missing from the price table and the fallback was used. */
+  estimatedAtFallback: boolean;
+}
+
+/**
+ * Where the money went, one line per model: which company, which model, how
+ * many calls and tokens, at what price. The single total hid all of this; a
+ * founder deciding whether a run was worth it needs the parts.
+ */
+export function costLines(cost: CostBreakdown): CostLine[] {
+  return Object.entries(cost.by_model ?? {}).map(([model, u]) => {
+    const price = MODEL_PRICES[model];
+    const { in: pin, out: pout } = price ?? FALLBACK_PRICE;
+    return {
+      provider: model.startsWith('claude') ? 'Anthropic' : model.startsWith('gpt') ? 'OpenAI' : 'unknown',
+      model,
+      calls: u.calls ?? null,
+      inputTokens: u.input,
+      outputTokens: u.output,
+      pricePerMTokIn: pin,
+      pricePerMTokOut: pout,
+      usd: Math.round(((u.input * pin + u.output * pout) / 1_000_000) * 10000) / 10000,
+      estimatedAtFallback: !price,
+    };
+  });
+}
+
+/** The lines as a small table for a terminal, with what each model was used for. */
+export function formatCostLines(lines: CostLine[], purpose: Record<string, string> = {}): string {
+  const rows = lines.map((l) =>
+    `  ${l.provider.padEnd(9)} ${l.model.padEnd(18)} ${String(l.calls ?? '?').padStart(4)} calls  ` +
+    `${l.inputTokens.toLocaleString().padStart(9)} in / ${l.outputTokens.toLocaleString().padStart(7)} out  ` +
+    `@ $${l.pricePerMTokIn}/$${l.pricePerMTokOut} per M  = $${l.usd.toFixed(3)}` +
+    `${l.estimatedAtFallback ? ' (price unknown, estimated high)' : ''}${purpose[l.model] ? `  -- ${purpose[l.model]}` : ''}`);
+  const total = lines.reduce((n, l) => n + l.usd, 0);
+  return [...rows, `  Total $${total.toFixed(3)} (estimated from token counts; the providers' invoices are the final word)`].join('\n');
 }

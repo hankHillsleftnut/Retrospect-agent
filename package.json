@@ -30,7 +30,8 @@
     "health": "tsx scripts/health.ts",
     "db:check": "tsx scripts/schema-check.ts",
     "db:migrate": "tsx scripts/migrate.ts",
-    "questions:first-pass": "tsx scripts/questions-first-pass.ts"
+    "questions:first-pass": "tsx scripts/questions-first-pass.ts",
+    "bank:score": "tsx scripts/bank-score.ts"
   },
   "keywords": [
     "agent",
@@ -68,7 +69,8 @@
     "@electric-sql/pglite": "^0.5.10",
     "@electric-sql/pglite-pgvector": "^0.0.11",
     "@types/pg": "^8.23.1",
-    "tsx": "^4.7.0"
+    "tsx": "^4.7.0",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -13,7 +13,7 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
-import { estimateCostUsd } from '../pipelines/trace';
+import { costLines, estimateCostUsd, type CostLine } from '../pipelines/trace';
 import { isHealthSummary, recordedReadingsOnly } from '../pipelines/health-summary';
 import {
   FIRST_PASS_SYSTEM, OWN_WORDS_CONTENT_TYPES, buildFirstPassPrompt, firstPassDerivationKey, vetFirstPass,
@@ -56,6 +56,8 @@ export interface FirstPassReport {
   byStatus: Record<Outcome['status'], number>;
   outcomes: Outcome[];
   costUsd: number;
+  /** Where the money went: provider, model, calls, tokens, price. */
+  cost: CostLine[];
 }
 
 export async function runFirstPass(userId: string, deps: FirstPassDeps = {}): Promise<FirstPassReport> {
@@ -72,6 +74,7 @@ export async function runFirstPass(userId: string, deps: FirstPassDeps = {}): Pr
   let recorded = 0;
   let inputTokens = 0;
   let outputTokens = 0;
+  let calls = 0;
 
   for (const domain of domains) {
     const inDomain = questions.filter((q) => q.domainId === domain.id);
@@ -83,6 +86,7 @@ export async function runFirstPass(userId: string, deps: FirstPassDeps = {}): Pr
         reply = res.data;
         inputTokens += res.usage.inputTokens;
         outputTokens += res.usage.outputTokens;
+        calls += 1;
       } catch (err) {
         // One domain failing must not cost the others. Its questions report as
         // not_returned and the next run tries again.
@@ -120,12 +124,15 @@ export async function runFirstPass(userId: string, deps: FirstPassDeps = {}): Pr
     refusedByDatabase,
     byStatus,
     outcomes,
-    costUsd: estimateCostUsd({
-      openai_tokens_input: 0, openai_tokens_output: 0,
-      anthropic_tokens_input: inputTokens, anthropic_tokens_output: outputTokens,
-      embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: 0, est_usd: 0,
-      by_model: { [modelName]: { input: inputTokens, output: outputTokens } },
-    }).usd,
+    ...(() => {
+      const breakdown = {
+        openai_tokens_input: 0, openai_tokens_output: 0,
+        anthropic_tokens_input: inputTokens, anthropic_tokens_output: outputTokens,
+        embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: 0, est_usd: 0,
+        by_model: { [modelName]: { input: inputTokens, output: outputTokens, calls } },
+      };
+      return { costUsd: estimateCostUsd(breakdown).usd, cost: costLines(breakdown) };
+    })(),
   };
 }
 

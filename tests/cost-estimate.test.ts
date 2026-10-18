@@ -205,3 +205,17 @@ test('a run with no candidates reports no rate rather than dividing by zero', ()
   assert.equal(stats.drop_rate, null);
   assert.equal(stats.rows_skipped_idempotent, 4);
 });
+
+test('the cost breakdown names the provider, model, calls, tokens and price', async () => {
+  const { costLines, formatCostLines } = await import('../src/pipelines/trace.js');
+  const lines = costLines({
+    openai_tokens_input: 10_000, openai_tokens_output: 2_000, anthropic_tokens_input: 4_000, anthropic_tokens_output: 500,
+    embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: 0, est_usd: 0,
+    by_model: { 'gpt-4o': { input: 10_000, output: 2_000, calls: 20 }, 'claude-sonnet-4-6': { input: 4_000, output: 500, calls: 20 } },
+  });
+  assert.deepEqual(lines.map((l) => [l.provider, l.model, l.calls, l.usd]), [
+    ['OpenAI', 'gpt-4o', 20, 0.045],
+    ['Anthropic', 'claude-sonnet-4-6', 20, 0.0195],
+  ]);
+  assert.match(formatCostLines(lines, { 'gpt-4o': 'extractor' }), /OpenAI\s+gpt-4o\s+20 calls.*-- extractor/);
+});
