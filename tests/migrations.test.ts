@@ -152,6 +152,99 @@ test('118: a retired explanation does not block a fresh one', async () => {
   await db.query(insertWhy(pattern, user, 'avoidance'));
 });
 
+// ── Migration 119 ───────────────────────────────────────────────────────────
+
+/** A user with a "self" entity and one journal entry to cite. */
+async function factSetup() {
+  const user = await insertUser(db);
+  const { rows: [self] } = await db.query<{ id: string }>(
+    `INSERT INTO entities (user_id, entity_type, canonical_name) VALUES ($1, 'identity', 'Self') RETURNING id`,
+    [user],
+  );
+  const { rows: [entry] } = await db.query<{ id: string }>(
+    `INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'I skipped standup') RETURNING id`,
+    [user],
+  );
+  return { user, self: self!.id, entry: entry!.id };
+}
+
+const fact = (s: { user: string; self: string }, evidence: unknown[], extra: Record<string, unknown> = {}): Record<string, unknown> & { origin_key: string } => ({
+  user_id: s.user, subject_entity_id: s.self, predicate: 'skipped_or_avoided',
+  object_value: { normalized: 'standup' }, origin_key: `k-${Math.random().toString(36).slice(2)}`,
+  evidence, ...extra,
+});
+
+async function writeFact(p: unknown): Promise<string> {
+  const { rows } = await db.query<{ id: string }>(`SELECT write_fact($1::jsonb) AS id`, [JSON.stringify(p)]);
+  return rows[0]!.id;
+}
+
+const countWhere = async (sql: string, params: unknown[]) =>
+  Number((await db.query<{ n: string }>(sql, params)).rows[0]!.n);
+
+test('119: a fact and its evidence are saved together', async () => {
+  const s = await factSetup();
+  const id = await writeFact(fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }]));
+  assert.equal(await countWhere(`SELECT count(*) AS n FROM assertion_evidence WHERE assertion_id = $1`, [id]), 1);
+});
+
+test('119: if the evidence cannot be saved, neither is the fact', async () => {
+  // The whole point. The evidence cites a row that does not exist, so its
+  // insert fails -- after the fact's insert has already run. The old two-call
+  // path left that fact behind, unsupported. Here it must vanish with the error.
+  const s = await factSetup();
+  const p = fact(s, [{ raw_content_id: s.entry }, { analysis_unit_id: '00000000-0000-0000-0000-000000000001' }]);
+  await assert.rejects(() => writeFact(p));
+  assert.equal(await countWhere(`SELECT count(*) AS n FROM assertions WHERE origin_key = $1`, [p.origin_key]), 0);
+});
+
+test('119: a fact with no evidence is refused', async () => {
+  const s = await factSetup();
+  const p = fact(s, []);
+  assert.equal(await failureCode(`SELECT write_fact($1::jsonb)`, [JSON.stringify(p)]), CHECK_VIOLATION);
+  assert.equal(await countWhere(`SELECT count(*) AS n FROM assertions WHERE origin_key = $1`, [p.origin_key]), 0);
+});
+
+test("119: evidence from someone else's data is refused", async () => {
+  const s = await factSetup();
+  const other = await factSetup();
+  const p = fact(s, [{ raw_content_id: other.entry }]);
+  assert.equal(await failureCode(`SELECT write_fact($1::jsonb)`, [JSON.stringify(p)]), '42501');
+});
+
+test('119: saving the same fact again changes nothing it should not', async () => {
+  const s = await factSetup();
+  const p = fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }], { model_version: 'm1' });
+  const id = await writeFact(p);
+  const before = (await db.query<{ observed_at: string }>(`SELECT observed_at FROM assertions WHERE id = $1`, [id])).rows[0]!;
+  await db.query(`UPDATE assertions SET status = 'superseded' WHERE id = $1`, [id]);
+
+  // Replay, without model_version this time.
+  const { model_version: _omit, ...replay } = p;
+  const again = await writeFact(replay);
+
+  assert.equal(again, id, 'same fact, not a new one');
+  const after = (await db.query<{ observed_at: string; status: string; model_version: string }>(
+    `SELECT observed_at, status, model_version FROM assertions WHERE id = $1`, [id])).rows[0]!;
+  assert.deepEqual(after.observed_at, before.observed_at, 'when it was first seen does not move');
+  assert.equal(after.status, 'superseded', 'a replay does not resurrect a retired fact');
+  assert.equal(after.model_version, 'm1', 'a writer that omits model_version does not erase it');
+  assert.equal(
+    await countWhere(`SELECT count(*) AS n FROM assertion_evidence WHERE assertion_id = $1`, [id]),
+    1,
+    'journal evidence has no source item; a replay must still not duplicate it',
+  );
+});
+
+test('119: the app cannot call it, only the backend services can', async () => {
+  const { rows } = await db.query<{ anon: boolean; authed: boolean; service: boolean }>(
+    `SELECT has_function_privilege('anon', 'write_fact(jsonb)', 'EXECUTE') AS anon,
+            has_function_privilege('authenticated', 'write_fact(jsonb)', 'EXECUTE') AS authed,
+            has_function_privilege('service_role', 'write_fact(jsonb)', 'EXECUTE') AS service`,
+  );
+  assert.deepEqual(rows[0], { anon: false, authed: false, service: true });
+});
+
 // ── Migration 123 ───────────────────────────────────────────────────────────
 
 test('123: restores the voice choice on a database that lost it, and changes nothing where it exists', async () => {
