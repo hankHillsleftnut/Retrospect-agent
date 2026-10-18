@@ -1,4 +1,5 @@
 import { jsonChatCompletion } from '../services/openai';
+import { config } from '../config';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import type { Trace } from '../pipelines/trace';
 import type {
@@ -197,10 +198,13 @@ Extract identity_inferences first, then observations, insights, and any goal_can
     { temperature: 0.25, maxTokens: 8000 }
   );
 
-  input.trace?.addCost({
-    openai_tokens_input: usage.promptTokens,
-    openai_tokens_output: usage.completionTokens,
-  });
+  input.trace?.addCost(
+    {
+      openai_tokens_input: usage.promptTokens,
+      openai_tokens_output: usage.completionTokens,
+    },
+    config.openai.chatModel
+  );
 
   return {
     fact_candidates: data.fact_candidates ?? [],

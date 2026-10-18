@@ -85,10 +85,13 @@ Find the magic moments. Cross-reference what they SAID against what their DATA S
     { maxTokens: 4000, model: config.anthropic.cook0Model }
   );
 
-  options.trace?.addCost({
-    anthropic_tokens_input: usage.inputTokens,
-    anthropic_tokens_output: usage.outputTokens,
-  });
+  options.trace?.addCost(
+    {
+      anthropic_tokens_input: usage.inputTokens,
+      anthropic_tokens_output: usage.outputTokens,
+    },
+    config.anthropic.cook0Model
+  );
 
   // 5. Normalize + keep top N by strength.
   const moments = normalizeMoments(data.moments)

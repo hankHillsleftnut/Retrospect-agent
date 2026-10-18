@@ -171,10 +171,13 @@ Produce the next User Understanding Document. Return STRICT JSON per the schema 
     { maxTokens: 8000, model: config.anthropic.cook0Model }
   );
 
-  input.trace?.addCost({
-    anthropic_tokens_input: usage.inputTokens,
-    anthropic_tokens_output: usage.outputTokens,
-  });
+  input.trace?.addCost(
+    {
+      anthropic_tokens_input: usage.inputTokens,
+      anthropic_tokens_output: usage.outputTokens,
+    },
+    config.anthropic.cook0Model
+  );
 
   // 4. Defensive normalization — Claude may omit fields under pressure.
   return {

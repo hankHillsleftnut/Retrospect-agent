@@ -509,6 +509,12 @@ export interface Cook0Result {
   retire_inferences: { id: string; reason: string; superseded_by?: string | null }[];
 }
 
+/** Tokens attributed to one model. */
+export interface ModelUsage {
+  input: number;
+  output: number;
+}
+
 export interface CostBreakdown {
   openai_tokens_input: number;
   openai_tokens_output: number;
@@ -518,4 +524,20 @@ export interface CostBreakdown {
   perplexity_calls: number;
   elevenlabs_chars: number;
   est_usd: number;
+  /**
+   * Tokens keyed by the model that actually spent them.
+   *
+   * The provider totals above cannot be priced correctly on their own: three
+   * cooks share `anthropic_*` while running different models, and Cook A runs a
+   * mini model billed under `openai_*`. Pricing by provider was wrong by 5x on
+   * Anthropic and up to 33x on OpenAI. This is the field that gets priced; the
+   * provider totals are kept so existing rows still parse.
+   */
+  by_model?: Record<string, ModelUsage>;
+  /**
+   * Models seen in a run with no entry in the price table. Surfaced rather than
+   * silently defaulted — a silent default is how the original mispricing
+   * survived unnoticed.
+   */
+  unpriced_models?: string[];
 }
