@@ -434,6 +434,23 @@ test('121: a rejected answer stops being used, and accuracy is its own number', 
   assert.equal(acc.accuracy, '0.00');
 });
 
+// ── Migration 122 ───────────────────────────────────────────────────────────
+
+test('122: the researcher can log what it read, and only known outcomes', async () => {
+  const user = await insertUser(db);
+  await db.query(
+    `INSERT INTO question_research_log (user_id, question_id, material_until, items_read, outcome) VALUES ($1, 27, now(), 4, 'strengthened')`,
+    [user],
+  );
+  assert.equal(
+    await failureCode(
+      `INSERT INTO question_research_log (user_id, question_id, material_until, items_read, outcome) VALUES ($1, 27, now(), 4, 'guessed_wildly')`,
+      [user],
+    ),
+    CHECK_VIOLATION,
+  );
+});
+
 // ── Migration 123 ───────────────────────────────────────────────────────────
 
 test('123: restores the voice choice on a database that lost it, and changes nothing where it exists', async () => {

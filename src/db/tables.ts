@@ -57,4 +57,6 @@ export const Tables = {
   ANSWER_EVIDENCE: 'answer_evidence',
   CURRENT_ANSWERS: 'current_answers',
   DOMAIN_COVERAGE: 'domain_coverage',
+  EVIDENCE_KINDS: 'evidence_kinds',
+  QUESTION_RESEARCH_LOG: 'question_research_log',
 } as const;
