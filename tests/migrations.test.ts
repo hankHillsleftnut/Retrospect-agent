@@ -474,3 +474,35 @@ test('123: restores the voice choice on a database that lost it, and changes not
     'only the three real voices',
   );
 });
+
+// ── Migration 124 ───────────────────────────────────────────────────────────
+
+async function doc(user: string, authorship: string | null, content: string): Promise<string> {
+  return (await db.query<{ id: string }>(
+    `INSERT INTO raw_content (user_id, content_type, content, authorship) VALUES ($1, 'google_docs', $2, $3) RETURNING id`,
+    [user, content, authorship],
+  )).rows[0]!.id;
+}
+
+test("124: someone else's document cannot speak for them", async () => {
+  // "My name is Farza..." sat in the founder's Drive. It is evidence of what is
+  // in their life, never of what they want.
+  const user = await insertUser(db);
+  const brief = await doc(user, 'unknown', 'My name is Farza. I am going all-in on a new interface.');
+  assert.equal(await refusal(answer(user, 6, [{ raw_content_id: brief }])), CHECK_VIOLATION);
+  const ok = await record(answer(user, 1, [{ raw_content_id: brief }]));
+  const { rows } = await db.query<{ kind_id: string }>(`SELECT kind_id FROM answer_evidence WHERE answer_id = $1`, [ok]);
+  assert.equal(rows[0]!.kind_id, 'collected_document', 'still evidence, just not their voice');
+});
+
+test('124: a document they wrote still counts as their words', async () => {
+  const user = await insertUser(db);
+  const essay = await doc(user, 'self', 'I want to build something of my own.');
+  await record(answer(user, 6, [{ raw_content_id: essay }]));
+});
+
+test('124: a database without authorship keeps the old behaviour', async () => {
+  const user = await insertUser(db);
+  const legacy = await doc(user, null, 'I want to build something of my own, still.');
+  await record(answer(user, 6, [{ raw_content_id: legacy }]));
+});

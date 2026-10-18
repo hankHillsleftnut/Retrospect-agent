@@ -173,16 +173,20 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
     const key = createHash('sha256').update(text).digest('hex');
     if (text.trim().length < MIN_WORDS_CHARS || seen.has(key)) return false;
     seen.add(key);
+    // Whose words these are (migration 115). A document in their Drive may be
+    // someone else's -- a hiring post, a company's brief -- so only 'self'
+    // counts as their voice. No authorship recorded keeps the old behaviour.
+    const theirs = r.authorship ? r.authorship === 'self' : true;
     add({
-      ref: { raw_content_id: r.id }, ownWords: true,
-      label: `${label} · ${day(r.content_date ?? r.created_at)}`,
+      ref: { raw_content_id: r.id }, ownWords: theirs,
+      label: `${label}${theirs ? '' : ' (author not known to be them)'} · ${day(r.content_date ?? r.created_at)}`,
       text, quotable: text, at: r.created_at,
     });
     return true;
   };
   const wordsOf = async (types: string[], limit: number) => {
     const { data } = await after(db.from(Tables.RAW_CONTENT)
-      .select('id,content_type,content,content_date,created_at,metadata')
+      .select('id,content_type,content,content_date,created_at,metadata,authorship')
       .eq('user_id', userId).in('content_type', types), 'created_at')
       .order('created_at', { ascending: false }).limit(limit);
     return (data ?? []) as any[];
