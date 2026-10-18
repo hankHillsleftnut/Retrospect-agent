@@ -29,7 +29,8 @@
     "requeue": "tsx scripts/requeue-failed.ts",
     "health": "tsx scripts/health.ts",
     "db:check": "tsx scripts/schema-check.ts",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "questions:first-pass": "tsx scripts/questions-first-pass.ts"
   },
   "keywords": [
     "agent",

@@ -35,6 +35,9 @@ export const config = {
     cook0Model: optional('ANTHROPIC_COOK0_MODEL', 'claude-sonnet-4-6'),
     cookBModel: optional('ANTHROPIC_COOK_B_MODEL', 'claude-sonnet-4-6'),
     cookCModel: optional('ANTHROPIC_COOK_C_MODEL', 'claude-sonnet-4-6'),
+    // Answers the canonical questions (first pass and researcher). Judgement
+    // about a person from their own words, so a strong model by default.
+    questionsModel: optional('ANTHROPIC_QUESTIONS_MODEL', 'claude-sonnet-4-6'),
   },
   perplexity: {
     apiKey: optional('PERPLEXITY_API_KEY'),

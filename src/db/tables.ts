@@ -49,4 +49,12 @@ export const Tables = {
   ASSERTIONS: 'assertions',
   ASSERTION_EVIDENCE: 'assertion_evidence',
   ASSERTION_RELATIONS: 'assertion_relations',
+  // Phase 2 question store (120, 121). Answers are written only through the
+  // record_answer() database function; these are for reading.
+  QUESTION_DOMAINS: 'question_domains',
+  CANONICAL_QUESTIONS: 'canonical_questions',
+  QUESTION_ANSWERS: 'question_answers',
+  ANSWER_EVIDENCE: 'answer_evidence',
+  CURRENT_ANSWERS: 'current_answers',
+  DOMAIN_COVERAGE: 'domain_coverage',
 } as const;
