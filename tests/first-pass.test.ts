@@ -181,3 +181,13 @@ test("a document someone else may have written is shown as a record, not as thei
   assert.equal(item.ownWords, false);
   assert.match(item.label, /author not known to be them/);
 });
+
+test('long writing is split into sections that rejoin to the original, breaking at sentences', async () => {
+  const { splitIntoSections } = await import('../src/questions/run-first-pass.js');
+  const text = Array.from({ length: 60 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+  const parts = splitIntoSections(text, 300);
+  assert.ok(parts.length > 1);
+  assert.equal(parts.join(''), text, 'nothing lost or added');
+  assert.ok(parts.slice(0, -1).every((p) => p.trimEnd().endsWith('.')), 'cuts fall at sentence ends');
+  assert.deepEqual(splitIntoSections('short', 300), ['short']);
+});
