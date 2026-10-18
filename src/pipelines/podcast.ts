@@ -13,6 +13,7 @@ import {
 } from '../prompts/episode-summary';
 import { runPodcastAgent } from '../agents/podcast-agent';
 import { Trace, TraceTrigger } from './trace';
+import { formatUnderstanding, loadUnderstanding } from '../questions/understanding';
 import type {
   DbGoal,
   DbInsight,
@@ -70,6 +71,8 @@ async function cookA(input: {
   onboardingProfile: DbRawContent | null;
   userUnderstanding: UserUnderstandingDocument | null;
   voicePersona: VoicePersona | null;
+  /** Evidence-backed answers (question store). Empty string when unavailable. */
+  knownBlock?: string;
   trace: Trace;
 }): Promise<OutlineV1> {
   const goalLines = input.goals.map(
@@ -90,7 +93,7 @@ async function cookA(input: {
   const understandingBlock = formatUserUnderstanding(input.userUnderstanding);
 
   const userMessage = `${understandingBlock}
-
+${input.knownBlock ? `\n${input.knownBlock}\n` : ''}
 ${foundationBlock}
 
 # Active Goals
@@ -130,6 +133,8 @@ async function cookC(input: {
   onboardingProfile: DbRawContent | null;
   voicePersona: VoicePersona | null;
   episodeNumber: number;
+  /** Evidence-backed answers (question store). Empty string when unavailable. */
+  knownBlock?: string;
   trace: Trace;
 }): Promise<string> {
   const prefsBlock = input.preferences
@@ -167,7 +172,7 @@ mode: ${input.episodeNumber <= 2 ? 'QUESTION_MODE — ask and affirm, do not ass
 
 # Enriched Outline (from Cook B)
 ${JSON.stringify(input.outline, null, 2)}
-
+${input.knownBlock ? `\n${input.knownBlock}\n` : ''}
 Write the final podcast script now. Honor the notRealizedYet hints — set up the pieces, don't name the realization.`;
 
   const { text, usage } = await claudeCompletion(FINAL_TRANSCRIPT_SYSTEM_PROMPT, userMessage, {
@@ -352,6 +357,20 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
   try {
     const ctx = await loadContext(options.userId, daysBack);
 
+    // Evidence-backed answers to the canonical questions, and the parts of
+    // their life to stay silent about. Off unless ANSWERS_IN_EPISODES is set,
+    // and empty whenever the question store has nothing, so episodes are
+    // unchanged until it is switched on and filled. A failure here never
+    // costs the episode.
+    let knownBlock = '';
+    if (process.env.ANSWERS_IN_EPISODES === 'true') {
+      try {
+        knownBlock = formatUnderstanding(await loadUnderstanding(options.userId));
+      } catch (err) {
+        console.warn(`[podcast] question store unavailable: ${(err as Error).message}`);
+      }
+    }
+
     if (!options.dryRun && trace.id) {
       await supabase
         .from(Tables.PIPELINE_RUN_TRACES)
@@ -368,6 +387,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
             user_understanding_version: ctx.userUnderstanding?.version ?? null,
             persona: options.persona ?? ctx.user?.voice_persona ?? null,
             skipTTS: !!options.skipTTS,
+            known_answers_block: knownBlock || null,
           },
         })
         .eq('id', trace.id);
@@ -395,6 +415,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
         onboardingProfile: ctx.onboardingProfile,
         userUnderstanding: ctx.userUnderstandingDocument,
         voicePersona: ctx.user?.voice_persona ?? null,
+        knownBlock,
         trace,
       }));
     trace.setOutlineV1(outlineV1);
@@ -429,6 +450,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       onboardingProfile: ctx.onboardingProfile,
       voicePersona: ctx.user?.voice_persona ?? null,
       episodeNumber,
+      knownBlock,
       trace,
     });
 
