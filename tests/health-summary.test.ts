@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isHealthSummary, normalizeHealthSummary } from '../src/pipelines/health-summary';
+import { recordedReadingsOnly, isHealthSummary, normalizeHealthSummary } from '../src/pipelines/health-summary';
 
 /**
  * Built from the real summaries in production on 18 October 2026, where 746 of
@@ -53,4 +53,9 @@ test('only health summaries are normalised', () => {
   // to mean. This rule is about sensors, not people.
   assert.equal(isHealthSummary('healthkit'), true);
   assert.equal(isHealthSummary('journal_entry'), false);
+});
+
+test('only recorded readings are shown: absence is removed, not labelled', () => {
+  const out = recordedReadingsOnly('Apple Health summary for Aug 8, 2026:\n\nSteps: 8660\nSleep: 0.0 hours\nMindfulness: 0 minutes\nAverage Heart Rate: Unavailable BPM\nSleep stages: ');
+  assert.equal(out, 'Apple Health summary for Aug 8, 2026:\n\nSteps: 8660');
 });
