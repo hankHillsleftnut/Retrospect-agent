@@ -6,6 +6,7 @@ import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
 import { countTokens, contentTokenBudget, envInt } from '../services/token-budget';
 import { failureUpdate, MAX_ATTEMPTS } from './retry-policy';
+import { legacyGoalIdOrDrop, sanitizeGoalId } from './legacy-shim';
 import { writeJournalFacts } from '../brain/write-journal-facts';
 import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
 import { buildPortrait, patchDocument } from '../brain/portrait';
@@ -402,6 +403,9 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     ]);
 
     const activeGoals = (goalsRes.data ?? []) as DbGoal[];
+    // The only goal ids the model is shown. Any other id it returns is wrong by
+    // construction -- see legacy-shim.ts.
+    const knownGoalIds = new Set(activeGoals.map((g) => g.id));
     const recentInsights = (insightsRes.data ?? []) as DbInsight[];
     const openGoalCandidates = candidatesRes.data ?? [];
     const currentUnderstanding = (understandingRes.data ?? null) as DbUserUnderstanding | null;
@@ -576,7 +580,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
           const matchedRaw = batch.find((raw) => raw.id === supportingRawIds[0]);
           return {
             user_id: options.userId,
-            goal_id: o.goal_id ?? null,
+            goal_id: sanitizeGoalId(o.goal_id, knownGoalIds),
             raw_content_id: supportingRawIds[0] ?? null,
             content: o.content,
             reason_why: o.reason_why,
@@ -591,44 +595,68 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
           .from(Tables.OBSERVATIONS)
           .insert(toInsert)
           .select('id');
-        if (insErr) throw new Error(`Insert observations failed: ${insErr.message}`);
-        batchObservationIds.push(...(inserted ?? []).map((r) => r.id));
+        if (insErr) {
+          // Legacy table: never allowed to fail the run. The facts for this
+          // batch are already written. Recorded, not swallowed.
+          batchNotes.push(`legacy observations not written: ${insErr.message}`);
+          console.error(`[ingest]     legacy observations FAILED (run continues): ${insErr.message}`);
+        } else {
+          batchObservationIds.push(...(inserted ?? []).map((r) => r.id));
 
-        const texts = result.observations.map((o) => `${o.content} — ${o.reason_why}`);
-        const embeddings = await generateEmbeddings(texts);
-        trace.addCost({ embedding_tokens: texts.reduce((acc, t) => acc + t.length / 4, 0) });
-        for (let i = 0; i < batchObservationIds.length; i++) {
-          const id = batchObservationIds[i];
-          const emb = embeddings[i];
-          if (id && emb) {
-            await supabase.from(Tables.OBSERVATIONS).update({ embedding: emb }).eq('id', id);
+          const texts = result.observations.map((o) => `${o.content} — ${o.reason_why}`);
+          const embeddings = await generateEmbeddings(texts);
+          trace.addCost({ embedding_tokens: texts.reduce((acc, t) => acc + t.length / 4, 0) });
+          for (let i = 0; i < batchObservationIds.length; i++) {
+            const id = batchObservationIds[i];
+            const emb = embeddings[i];
+            if (id && emb) {
+              await supabase.from(Tables.OBSERVATIONS).update({ embedding: emb }).eq('id', id);
+            }
           }
+          allObservationIds.push(...batchObservationIds);
         }
-        allObservationIds.push(...batchObservationIds);
       }
 
       // 5b. Persist insights from this batch (indexes are local to the batch's response).
       if (result.insights.length > 0) {
-        const insightRows = result.insights.map((ins) => {
+        let insightsDroppedForGoal = 0;
+        const insightRows = result.insights.flatMap((ins) => {
+          // insights.goal_id is NOT NULL, so an insight citing a goal the model
+          // was never shown cannot be stored at all. Drop it rather than let the
+          // insert fail. See legacy-shim.ts.
+          const goal = legacyGoalIdOrDrop('insights', ins.goal_id, knownGoalIds);
+          if (!goal.keep) {
+            insightsDroppedForGoal += 1;
+            return [];
+          }
           const supportingIds = (ins.supporting_observation_indexes ?? [])
             .map((idx) => batchObservationIds[idx])
             .filter(Boolean) as string[];
-          return {
+          return [{
             user_id: options.userId,
-            goal_id: ins.goal_id,
+            goal_id: goal.goalId,
             title: ins.title,
             content: ins.content,
             evidence_summary: ins.evidence_summary,
             supporting_observation_ids: supportingIds,
             confidence_score: ins.confidence_score,
             metadata: {},
-          };
+          }];
         });
-        const { data: insertedInsights, error: insightErr } = await supabase
-          .from(Tables.INSIGHTS)
-          .insert(insightRows)
-          .select('id, title, content, evidence_summary');
-        if (insightErr) throw new Error(`Insert insights failed: ${insightErr.message}`);
+        if (insightsDroppedForGoal > 0) {
+          batchNotes.push(`legacy insights dropped (goal not among those shown): ${insightsDroppedForGoal}`);
+        }
+        const { data: insertedInsights, error: insightErr } = insightRows.length > 0
+          ? await supabase
+              .from(Tables.INSIGHTS)
+              .insert(insightRows)
+              .select('id, title, content, evidence_summary')
+          : { data: [], error: null };
+        if (insightErr) {
+          // Legacy table: never allowed to fail the run.
+          batchNotes.push(`legacy insights not written: ${insightErr.message}`);
+          console.error(`[ingest]     legacy insights FAILED (run continues): ${insightErr.message}`);
+        }
         totalInsightsCreated += insertedInsights?.length ?? 0;
 
         if (insertedInsights && insertedInsights.length > 0) {
@@ -692,20 +720,28 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
           .from(Tables.IDENTITY_INFERENCES)
           .insert(inferenceRows)
           .select('id');
-        if (infErr) throw new Error(`Insert identity_inferences failed: ${infErr.message}`);
+        if (infErr) {
+          // Legacy table: never allowed to fail the run.
+          batchNotes.push(`legacy identity_inferences not written: ${infErr.message}`);
+          console.error(`[ingest]     legacy identity_inferences FAILED (run continues): ${infErr.message}`);
+        }
         const batchInferenceIds = (insertedInferences ?? []).map((r) => r.id);
         allInferenceIds.push(...batchInferenceIds);
 
-        const texts = result.identity_inferences.map(
-          (inf) => `${inf.content}${inf.evidence_summary ? ` — ${inf.evidence_summary}` : ''}`
-        );
-        const embeddings = await generateEmbeddings(texts);
-        trace.addCost({ embedding_tokens: texts.reduce((acc, t) => acc + t.length / 4, 0) });
-        for (let i = 0; i < batchInferenceIds.length; i++) {
-          const id = batchInferenceIds[i];
-          const emb = embeddings[i];
-          if (id && emb) {
-            await supabase.from(Tables.IDENTITY_INFERENCES).update({ embedding: emb }).eq('id', id);
+        // Only embed what was stored -- a failed insert should not still pay for
+        // embeddings of rows that do not exist.
+        if (batchInferenceIds.length > 0) {
+          const texts = result.identity_inferences.map(
+            (inf) => `${inf.content}${inf.evidence_summary ? ` — ${inf.evidence_summary}` : ''}`
+          );
+          const embeddings = await generateEmbeddings(texts);
+          trace.addCost({ embedding_tokens: texts.reduce((acc, t) => acc + t.length / 4, 0) });
+          for (let i = 0; i < batchInferenceIds.length; i++) {
+            const id = batchInferenceIds[i];
+            const emb = embeddings[i];
+            if (id && emb) {
+              await supabase.from(Tables.IDENTITY_INFERENCES).update({ embedding: emb }).eq('id', id);
+            }
           }
         }
       }
