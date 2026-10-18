@@ -91,13 +91,40 @@ export async function claudeJsonCompletion<T>(
   }
 }
 
-function extractJsonBlock(text: string): string {
+/**
+ * The JSON object in a model's reply.
+ *
+ * Usually the whole reply. But a model sometimes writes a partial answer,
+ * notices, and writes a corrected one after it ("Wait -- corrected full
+ * output:"). Seen from Claude Sonnet 5.5 on 18 October 2026. Taking the span
+ * from the first "{" to the last "}" then joins two objects into invalid JSON
+ * and the whole call is lost. So: find every complete top-level object and
+ * use the LAST one that parses -- the model's final word, never a merge.
+ */
+export function extractJsonBlock(text: string): string {
   const trimmed = text.trim();
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
-  const start = trimmed.indexOf('{');
-  const end = trimmed.lastIndexOf('}');
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error(`No JSON object found in Claude response. Got: ${trimmed.slice(0, 200)}`);
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    try { JSON.parse(trimmed); return trimmed; } catch { /* fall through to the scan */ }
   }
-  return trimmed.slice(start, end + 1);
+  const objects: string[] = [];
+  let depth = 0, start = -1, inString = false, escaped = false;
+  for (let i = 0; i < trimmed.length; i++) {
+    const ch = trimmed[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{') { if (depth === 0) start = i; depth += 1; }
+    else if (ch === '}' && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start !== -1) { objects.push(trimmed.slice(start, i + 1)); start = -1; }
+    }
+  }
+  for (let k = objects.length - 1; k >= 0; k--) {
+    try { JSON.parse(objects[k]!); return objects[k]!; } catch { /* try the one before */ }
+  }
+  throw new Error(`No JSON object found in Claude response. Got: ${trimmed.slice(0, 200)}`);
 }
