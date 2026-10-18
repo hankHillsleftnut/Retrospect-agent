@@ -45,7 +45,8 @@ async function main() {
   await client.connect();
   try {
     console.log(`Database: ${new URL(url).hostname}`);
-    const p = plan(migrationFiles(), await recordedMigrations(client), baseline);
+    // A preview only reads; the ledger table is created only when applying.
+    const p = plan(migrationFiles(), await recordedMigrations(client, { create: apply }), baseline);
 
     console.log(`\nAlready recorded: ${p.alreadyRecorded.length}`);
     if (p.toBaseline.length) console.log(`Record as already applied (not run): ${p.toBaseline.join(', ')}`);

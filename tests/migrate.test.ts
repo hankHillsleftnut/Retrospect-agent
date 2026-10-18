@@ -66,3 +66,11 @@ test('a migration that fails leaves nothing half-done, and stops the run', async
   assert.deepEqual(rows[0], { t: null, u: null }, 'the failed migration rolled back completely');
   assert.equal((await recordedMigrations(ex)).has('900_broken.sql'), false, 'and is not recorded as applied');
 });
+
+test('a preview changes nothing: it does not even create the ledger', async () => {
+  const { db } = await freshDatabase({ through: '' });
+  const recorded = await recordedMigrations(executor(db), { create: false });
+  assert.equal(recorded.size, 0);
+  const { rows } = await db.query(`SELECT to_regclass('${LEDGER_TABLE}') AS t`);
+  assert.equal((rows[0] as any).t, null);
+});

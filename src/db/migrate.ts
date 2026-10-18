@@ -56,8 +56,17 @@ export function plan(files: string[], recorded: Set<string>, baselineThrough?: s
   return out;
 }
 
-export async function recordedMigrations(db: Executor): Promise<Set<string>> {
-  await db.query(LEDGER_SQL);
+/**
+ * What the database records as applied. With `create: false` (a preview) this
+ * only reads: a database with no ledger yet simply has nothing recorded.
+ */
+export async function recordedMigrations(db: Executor, opts: { create?: boolean } = { create: true }): Promise<Set<string>> {
+  if (opts.create) {
+    await db.query(LEDGER_SQL);
+  } else {
+    const { rows: exists } = await db.query(`SELECT to_regclass('public.${LEDGER_TABLE}') IS NOT NULL AS present`);
+    if (!exists[0]?.present) return new Set();
+  }
   const { rows } = await db.query(`SELECT file FROM ${LEDGER_TABLE}`);
   return new Set(rows.map((r) => r.file as string));
 }
