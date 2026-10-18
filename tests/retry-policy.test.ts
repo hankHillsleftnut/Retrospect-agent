@@ -5,6 +5,7 @@ import {
   nextAttemptAt,
   shouldRetry,
   failureUpdate,
+  backlogAttemptAt,
   MAX_ATTEMPTS,
 } from '../src/pipelines/retry-policy';
 
@@ -219,4 +220,88 @@ test('every pending row is reachable by one of the three queries', () => {
     return due <= now;
   };
   assert.equal(future(0), false, 'a row due later is waiting, not lost');
+});
+
+// ---------------------------------------------------------------------------
+// Added 18 October 2026, from auditing the live backlog. Each case below is a
+// real row in production that the policy got wrong.
+// ---------------------------------------------------------------------------
+
+test('the pipeline\'s own deliberate skips are not failures', () => {
+  // 144 rows in the live backlog. The pipeline correctly noticed it had
+  // already handled this document.
+  assert.equal(
+    classifyFailure('duplicate of an already-queued document; not reprocessed'),
+    'not_applicable'
+  );
+
+  // 42 rows. A HealthKit summary with no sentence in it to quote. Declining to
+  // extract is the right answer, not a failure.
+  assert.equal(
+    classifyFailure('not processed: sensor summary, contains no quotable statement'),
+    'not_applicable'
+  );
+
+  assert.equal(
+    classifyFailure('not processed: Apple Notes export error or test fragment, no usable content'),
+    'not_applicable'
+  );
+});
+
+test('a deliberate skip is never retried, so the backlog drain does not pay for it six times', () => {
+  assert.equal(shouldRetry('not_applicable', 0), false);
+  assert.equal(shouldRetry('not_applicable', 5), false);
+
+  // Before this rule existed these messages fell through to the transient
+  // default, which would have spent six attempts each on 186 rows to arrive at
+  // the same correct answer.
+  const update = failureUpdate('duplicate of an already-queued document; not reprocessed', 0);
+  assert.equal(update.next_attempt_at, null, 'nothing is scheduled');
+  assert.equal(update.attempt_count, 0, 'and no attempt is charged against the row');
+});
+
+test('a deliberate skip ends as completed, so it stops counting as broken', () => {
+  const update = failureUpdate('not processed: sensor summary, contains no quotable statement', 0);
+
+  // This is the line that fixes the health numbers: 186 of the 2,024 rows
+  // reported as failures were the pipeline working.
+  assert.equal(update.processing_status, 'completed');
+  assert.equal(update.failure_kind, 'not_applicable');
+});
+
+test('a real failure is still a real failure', () => {
+  // Guard against the new rule being too greedy. The word "duplicate" appears
+  // in a genuine database error too, and that one is terminal, not a skip.
+  assert.equal(classifyFailure('duplicate key value violates unique constraint'), 'terminal');
+  assert.equal(classifyFailure('429 Too Many Requests'), 'transient');
+  assert.equal(classifyFailure('Your credit balance is too low'), 'transient');
+});
+
+test('a recovered backlog is spread out, not released all at once', () => {
+  const now = new Date('2026-10-18T12:00:00.000Z');
+
+  // 755 of the stranded rows failed on rate limits. Releasing 1,652 at once
+  // would cause the same failure at a larger scale.
+  const first = backlogAttemptAt(0, 200, now);
+  const lastOfFirstHour = backlogAttemptAt(199, 200, now);
+  const firstOfSecondHour = backlogAttemptAt(200, 200, now);
+
+  assert.equal(first.getTime(), lastOfFirstHour.getTime(), 'a slice becomes due together');
+  assert.equal(
+    firstOfSecondHour.getTime() - first.getTime(),
+    3_600_000,
+    'the next slice is an hour later'
+  );
+
+  // A drain started now should start now, not in an hour.
+  assert.ok(first.getTime() - now.getTime() <= 60_000);
+
+  // And the whole 1,652-row backlog finishes inside a working day.
+  const last = backlogAttemptAt(1651, 200, now);
+  const hours = (last.getTime() - now.getTime()) / 3_600_000;
+  assert.ok(hours > 7 && hours < 9, `expected ~8 hours, got ${hours}`);
+});
+
+test('spreading a backlog refuses a nonsense rate rather than dividing by zero', () => {
+  assert.throws(() => backlogAttemptAt(0, 0), /perHour must be positive/);
 });
