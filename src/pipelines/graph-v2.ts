@@ -311,7 +311,18 @@ export async function writeFact(
     assertion_kind: options.kind ?? 'observed',
     confidence: options.confidence ?? 1,
     event_time: options.eventTime ?? null,
-    observed_at: new Date().toISOString(),
+    // observed_at is deliberately NOT sent. The column defaults to NOW(), so a
+    // new fact still gets the time it was first seen -- and because an upsert
+    // only overwrites the columns in its payload (see the note below), a re-save
+    // leaves the original time alone.
+    //
+    // It used to be sent as "now" on every write. origin_key only collides when
+    // the same source is processed again, so every replay re-stamped old facts as
+    // freshly observed. Two readers depended on it being true:
+    //   - changedSince() filters on observed_at, so after a replay everything
+    //     reprocessed reported as "changed since today".
+    //   - supersession orders by event_time ?? observed_at, so a replayed old
+    //     fact with no event time looked newer than genuinely newer ones.
     normalizer_version: options.normalizerVersion ?? null,
     origin_key: options.originKey,
     metadata: options.metadata ?? {},

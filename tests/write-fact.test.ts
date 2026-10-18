@@ -214,3 +214,29 @@ test('the integration path is unaffected: no null model_version written', async 
   }, db);
   assert.ok(!('model_version' in calls[0].rows), 'byte-identical to the pre-refactor payload');
 });
+
+test('a re-save never re-stamps when a fact was first observed', async () => {
+  // Every write used to send observed_at = now. origin_key only collides when
+  // the same source is processed again, so each replay made old facts look
+  // freshly seen -- which broke changedSince() ("what changed since June?") and
+  // let a replayed old fact outrank genuinely newer ones in supersession.
+  //
+  // The column defaults to NOW() on insert, and an upsert only overwrites what
+  // it is sent. So the fix is to send nothing: first sight is kept forever.
+  const { db, calls } = fakeDb();
+  await writeFact({
+    userId: 'u1',
+    subjectEntityId: 'self',
+    predicate: 'skipped_or_avoided',
+    objectValue: { label: 'standup' },
+    originKey: 'journal:raw-9:skipped_or_avoided:standup',
+    evidence: [{ rawContentId: 'raw-9', excerpt: 'I skipped Thursday standup', charStart: 0, charEnd: 26 }],
+  }, db);
+
+  const assertionRow = calls.find((c) => c.table === 'assertions')!.rows;
+  assert.equal(
+    'observed_at' in assertionRow,
+    false,
+    'observed_at must be left to the database default, never sent on upsert',
+  );
+});
