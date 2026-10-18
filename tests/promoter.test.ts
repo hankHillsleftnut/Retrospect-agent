@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  evaluateGroup, groupFacts, groupingKey, sourceWeight,
+  evaluateGroup, groupFacts, groupingKey, sourceWeight, onePerSource,
   decayedConfidence, shouldDemote, type FactForPromotion,
 } from '../src/brain/promoter';
 
@@ -202,4 +202,58 @@ test('a bridging fact merges the clusters it connects, not just the first', () =
 test('genuinely unrelated loops still stay apart after the merge fix', () => {
   const groups = groupFacts([...THURSDAYS, ...PRIYA]);
   assert.equal(groups.size, 2, 'transitive merging must not become a mega-pattern machine');
+});
+
+
+// ── Copies are one instance, not many ────────────────────────────────────────
+// Added 18 October 2026. Production held one document stored 74 times and one
+// health summary 188 times. Counted per row, copies of a single entry became a
+// pattern by themselves.
+
+test('one entry uploaded many times is one instance, not many', () => {
+  // The same skip, from the same content, saved five times. One source.
+  const copies = Array.from({ length: 5 }, () =>
+    f({ object: 'thursday_standup', eventTime: '2026-02-12T09:00:00Z', sourceId: 'same-content' }),
+  );
+  const d = evaluateGroup(copies);
+
+  // Before: instanceCount 5 and sourceCount 5 -- enough to clear the bar.
+  assert.ok(d === null || d.instanceCount === 1, 'five copies count once');
+  assert.notEqual(d?.status, 'live', 'a single entry, however often uploaded, is not a pattern');
+});
+
+test('copies cannot satisfy "more than one source" by themselves', () => {
+  // The bar allows a short time span if there is more than one source. Copies
+  // each used to carry their own row id, so they counted as distinct sources.
+  const copies = Array.from({ length: 4 }, (_, i) =>
+    f({ object: 'thursday_standup', eventTime: `2026-02-12T09:0${i}:00Z`, sourceId: 'same-content' }),
+  );
+  assert.equal(onePerSource(copies).length, 1);
+});
+
+test('genuinely separate entries still count separately', () => {
+  // The guard must not under-count. Three different days, three different
+  // pieces of writing: still a live pattern, exactly as before.
+  const d = evaluateGroup(groupFacts(THURSDAYS).values().next().value!)!;
+  assert.equal(d.status, 'live');
+  assert.equal(d.instanceCount, 3);
+});
+
+test('a real pattern is not inflated by copies mixed in', () => {
+  // Three real Thursdays, one of which was uploaded four times.
+  const withCopies = [
+    ...THURSDAYS,
+    ...Array.from({ length: 3 }, () => ({ ...THURSDAYS[0]!, assertionId: Math.random().toString(36) })),
+  ];
+  const d = evaluateGroup(withCopies)!;
+  assert.equal(d.instanceCount, 3, 'six rows, three real instances');
+  assert.equal(d.sourceCount, 3);
+});
+
+test('the earliest copy is the one kept', () => {
+  const kept = onePerSource([
+    f({ object: 'x', eventTime: '2026-03-01T00:00:00Z', sourceId: 's', assertionId: 'later' }),
+    f({ object: 'x', eventTime: '2026-02-01T00:00:00Z', sourceId: 's', assertionId: 'earliest' }),
+  ]);
+  assert.equal(kept[0]!.assertionId, 'earliest', 'its time is when the thing actually happened');
 });

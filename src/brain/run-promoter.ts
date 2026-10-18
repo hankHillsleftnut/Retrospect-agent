@@ -6,6 +6,7 @@
  * judgment separate from the plumbing so the risky part stays testable.
  */
 
+import { createHash } from 'node:crypto';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import {
@@ -58,12 +59,22 @@ export async function runPromoter(options: {
     .limit(PROMOTER_FACT_LIMIT);
   if (error) throw new Error(`runPromoter load failed: ${error.message}`);
 
+  // Identify each fact's source by its CONTENT, not its row, so that copies of
+  // one upload share an id and onePerSource() counts them once. See promoter.ts.
+  const contentKeyByRow = await contentKeys(
+    (rows ?? []).map((r: any) => r.metadata?.raw_content_id).filter(Boolean) as string[],
+  );
+
   const facts: FactForPromotion[] = (rows ?? []).map((r: any) => ({
     assertionId: r.id,
     predicate: r.predicate,
     object: String(r.object_value?.normalized ?? ''),
     eventTime: r.event_time ?? r.observed_at,
-    sourceId: String(r.metadata?.raw_content_id ?? r.id),
+    // Falls back to the row id -- exactly the previous behaviour -- if the
+    // content could not be read, so this can never count worse than before.
+    sourceId: String(
+      contentKeyByRow.get(r.metadata?.raw_content_id) ?? r.metadata?.raw_content_id ?? r.id,
+    ),
     contentType: String(r.metadata?.content_type ?? 'journal_entry'),
     severity: (r.metadata?.severity_hint ?? 'standard') as Severity,
     namesOwnLoop: r.metadata?.names_own_loop === true,
@@ -193,4 +204,36 @@ export async function runPromoter(options: {
   }
 
   return result;
+}
+
+/**
+ * A content hash for each raw_content row, keyed by row id.
+ *
+ * Copies of one upload hash to the same key, so they become one source. Read in
+ * chunks to stay inside URL and response limits on a large account. A row that
+ * cannot be read is simply absent from the map, and its fact falls back to the
+ * row id -- the old behaviour -- rather than failing the run.
+ *
+ * At scale this should read a stored content hash instead of the full text;
+ * raw_content.dedup_key (migration 117) is that hash for new rows once the
+ * historical ones are backfilled.
+ */
+async function contentKeys(rawContentIds: string[]): Promise<Map<string, string>> {
+  const keys = new Map<string, string>();
+  const ids = [...new Set(rawContentIds)];
+  const CHUNK = 150;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .from(Tables.RAW_CONTENT)
+      .select('id,content')
+      .in('id', ids.slice(i, i + CHUNK));
+    if (error) {
+      console.warn(`[promoter] could not read source content for de-duplication: ${error.message}`);
+      continue;
+    }
+    for (const row of (data ?? []) as { id: string; content: string | null }[]) {
+      keys.set(row.id, createHash('sha256').update(row.content ?? '').digest('hex'));
+    }
+  }
+  return keys;
 }
