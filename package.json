@@ -27,7 +27,8 @@
     "setup": "tsx scripts/setup.ts",
     "lint:brain": "tsx scripts/lint.ts",
     "requeue": "tsx scripts/requeue-failed.ts",
-    "health": "tsx scripts/health.ts"
+    "health": "tsx scripts/health.ts",
+    "db:check": "tsx scripts/schema-check.ts"
   },
   "keywords": [
     "agent",

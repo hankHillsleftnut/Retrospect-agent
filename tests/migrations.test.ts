@@ -151,3 +151,27 @@ test('118: a retired explanation does not block a fresh one', async () => {
   await db.query(insertWhy(pattern, user, 'avoidance', true));
   await db.query(insertWhy(pattern, user, 'avoidance'));
 });
+
+// ── Migration 123 ───────────────────────────────────────────────────────────
+
+test('123: restores the voice choice on a database that lost it, and changes nothing where it exists', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const sql = readFileSync(join(__dirname, '..', 'supabase', 'migrations', '123_users_voice_persona.sql'), 'utf8');
+
+  // Where the column exists (here, from the base schema), running it again is harmless.
+  await db.exec(sql);
+
+  // Recreate production's state: no column at all. Then apply.
+  await db.exec(`ALTER TABLE users DROP COLUMN voice_persona`);
+  await db.exec(sql);
+  const user = await insertUser(db);
+  const { rows } = await db.query<{ voice_persona: string }>(`SELECT voice_persona FROM users WHERE id = $1`, [user]);
+  assert.equal(rows[0]!.voice_persona, 'thoughtful_friend', 'existing and new users get the default voice');
+  await db.query(`UPDATE users SET voice_persona = 'wise_mentor' WHERE id = $1`, [user]);
+  assert.equal(
+    await failureCode(`UPDATE users SET voice_persona = 'robot' WHERE id = $1`, [user]),
+    CHECK_VIOLATION,
+    'only the three real voices',
+  );
+});
