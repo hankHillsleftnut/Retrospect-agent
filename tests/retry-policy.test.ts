@@ -305,3 +305,30 @@ test('a recovered backlog is spread out, not released all at once', () => {
 test('spreading a backlog refuses a nonsense rate rather than dividing by zero', () => {
   assert.throws(() => backlogAttemptAt(0, 0), /perHour must be positive/);
 });
+
+test('deliberate skips are matched by their prefix, not by enumerating wordings', () => {
+  // An earlier version of this rule listed the three phrasings I had seen.
+  // Reading the live backlog turned up a dozen more. The pipeline announces
+  // every skip with one of two prefixes; that is the contract worth matching.
+  for (const message of [
+    'not processed: link list, not personal writing',
+    'not processed: too short to contain a verifiable claim',
+    "not processed: someone else's design brief",
+    'not processed: another person\'s document',
+    'not processed: earlier snapshot of the same document (kept the 9986-char copy)',
+    'not processed: list about third parties, not self-expression',
+    'withheld from processing: contains personal contact information',
+  ]) {
+    assert.equal(classifyFailure(message), 'not_applicable', message);
+  }
+});
+
+test('the prefix rule does not swallow a genuine error that mentions processing', () => {
+  // Guard against over-matching. These are real failures that happen to use
+  // the word, and they must stay retryable or terminal.
+  assert.equal(classifyFailure('Error processing batch: 429 Too Many Requests'), 'transient');
+  assert.equal(
+    classifyFailure('Insert observations failed: invalid input syntax for type timestamp'),
+    'terminal'
+  );
+});

@@ -48,8 +48,21 @@ export function classifyFailure(message: string): FailureKind {
   //    because they are worded like prose rather than like errors and every
   //    rule below would miss them -- including the transient catch-all, which
   //    would retry a correct decision until it ran out of attempts.
+  //
+  //    Matched by prefix rather than by phrasing. An earlier version of this
+  //    rule listed the three wordings I had seen, and reading the live backlog
+  //    then turned up a dozen more -- "link list, not personal writing",
+  //    "someone else's design brief", "too short to contain a verifiable
+  //    claim", "contains personal contact information". Enumerating them was
+  //    never going to converge, because the pipeline writes these in prose.
+  //
+  //    What is stable is how it announces them: "not processed: ..." or
+  //    "withheld from processing: ...". That prefix is the contract.
+  if (/^\s*(not processed|withheld from processing)\s*:/.test(m)) {
+    return 'not_applicable';
+  }
   if (
-    /duplicate of an already-queued|not reprocessed|contains no quotable statement|no usable content|test fragment/.test(
+    /duplicate of an already-queued|not reprocessed|contains no quotable statement|no usable content/.test(
       m
     )
   ) {
