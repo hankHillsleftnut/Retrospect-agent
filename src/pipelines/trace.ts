@@ -3,7 +3,7 @@ import { Tables } from '../db/tables';
 import type { AgentToolCall, CostBreakdown, UserUnderstandingDocument } from '../types';
 
 export type TraceKind = 'ingest' | 'podcast' | 'cookA' | 'cookB' | 'cookC';
-export type TraceTrigger = 'manual' | 'cron' | 'http' | 'cli' | 'replay';
+export type TraceTrigger = 'manual' | 'cron' | 'http' | 'cli' | 'replay' | 'event';
 
 /**
  * USD per million tokens, keyed by model id.
