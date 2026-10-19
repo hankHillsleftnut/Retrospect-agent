@@ -279,6 +279,161 @@ test("120: one quote from your own words outweighs a day of health data", async 
   assert.deepEqual([w.journal, w.sent_mail, w.calendar, w.health], [1, 0.6, 0.4, 0.15], 'the weights in the brief');
 });
 
+// ── Migration 121 ───────────────────────────────────────────────────────────
+
+async function person() {
+  const user = await insertUser(db);
+  const item = async (content_type: string, content: string, daysAgo = 0) =>
+    (await db.query<{ id: string }>(
+      `INSERT INTO raw_content (user_id, content_type, content, content_date)
+       VALUES ($1, $2, $3, now() - make_interval(days => $4)) RETURNING id`,
+      [user, content_type, content, daysAgo],
+    )).rows[0]!.id;
+  return { user, item };
+}
+
+const answer = (user: string, question: number, evidence: unknown[], extra: Record<string, unknown> = {}) => ({
+  user_id: user, question_id: question, answer: 'an answer', derived_by: 'first_pass',
+  derivation_key: `d-${Math.random().toString(36).slice(2)}`, evidence, ...extra,
+});
+
+async function record(p: unknown): Promise<string> {
+  return (await db.query<{ id: string }>(`SELECT record_answer($1::jsonb) AS id`, [JSON.stringify(p)])).rows[0]!.id;
+}
+const refusal = (p: unknown) => failureCode(`SELECT record_answer($1::jsonb)`, [JSON.stringify(p)]);
+const confidenceOf = async (id: string) =>
+  Number((await db.query<{ c: string }>(`SELECT confidence AS c FROM answer_confidence WHERE answer_id = $1`, [id])).rows[0]!.c);
+
+test('121: one quote gives 0.33, two independent quotes 0.50', async () => {
+  const p = await person();
+  const one = await record(answer(p.user, 6, [{ raw_content_id: await p.item('journal_entry', 'I want to build something') }]));
+  assert.equal((await confidenceOf(one)).toFixed(2), '0.33');
+  const two = await record(answer(p.user, 6, [
+    { raw_content_id: await p.item('journal_entry', 'I want to build something of my own') },
+    { raw_content_id: await p.item('journal_entry', 'Still thinking about starting a company') },
+  ]));
+  assert.equal((await confidenceOf(two)).toFixed(2), '0.50');
+});
+
+test('121: the same entry uploaded twice still counts once', async () => {
+  // About 90% of production rows were copies. Counting rows would let one
+  // journal entry, sent five times, look like five independent sources.
+  const p = await person();
+  const a = await p.item('journal_entry', 'I want to build something');
+  const b = await p.item('journal_entry', 'I want to build something');
+  const id = await record(answer(p.user, 6, [{ raw_content_id: a }, { raw_content_id: b }]));
+  assert.equal((await confidenceOf(id)).toFixed(2), '0.33');
+});
+
+test('121: an answer with no supporting evidence is refused', async () => {
+  const p = await person();
+  assert.equal(await refusal(answer(p.user, 6, [])), CHECK_VIOLATION);
+  const only = await p.item('journal_entry', 'x');
+  assert.equal(await refusal(answer(p.user, 6, [{ raw_content_id: only, stance: 'contradicts' }])), CHECK_VIOLATION);
+});
+
+test('121: "how are you doing" cannot be answered from health data', async () => {
+  const p = await person();
+  const steps = await p.item('healthkit', 'Steps: 480');
+  assert.equal(await refusal(answer(p.user, 27, [{ raw_content_id: steps }])), CHECK_VIOLATION);
+});
+
+test('121: health data cannot be passed off as their own words', async () => {
+  const p = await person();
+  const steps = await p.item('healthkit', 'Sleep: 0');
+  assert.equal(await refusal(answer(p.user, 27, [{ raw_content_id: steps, kind: 'journal' }])), CHECK_VIOLATION);
+});
+
+test("121: someone else's journal is refused", async () => {
+  const p = await person();
+  const other = await person();
+  const theirs = await other.item('journal_entry', 'I feel great');
+  assert.equal(await refusal(answer(p.user, 27, [{ raw_content_id: theirs }])), '42501');
+});
+
+test('121: "what do they want but never named" is only ever a hypothesis', async () => {
+  const p = await person();
+  const words = await p.item('journal_entry', 'x');
+  assert.equal(await refusal(answer(p.user, 10, [{ raw_content_id: words }])), CHECK_VIOLATION);
+  await record(answer(p.user, 10, [{ raw_content_id: words }], { derived_by: 'hypothesis' }));
+});
+
+test("121: not even the backend's own key can write answers directly", async () => {
+  const p = await person();
+  const entry = await p.item('journal_entry', 'y');
+  await db.exec('SET ROLE service_role');
+  try {
+    assert.equal(
+      await failureCode(
+        `INSERT INTO question_answers (user_id, question_id, answer, derived_by, derivation_key) VALUES ($1, 1, 'x', 'first_pass', 'k')`,
+        [p.user],
+      ),
+      '42501',
+    );
+    // ...but it can use the one way in.
+    await record(answer(p.user, 6, [{ raw_content_id: entry }]));
+  } finally {
+    await db.exec('RESET ROLE');
+  }
+});
+
+test('121: deleting the entry an answer rests on retires the answer', async () => {
+  const p = await person();
+  const entry = await p.item('journal_entry', 'I feel stretched thin');
+  const id = await record(answer(p.user, 27, [{ raw_content_id: entry }]));
+  await db.query(`DELETE FROM raw_content WHERE id = $1`, [entry]);
+  const { rows } = await db.query<{ status: string; retirement_reason: string }>(
+    `SELECT status, retirement_reason FROM question_answers WHERE id = $1`, [id]);
+  assert.equal(rows[0]!.status, 'retired');
+  assert.match(rows[0]!.retirement_reason, /deleted/);
+});
+
+test('121: deriving the same answer twice changes nothing', async () => {
+  const p = await person();
+  const entry = await p.item('journal_entry', 'I want to build something');
+  const a = answer(p.user, 6, [{ raw_content_id: entry }]);
+  const first = await record(a);
+  const moved = (await db.query<{ t: string }>(`SELECT last_moved_at::text AS t FROM question_answers WHERE id = $1`, [first])).rows[0]!.t;
+  const second = await record(a);
+  assert.equal(second, first);
+  assert.equal(Number((await db.query<{ n: string }>(`SELECT count(*) AS n FROM answer_evidence WHERE answer_id = $1`, [first])).rows[0]!.n), 1);
+  const after = (await db.query<{ t: string }>(`SELECT last_moved_at::text AS t FROM question_answers WHERE id = $1`, [first])).rows[0]!.t;
+  assert.equal(after, moved, 'nothing new, so it did not "move"');
+});
+
+test('121: "how are you doing" fades in weeks', async () => {
+  const p = await person();
+  const fresh = await record(answer(p.user, 27, [{ raw_content_id: await p.item('journal_entry', 'good today') }]));
+  const old = await record(answer(p.user, 27, [{ raw_content_id: await p.item('journal_entry', 'good back then', 14) }]));
+  // 14 days is one half-life: the old quote counts half.
+  assert.equal((await confidenceOf(fresh)).toFixed(2), '0.33');
+  assert.equal((await confidenceOf(old)).toFixed(2), '0.20');
+});
+
+test('121: a domain is silent until enough of it is confidently answered', async () => {
+  const p = await person();
+  const speak = async (domain: string) => (await db.query<{ may_speak: boolean; coverage: string }>(
+    `SELECT may_speak, coverage FROM domain_coverage WHERE user_id = $1 AND domain_id = $2`, [p.user, domain])).rows[0]!;
+
+  assert.equal((await speak('who')).may_speak, false, 'nothing known yet');
+  assert.equal((await speak('speak')).may_speak, true, 'how to speak to them is always active');
+
+  // Three of the five "who they are" questions, each from one quote (0.33).
+  for (const q of [1, 2, 3]) await record(answer(p.user, q, [{ raw_content_id: await p.item('journal_entry', `fact ${q}`) }]));
+  assert.deepEqual(await speak('who'), { may_speak: true, coverage: '0.60' });
+  assert.equal((await speak('how')).may_speak, false, 'and that unlocks nothing else');
+});
+
+test('121: a rejected answer stops being used, and accuracy is its own number', async () => {
+  const p = await person();
+  const id = await record(answer(p.user, 1, [{ raw_content_id: await p.item('journal_entry', 'I am a designer') }]));
+  await db.query(`SELECT record_answer_verdict($1, $2, 'rejected')`, [p.user, id]);
+  const { rows } = await db.query(`SELECT 1 FROM current_answers WHERE answer_id = $1`, [id]);
+  assert.equal(rows.length, 0);
+  const acc = (await db.query<{ accuracy: string }>(`SELECT accuracy FROM answer_accuracy WHERE user_id = $1`, [p.user])).rows[0]!;
+  assert.equal(acc.accuracy, '0.00');
+});
+
 // ── Migration 123 ───────────────────────────────────────────────────────────
 
 test('123: restores the voice choice on a database that lost it, and changes nothing where it exists', async () => {
