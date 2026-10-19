@@ -69,7 +69,9 @@ export interface MigrationResult {
  * the first error, because one bad migration usually explains several that
  * follow it.
  */
-export async function freshDatabase(): Promise<{ db: PGlite; results: MigrationResult[] }> {
+export async function freshDatabase(
+  options: { onApplied?: (file: string, db: PGlite) => Promise<void> } = {},
+): Promise<{ db: PGlite; results: MigrationResult[] }> {
   // Loaded dynamically: this repo compiles to CommonJS, and PGlite's extension
   // modules are ESM-only. A static import runs under tsx but fails the
   // typecheck that CI performs; a dynamic import is valid in both.
@@ -84,6 +86,9 @@ export async function freshDatabase(): Promise<{ db: PGlite; results: MigrationR
     try {
       await db.exec(sql);
       results.push({ file, ok: true });
+      // Lets a caller see the database after each step -- e.g. to learn exactly
+      // what each migration adds (scripts/schema-check.ts).
+      await options.onApplied?.(file, db);
     } catch (e) {
       results.push({ file, ok: false, error: String((e as Error).message).split('\n')[0] });
     }
