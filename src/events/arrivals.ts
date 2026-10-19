@@ -61,3 +61,32 @@ export const finishInDb = async (c: Claim, succeeded: boolean, db: typeof supaba
   if (error) throw new Error(`finish_material_arrival: ${error.message}`);
   return data as Outcome;
 };
+
+/** F3.3: how fast new material is read, and what started the reading. */
+export interface ReadingLatency {
+  read: number;
+  pending: number;
+  p50Minutes: number | null;
+  p90Minutes: number | null;
+  /** The F3 gate: read within 10 minutes. */
+  within10Min: number;
+  runsBy: Record<string, number>;
+}
+
+export function summariseLatency(
+  rows: Array<{ created_at: string; processed_at: string | null }>,
+  runs: Array<{ triggered_by: string }>,
+): ReadingLatency {
+  const mins = rows.filter((r) => r.processed_at)
+    .map((r) => (new Date(r.processed_at!).getTime() - new Date(r.created_at).getTime()) / 60_000)
+    .sort((a, b) => a - b);
+  const pct = (p: number) => (mins.length ? Math.round(mins[Math.min(mins.length - 1, Math.floor(p * mins.length))]! * 10) / 10 : null);
+  return {
+    read: mins.length,
+    pending: rows.length - mins.length,
+    p50Minutes: pct(0.5),
+    p90Minutes: pct(0.9),
+    within10Min: mins.length ? Math.round((mins.filter((m) => m <= 10).length / mins.length) * 100) / 100 : 0,
+    runsBy: runs.reduce<Record<string, number>>((t, r) => ({ ...t, [r.triggered_by]: (t[r.triggered_by] ?? 0) + 1 }), {}),
+  };
+}
