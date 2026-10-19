@@ -12,6 +12,8 @@ import { writeBatchFacts, embedSources } from './batch-outputs';
 import type { PromoterRunResult } from '../brain/run-promoter';
 import { runCook0Step, consolidateFacts } from './after-reading';
 import { claimWork, releaseClaim } from './claim-work';
+import { stampTrustClasses } from '../brain/trust-stamp';
+import { trustForRow, selfClaimAllowed, type TrustClass } from '../brain/trust';
 import { Trace, TraceTrigger } from './trace';
 import type {
   DbGoal,
@@ -296,6 +298,9 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
     let splitCount = 0;
 
+    // W1: record how much each item may say about the person before it is read.
+    if (!options.dryRun) await stampTrustClasses(newRawContent);
+
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       const batch = batches[batchIdx]!;
       const isDryRun = !!options.dryRun;
@@ -507,19 +512,25 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
  * The old framework's outputs are empty, so its tables simply stop growing
  * (architecture §6b) while the code that writes them stays in place.
  *
- * Defence in depth on whose words these are: a claim about the user ("Self")
- * from an item not known to be theirs (authorship 'other' or 'unknown') is
- * dropped here even if the model made one. Facts about the item's own
+ * Defence in depth on what an item may say about the user (W1.3): a claim
+ * about "Self" survives only if the item's trust class may support it. Their
+ * own words may support anything; a calendar or a sent receipt only what it
+ * witnesses (attended, scheduled...); someone else's words or a machine's never
+ * their inner life (felt, believes, wants...). Facts about the item's own
  * subject (Ladder, Farza) are kept.
  */
 export function factsOnlyResult(
-  batch: Array<{ authorship?: string | null }>,
-  candidates: Array<{ subject?: string; source_index?: number }>,
+  batch: Array<{ authorship?: string | null; content_type?: string; content?: string | null; metadata?: unknown }>,
+  candidates: Array<{ subject?: string; predicate?: string; source_index?: number }>,
 ): IngestionResult & { fact_candidates: unknown[] } {
   const kept = candidates.filter((c) => {
-    const authorship = batch[Number(c.source_index ?? -1)]?.authorship;
-    const notTheirs = authorship === 'other' || authorship === 'unknown';
-    return !(notTheirs && /^self$/i.test(String(c.subject ?? '').trim()));
+    if (!/^self$/i.test(String(c.subject ?? '').trim())) return true;
+    const row = batch[Number(c.source_index ?? -1)];
+    if (!row) return false;
+    const trustClass: TrustClass = row.content_type
+      ? trustForRow({ ...row, content_type: row.content_type })
+      : (row.authorship ?? 'self') === 'self' ? 'own_words' : 'third_party';
+    return selfClaimAllowed(trustClass, String(c.predicate ?? ''));
   });
   return { fact_candidates: kept, observations: [], insights: [], goal_candidates: [], identity_inferences: [] } as any;
 }

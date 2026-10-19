@@ -549,3 +549,44 @@ test('127: a fact with no note is re-saved exactly as before', async () => {
     `SELECT metadata FROM assertions WHERE id = $1`, [id]);
   assert.deepEqual(row!.metadata, { model: 'b' });
 });
+
+// ── 130: evidence weighs its trust class (W1.4) ──────────────────────────────
+async function mail(user: string, trustClass: string | null, content: string): Promise<string> {
+  return (await db.query<{ id: string }>(
+    `INSERT INTO raw_content (user_id, content_type, content, authorship, trust_class) VALUES ($1, 'gmail', $2, 'other', $3) RETURNING id`,
+    [user, content, trustClass],
+  )).rows[0]!.id;
+}
+const kindsOf = async (answerId: string) =>
+  (await db.query<{ kind_id: string }>(`SELECT kind_id FROM answer_evidence WHERE answer_id = $1`, [answerId])).rows.map((r) => r.kind_id);
+
+test("130: another assistant's mail counts as 'automated', not as mail from a person", async () => {
+  const user = await insertUser(db);
+  const id = await record(answer(user, 1, [{ raw_content_id: await mail(user, 'automated', 'Your morning brief: finish the deck') }]));
+  assert.deepEqual(await kindsOf(id), ['automated']);
+});
+
+test("130: an assistant's mail can never be someone's own words", async () => {
+  const user = await insertUser(db);
+  // Question 6 ("what have they said they want") needs their own words.
+  assert.equal(await refusal(answer(user, 6, [{ raw_content_id: await mail(user, 'automated', 'You want to raise money') }])), CHECK_VIOLATION);
+});
+
+test('130: mail they sent counts as their own words', async () => {
+  const user = await insertUser(db);
+  const id = await record(answer(user, 6, [{ raw_content_id: await mail(user, 'own_words', 'I want to go all in on this') }]));
+  assert.deepEqual(await kindsOf(id), ['sent_mail']);
+});
+
+test('130: an item with no trust class yet behaves exactly as before', async () => {
+  const user = await insertUser(db);
+  const id = await record(answer(user, 1, [{ raw_content_id: await mail(user, null, 'Meeting notes from Priya') }]));
+  assert.deepEqual(await kindsOf(id), ['mail']);
+});
+
+test('130: automated evidence alone weighs far less than a person\'s message', async () => {
+  const user = await insertUser(db);
+  const auto = await record(answer(user, 1, [{ raw_content_id: await mail(user, 'automated', 'Daily brief: product designer') }]));
+  const human = await record(answer(user, 1, [{ raw_content_id: await mail(user, 'third_party', 'Great working with you on the design') }]));
+  assert.ok((await confidenceOf(auto)) < (await confidenceOf(human)));
+});

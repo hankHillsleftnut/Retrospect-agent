@@ -35,7 +35,9 @@
     "import:transcript": "tsx scripts/import-transcript.ts",
     "questions:research": "tsx scripts/questions-research.ts",
     "costs": "tsx scripts/costs.ts",
-    "brief": "tsx scripts/daily-brief.ts"
+    "brief": "tsx scripts/daily-brief.ts",
+    "e2e:onboarding": "tsx scripts/e2e-onboarding.ts",
+    "trust:backfill": "tsx scripts/backfill-trust.ts"
   },
   "keywords": [
     "agent",

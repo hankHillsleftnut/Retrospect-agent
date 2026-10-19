@@ -76,7 +76,8 @@ export const gmailConnector: IntegrationConnector = {
         parserVersion: 'gmail-api-v2',
         normalizerVersion: 'email-message-v2',
         contentType: 'gmail',
-        metadata: { source: 'gmail', thread_id: message.threadId, subject },
+        // labels and sender let the trust classifier tell sent mail, people and machines apart.
+        metadata: { source: 'gmail', thread_id: message.threadId, subject, labels: message.labelIds ?? [], from },
       });
     }
     return { cursorAfter: { query: GMAIL_QUERY, pageToken: list.nextPageToken ?? '', completedAt: new Date().toISOString() }, items };
