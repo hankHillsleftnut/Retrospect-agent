@@ -11,6 +11,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { envInt } from '../services/token-budget';
+import { failureUpdate, MAX_ATTEMPTS } from './retry-policy';
 import {
   reclaimExpiredLeases,
   reclaimUnstampedLeases,
@@ -149,6 +150,52 @@ export async function claimWork(options: ClaimOptions): Promise<ClaimResult> {
     leasesReclaimed,
     factsSkippedRows,
   };
+}
+
+/**
+ * Hand claimed entries back after a run fails, so a later run retries them.
+ * The counterpart of claimWork; moved out of runIngest's failure path unchanged.
+ */
+export async function releaseClaim(leasedIds: string[], err: unknown): Promise<void> {
+  // A failure is a scheduling decision now, not a verdict.
+  //
+  // This used to write `failed` on every row in flight, whatever had gone
+  // wrong. A rate limit lasting ninety seconds and a genuinely
+  // unprocessable entry were recorded identically, and nothing ever looked
+  // at either again. Rows still worth retrying go back to `pending` with a
+  // due time; only rows that are out of attempts, or whose failure cannot
+  // be fixed by trying again, keep the word `failed`.
+  const message = err instanceof Error ? err.message : String(err);
+
+  const { data: rows } = await supabase
+    .from(Tables.RAW_CONTENT)
+    .select('id, attempt_count')
+    .in('id', leasedIds)
+    .eq('processing_status', 'processing');
+
+  // Rows sharing an attempt count share an update, so this is one or two
+  // statements in practice rather than one per row.
+  const byAttempt = new Map<number, string[]>();
+  for (const row of (rows ?? []) as { id: string; attempt_count: number | null }[]) {
+    const n = row.attempt_count ?? 0;
+    if (!byAttempt.has(n)) byAttempt.set(n, []);
+    byAttempt.get(n)!.push(row.id);
+  }
+
+  for (const [attempts, ids] of byAttempt) {
+    const update = failureUpdate(message, attempts);
+    await supabase
+      .from(Tables.RAW_CONTENT)
+      .update({ ...update, processing_started_at: null })
+      .in('id', ids)
+      .eq('processing_status', 'processing');
+
+    console.warn(
+      `[ingest]   ${ids.length} row(s) -> ${update.processing_status}` +
+        ` (attempt ${update.attempt_count}/${MAX_ATTEMPTS}, ${update.failure_kind}` +
+        `${update.next_attempt_at ? `, due ${update.next_attempt_at}` : ', no further attempts'})`
+    );
+  }
 }
 
 // Work comes from two places, and conflating them is what made the backlog

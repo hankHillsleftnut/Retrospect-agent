@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { freshDatabase, insertUser, type PGlite } from './support/fresh-database';
 import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
-import { claimWork } from '../src/pipelines/claim-work';
+import { claimWork, releaseClaim } from '../src/pipelines/claim-work';
 
 let db: PGlite;
 
@@ -89,4 +89,21 @@ test('nothing to do returns empty, with a reason', async () => {
   const userId = await insertUser(db);
   const claim = await claimWork({ userId, daysBack: 7 });
   assert.deepEqual(claim, { kind: 'empty', note: 'No new raw content found.', leasesReclaimed: 0, factsSkippedRows: 0 });
+});
+
+test('a failed run hands its entries back to be retried later, not lost', async () => {
+  const userId = await insertUser(db);
+  const id = await entry(userId, 'interrupted');
+  const claim = await claimWork({ userId, daysBack: 7 });
+  assert.equal(claim.kind, 'work');
+  if (claim.kind !== 'work') return;
+  claim.heartbeat.stop();
+
+  await releaseClaim(claim.leasedIds, new Error('socket hang up'));
+
+  const { rows } = await db.query<{ processing_status: string; attempt_count: number; next_attempt_at: string | null }>(
+    `SELECT processing_status, attempt_count, next_attempt_at FROM raw_content WHERE id = $1`, [id]);
+  assert.equal(rows[0]!.processing_status, 'pending');
+  assert.equal(rows[0]!.attempt_count, 1);
+  assert.ok(rows[0]!.next_attempt_at, 'a retry is scheduled');
 });

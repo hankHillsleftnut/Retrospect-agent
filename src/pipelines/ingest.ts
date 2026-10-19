@@ -8,13 +8,11 @@ import { config } from '../config';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
 import { countTokens, contentTokenBudget } from '../services/token-budget';
-import { failureUpdate, MAX_ATTEMPTS } from './retry-policy';
 import { writeLegacyOutputs } from './legacy-writes';
 import { writeJournalFacts } from '../brain/write-journal-facts';
-import { runPromoter, type PromoterRunResult } from '../brain/run-promoter';
-import { buildPortrait, patchDocument } from '../brain/portrait';
-import { claimWork } from './claim-work';
-import { runCook0, applyCook0Decisions, writeNewDocumentVersion } from '../agents/cook0-agent';
+import type { PromoterRunResult } from '../brain/run-promoter';
+import { runCook0Step, consolidateFacts } from './after-reading';
+import { claimWork, releaseClaim } from './claim-work';
 import { Trace, TraceTrigger } from './trace';
 import type {
   DbGoal,
@@ -488,86 +486,20 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       trace.setIdentityInferenceIds(allInferenceIds);
     }
 
-    // 6. Cook 0 — rewrite the User Understanding Document.
-    //    Wrapped in its own try/catch so a Cook 0 failure does NOT undo
-    //    observations/insights/inferences. The document just stays at its
-    //    previous version and we record the failure on the trace.
-    let newUnderstandingVersion: number | null = null;
-    let cook0Failed = false;
-    let cook0Error: string | undefined;
-
-    // In facts mode no identity inferences are produced, so there is nothing
-    // new for Cook 0 to fold in; rewriting the portrait anyway would cost a
-    // call per ingest to say the same thing. The portrait is still patched
-    // from live facts below.
-    const skipCook0 = config.extraction.mode !== 'legacy' && allInferenceIds.length === 0;
-    if (!skipCook0) try {
-      const cook0Result = await runCook0({
-        userId: options.userId,
-        currentDocument,
-        newInferenceIds: allInferenceIds,
-        trace,
-      });
-
-      await applyCook0Decisions(cook0Result);
-
-      const { data: activeRows } = await supabase
-        .from(Tables.IDENTITY_INFERENCES)
-        .select('id')
-        .eq('user_id', options.userId)
-        .is('superseded_by', null)
-        .is('retired_at', null);
-      const activeInferenceIds = (activeRows ?? []).map((r) => r.id);
-
-      newUnderstandingVersion = await writeNewDocumentVersion({
-        userId: options.userId,
-        document: cook0Result.document,
-        generationNotes: cook0Result.generation_notes,
-        inferenceIdsAtVersion: activeInferenceIds,
-        sourceIngestionRunId: trace.id,
-      });
-
-      trace.setUserUnderstanding(cook0Result.document, newUnderstandingVersion);
-    } catch (err) {
-      cook0Failed = true;
-      cook0Error = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[ingest] Cook 0 failed for user ${options.userId}: ${cook0Error}. ` +
-          `Observations/insights/inferences were persisted; document stays at v${currentUnderstanding?.version ?? 0}.`
-      );
-      trace.setCook0Failure(cook0Error);
-    }
-
-    // Patterns, then whys, then the portrait -- in that order, because each
-    // can only exist once the one before it does.
+    // 6. After reading: the old portrait rewrite, then patterns and the
+    //    portrait from facts (after-reading.ts).
+    const cook0 = await runCook0Step({
+      userId: options.userId,
+      currentDocument,
+      currentVersion: currentUnderstanding?.version ?? 0,
+      newInferenceIds: allInferenceIds,
+      trace,
+    });
+    const newUnderstandingVersion = cook0.version;
+    const cook0Failed = cook0.failed;
+    const cook0Error = cook0.error;
     if (factsWritten > 0 || factsSkippedRows > 0) {
-      try {
-        promoterResult = await runPromoter({ userId: options.userId, sourceRunId: trace.id });
-        console.log(
-          `[ingest] patterns: ${promoterResult.created} new, ${promoterResult.promoted} promoted, ` +
-            `${promoterResult.demoted} demoted, ${promoterResult.whysCreated} whys`
-        );
-      } catch (err) {
-        // Facts are already safe; a promoter failure costs this run's patterns,
-        // not the evidence. The next run recomputes from the same facts.
-        console.error(`[ingest] promoter FAILED: ${(err as Error).message}`);
-      }
-
-      try {
-        const portrait = await buildPortrait(options.userId);
-        const { data: latest } = await supabase.from(Tables.USER_UNDERSTANDING)
-          .select('document,version').eq('user_id', options.userId)
-          .order('version', { ascending: false }).limit(1).maybeSingle();
-        const patched = patchDocument((latest?.document as any) ?? null, portrait);
-        await supabase.from(Tables.USER_UNDERSTANDING).upsert({
-          user_id: options.userId,
-          document: patched,
-          version: (latest?.version ?? 0) + 1,
-        });
-        console.log(`[ingest] portrait rebuilt (${portrait.emptySlots.length} slot(s) left empty)`);
-      } catch (err) {
-        console.error(`[ingest] portrait rebuild FAILED: ${(err as Error).message}`);
-      }
+      promoterResult = await consolidateFacts(options.userId, trace);
     }
 
     heartbeat.stop();
@@ -617,45 +549,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     };
   } catch (err) {
     if (!options.dryRun && processingRawContentIds.length > 0) {
-      // A failure is a scheduling decision now, not a verdict.
-      //
-      // This used to write `failed` on every row in flight, whatever had gone
-      // wrong. A rate limit lasting ninety seconds and a genuinely
-      // unprocessable entry were recorded identically, and nothing ever looked
-      // at either again. Rows still worth retrying go back to `pending` with a
-      // due time; only rows that are out of attempts, or whose failure cannot
-      // be fixed by trying again, keep the word `failed`.
-      const message = err instanceof Error ? err.message : String(err);
-
-      const { data: rows } = await supabase
-        .from(Tables.RAW_CONTENT)
-        .select('id, attempt_count')
-        .in('id', processingRawContentIds)
-        .eq('processing_status', 'processing');
-
-      // Rows sharing an attempt count share an update, so this is one or two
-      // statements in practice rather than one per row.
-      const byAttempt = new Map<number, string[]>();
-      for (const row of (rows ?? []) as { id: string; attempt_count: number | null }[]) {
-        const n = row.attempt_count ?? 0;
-        if (!byAttempt.has(n)) byAttempt.set(n, []);
-        byAttempt.get(n)!.push(row.id);
-      }
-
-      for (const [attempts, ids] of byAttempt) {
-        const update = failureUpdate(message, attempts);
-        await supabase
-          .from(Tables.RAW_CONTENT)
-          .update({ ...update, processing_started_at: null })
-          .in('id', ids)
-          .eq('processing_status', 'processing');
-
-        console.warn(
-          `[ingest]   ${ids.length} row(s) -> ${update.processing_status}` +
-            ` (attempt ${update.attempt_count}/${MAX_ATTEMPTS}, ${update.failure_kind}` +
-            `${update.next_attempt_at ? `, due ${update.next_attempt_at}` : ', no further attempts'})`
-        );
-      }
+      await releaseClaim(processingRawContentIds, err);
     }
     await trace.fail(err);
     throw err;
