@@ -3,6 +3,7 @@ import './services/telemetry';
 import cors from 'cors';
 import path from 'path';
 import cron from 'node-cron';
+import { runMaterialArrivals } from './jobs/material-arrivals';
 import { runOnboardingPipeline } from './jobs/onboarding-pipeline';
 import { runDailyBriefs } from './jobs/daily-brief';
 import { briefsRouter } from './routes/briefs';
@@ -87,6 +88,16 @@ if (envFlag('ENABLE_DAILY_BRIEF')) {
     runDailyBriefs().catch((err) => console.error('[cron] daily-brief error:', err));
   });
   console.log('[cron] daily brief enabled (8am UTC, for people who switched it on)');
+}
+
+// "Material arrived" (F3): every minute, read and research for each person
+// whose new material has settled. Off unless ENABLE_MATERIAL_ARRIVALS=true; the
+// daily crons stay on as the net.
+if (envFlag('ENABLE_MATERIAL_ARRIVALS')) {
+  cron.schedule('* * * * *', () => {
+    runMaterialArrivals().catch((err) => console.error('[cron] material-arrivals error:', err));
+  });
+  console.log('[cron] material arrivals enabled (every minute)');
 }
 
 // The onboarding pipeline: every 2 minutes, move each new account one step

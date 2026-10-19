@@ -226,6 +226,12 @@ export function supabaseOnPglite(db: PGlite) {
         return v !== null && typeof v === 'object' ? JSON.stringify(v) : v;
       });
       try {
+        // PostgREST returns a list for set-returning functions, a value otherwise.
+        const { rows: [proc] } = await db.query<{ set: boolean }>(`SELECT bool_or(proretset) AS set FROM pg_proc WHERE proname = $1`, [fn]);
+        if (proc?.set) {
+          const { rows } = await db.query<Row>(`SELECT * FROM ${call}`, values);
+          return { data: rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]))), error: null };
+        }
         const { rows } = await db.query<Row>(`SELECT ${call} AS result`, values);
         return { data: rows[0]?.result ?? null, error: null };
       } catch (e) {
