@@ -501,8 +501,23 @@ test('124: a document they wrote still counts as their words', async () => {
   await record(answer(user, 6, [{ raw_content_id: essay }]));
 });
 
-test('124: a database without authorship keeps the old behaviour', async () => {
+test('124 + 126: an entry typed in the app is theirs, though the app never says so', async () => {
   const user = await insertUser(db);
-  const legacy = await doc(user, null, 'I want to build something of my own, still.');
-  await record(answer(user, 6, [{ raw_content_id: legacy }]));
+  const typed = (await db.query<{ id: string; authorship: string }>(
+    `INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'text_entry', 'I want to build something of my own.') RETURNING id, authorship`,
+    [user],
+  )).rows[0]!;
+  assert.equal(typed.authorship, 'self');
+  await record(answer(user, 6, [{ raw_content_id: typed.id }]));
+});
+
+test('126: a Google Doc stays unknown, a step count is no one\'s words, and an explicit label wins', async () => {
+  const user = await insertUser(db);
+  const labelled = async (type: string, authorship: string | null) => (await db.query<{ authorship: string }>(
+    `INSERT INTO raw_content (user_id, content_type, content, authorship) VALUES ($1, $2, 'x', $3) RETURNING authorship`,
+    [user, type, authorship],
+  )).rows[0]!.authorship;
+  assert.equal(await labelled('google_docs', null), 'unknown');
+  assert.equal(await labelled('healthkit', null), 'other');
+  assert.equal(await labelled('google_docs', 'self'), 'self');
 });
