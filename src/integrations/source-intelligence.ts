@@ -101,24 +101,6 @@ export const SOURCE_INTELLIGENCE_PROFILES: Record<string, SourceIntelligenceProf
       'Attendee presence is relationship context, not relationship quality.',
     ],
   },
-  google: {
-    providerId: 'google',
-    label: 'Google (Docs, Gmail, Calendar)',
-    collectionPreference: 'continuous_oauth',
-    defaultOnboarding: true,
-    generalPurpose: 'one sign-in for the person’s Google writing, mail and calendar; each item keeps the lens of the product it came from',
-    specialPurpose: 'their own writing (Docs), who they correspond with (Gmail), and how their time is actually spent (Calendar), from one consent',
-    signalTypes: ['writing', 'project', 'communication', 'time-use', 'relationship-context', 'routine'],
-    typicalClaimTypes: ['fact', 'observation', 'explicit_goal', 'routine_signal', 'relationship_signal'],
-    defaultEvidenceStrength: 'strong',
-    interpretationGuidance: [
-      'Interpret each item by its own product: a document as writing, a message as correspondence, an event as scheduled time.',
-    ],
-    claimBoundaries: [
-      'A document in their Drive is not necessarily their own words.',
-      'Scheduled time does not prove attendance; attendee presence is not relationship quality.',
-    ],
-  },
   contacts: {
     providerId: 'contacts',
     label: 'Contacts',

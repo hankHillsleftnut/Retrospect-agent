@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createGoogleCalendarConnector, eventItem } from '../src/connectors/google-calendar';
-import { createGoogleConnector } from '../src/connectors/google';
 
 const ctx = (cursor: Record<string, unknown> = {}) => ({ userId: 'u', connectionId: 'c', providerId: 'google_calendar', cursor, payload: {} });
 const NOW = new Date('2026-10-18T12:00:00Z');
@@ -58,16 +57,4 @@ test('an expired sync token restarts that calendar from the window', async () =>
   assert.ok(calls.some((u) => u.includes('timeMin')), 'restarted from the window');
   assert.equal(r.items.length, 1);
   assert.equal((r.cursorAfter as any).calendars['primary@x'].syncToken, 'fresh');
-});
-
-test('one Google sign-in: a failing product does not stop the others', async () => {
-  const ok = { providerId: 'gmail', sync: async () => ({ cursorAfter: { pageToken: 'p2' }, items: [{ providerObjectId: 'm1' } as any] }) };
-  const bad = { providerId: 'google_calendar', sync: async () => { throw new Error('calendar scope not granted'); } };
-  const google = createGoogleConnector([ok, bad]);
-  const r = await google.sync({ ...ctx({ parts: { google_calendar: { calendars: { a: { syncToken: 'keep' } } } } }), providerId: 'google' });
-  assert.equal(r.items.length, 1);
-  assert.deepEqual((r.cursorAfter as any).parts.gmail, { pageToken: 'p2' });
-  assert.deepEqual((r.cursorAfter as any).parts.google_calendar, { calendars: { a: { syncToken: 'keep' } } }, 'failed part keeps its place');
-  assert.match((r.cursorAfter as any).failures.google_calendar, /not granted/);
-  await assert.rejects(() => createGoogleConnector([bad]).sync(ctx()), /every Google part failed/);
 });

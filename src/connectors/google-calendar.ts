@@ -1,6 +1,10 @@
 /**
  * Google Calendar, read-only.
  *
+ * A member of the combined Google sign-in (backend oauth-providers.ts,
+ * GOOGLE_COMBINED_MEMBERS): one consent screen, then a connection per product,
+ * each synced by its own connector -- this one for calendar.
+ *
  * Phase 4.1 (brief-phase-4-calendar.md): six of the 36 questions are answered
  * mainly from a calendar -- a normal week, what you reliably do and skip, when
  * you're at your best, what changed, who you spend time with.
