@@ -37,7 +37,16 @@ export const config = {
     cookCModel: optional('ANTHROPIC_COOK_C_MODEL', 'claude-sonnet-4-6'),
     // Answers the canonical questions (first pass and researcher). Judgement
     // about a person from their own words, so a strong model by default.
-    questionsModel: optional('ANTHROPIC_QUESTIONS_MODEL', 'claude-sonnet-4-6'),
+    // Sonnet 5.5 chosen 18 October 2026 (decision-record.md #19): ~9% cheaper
+    // than 4.6 on this task, comparable quality.
+    questionsModel: optional('ANTHROPIC_QUESTIONS_MODEL', 'claude-sonnet-5-5'),
+  },
+  extraction: {
+    // 'facts' (default): the facts-only extractor (agents/fact-extractor.ts).
+    // 'legacy': the original five-output extractor, unchanged -- the off switch.
+    // Decided 18 October 2026 on measured recall (decision-record.md #18).
+    mode: optional('EXTRACTOR', 'facts') as 'facts' | 'legacy',
+    model: optional('EXTRACTION_MODEL', 'claude-sonnet-5-5'),
   },
   perplexity: {
     apiKey: optional('PERPLEXITY_API_KEY'),

@@ -65,6 +65,14 @@ A feeling is a fact about a moment: "felt angry at their sister", dated if possi
 
 Return STRICT JSON only: {"fact_candidates": [ ... ]}`;
 
+/**
+ * Room for the reply. A long entry -- 16,000 characters of conversation --
+ * yields more facts than 8,000 tokens hold, and a cut-off reply is invalid
+ * JSON and loses every fact in it (found 18 October 2026, re-reading history).
+ * Kept under ~21,000 so the request needs no streaming.
+ */
+export const FACT_REPLY_MAX_TOKENS = 16_000;
+
 export async function extractFacts(input: {
   items: (DbRawContent & { authorship?: string | null })[];
   model?: string;
@@ -81,12 +89,12 @@ export async function extractFacts(input: {
   // Either provider, so the same instructions can be measured on any model.
   if (model.startsWith('claude')) {
     const { data, usage } = await claudeJsonCompletion<{ fact_candidates?: FactCandidate[] }>(
-      FACT_EXTRACTOR_SYSTEM, user, { maxTokens: 8000, model });
+      FACT_EXTRACTOR_SYSTEM, user, { maxTokens: FACT_REPLY_MAX_TOKENS, model });
     input.trace?.addCost({ anthropic_tokens_input: usage.inputTokens, anthropic_tokens_output: usage.outputTokens }, model);
     return data.fact_candidates ?? [];
   }
   const { data, usage } = await jsonChatCompletion<{ fact_candidates?: FactCandidate[] }>(
-    FACT_EXTRACTOR_SYSTEM, user, { temperature: 0.25, maxTokens: 8000, model });
+    FACT_EXTRACTOR_SYSTEM, user, { temperature: 0.25, maxTokens: FACT_REPLY_MAX_TOKENS, model });
   input.trace?.addCost({ openai_tokens_input: usage.promptTokens, openai_tokens_output: usage.completionTokens }, model);
   return data.fact_candidates ?? [];
 }

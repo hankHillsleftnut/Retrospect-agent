@@ -165,3 +165,17 @@ test('a NaN budget would disable batching entirely — proving why the guard mat
   const withReal = batchRawContent(entries, 5_000);
   assert.ok(withReal.length > 1, 'a real budget splits them');
 });
+
+test("facts-only mode: no claim about the user survives from someone else's document", async () => {
+  const { factsOnlyResult } = await import('../src/pipelines/ingest.js');
+  const r = factsOnlyResult(
+    [{ authorship: 'self' }, { authorship: 'unknown' }],
+    [
+      { subject: 'Self', source_index: 0 },          // their journal: kept
+      { subject: 'Self', source_index: 1 },          // "I'm going all-in" in Farza's post: dropped
+      { subject: 'Farza', source_index: 1 },         // about Farza: kept
+    ],
+  );
+  assert.deepEqual(r.fact_candidates.map((c: any) => [c.subject, c.source_index]), [['Self', 0], ['Farza', 1]]);
+  assert.deepEqual([r.observations, r.insights, r.identity_inferences, r.goal_candidates], [[], [], [], []], 'the old outputs stop');
+});
