@@ -214,3 +214,73 @@ test('the integration path is unaffected: no null model_version written', async 
   }, db);
   assert.ok(!('model_version' in calls[0].rows), 'byte-identical to the pre-refactor payload');
 });
+
+test('a re-save never re-stamps when a fact was first observed', async () => {
+  // Every write used to send observed_at = now. origin_key only collides when
+  // the same source is processed again, so each replay made old facts look
+  // freshly seen -- which broke changedSince() ("what changed since June?") and
+  // let a replayed old fact outrank genuinely newer ones in supersession.
+  //
+  // The column defaults to NOW() on insert, and an upsert only overwrites what
+  // it is sent. So the fix is to send nothing: first sight is kept forever.
+  const { db, calls } = fakeDb();
+  await writeFact({
+    userId: 'u1',
+    subjectEntityId: 'self',
+    predicate: 'skipped_or_avoided',
+    objectValue: { label: 'standup' },
+    originKey: 'journal:raw-9:skipped_or_avoided:standup',
+    evidence: [{ rawContentId: 'raw-9', excerpt: 'I skipped Thursday standup', charStart: 0, charEnd: 26 }],
+  }, db);
+
+  const assertionRow = calls.find((c) => c.table === 'assertions')!.rows;
+  assert.equal(
+    'observed_at' in assertionRow,
+    false,
+    'observed_at must be left to the database default, never sent on upsert',
+  );
+});
+
+test('if the evidence cannot be saved, no older fact is retired', async () => {
+  // Supersession retires older facts this one contradicts. It used to run
+  // between saving the fact and saving its evidence -- so a failed evidence
+  // write left a fact with no evidence that had ALREADY displaced an older,
+  // properly evidenced one. Good knowledge replaced by an unsupported claim.
+  //
+  // Supersession works by reading the user's other facts, so whether it ran is
+  // visible as whether anything read the assertions table.
+  let supersessionLookedAtOtherFacts = false;
+  const db = {
+    from(table: string) {
+      return {
+        upsert() {
+          const failing = table.includes('evidence');
+          return {
+            select: () => ({ single: async () => ({ data: { id: 'new-fact' }, error: null }) }),
+            then: (res: any) =>
+              Promise.resolve({ error: failing ? { message: 'connection reset' } : null }).then(res),
+          } as any;
+        },
+        select() {
+          supersessionLookedAtOtherFacts = true;
+          const chain: any = { eq: () => chain, is: () => chain, neq: () => chain, then: (r: any) => Promise.resolve({ data: [], error: null }).then(r) };
+          return chain;
+        },
+      };
+    },
+  } as unknown as FactDb;
+
+  await assert.rejects(
+    writeFact({
+      userId: 'u1',
+      subjectEntityId: 'self',
+      predicate: 'quit_or_stopped',
+      objectValue: { label: 'marathon', normalized: 'marathon' },
+      originKey: 'journal:raw-9:quit_or_stopped:marathon',
+      evidence: [{ rawContentId: 'raw-9', excerpt: 'I quit training for the marathon' }],
+    }, db),
+    /Write assertion evidence failed/,
+  );
+
+  assert.equal(supersessionLookedAtOtherFacts, false, 'nothing was retired on the strength of an unevidenced fact');
+});

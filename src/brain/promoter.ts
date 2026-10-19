@@ -161,9 +161,39 @@ export interface PromotionDecision {
 }
 
 /**
- * Decide what a group of facts amounts to. Pure: no database, no model.
+ * Keep one fact per source, so a repeated upload counts once.
+ *
+ * A pattern is "this keeps happening". Production on 18 October 2026 held one
+ * document stored 74 times and one health summary 188 times. Counted per row,
+ * 74 copies of a single entry are 74 instances -- and, because each copy had
+ * its own row id, 74 different sources too, so they cleared the "more than one
+ * source" bar on their own. A sync glitch could be promoted to a person's
+ * defining habit.
+ *
+ * `sourceId` must therefore identify the source CONTENT, not the row: copies of
+ * the same text share one id (runPromoter derives it from a content hash). This
+ * collapses them before anything is counted. The earliest fact is kept, since
+ * its time is when the thing first actually happened.
  */
-export function evaluateGroup(facts: FactForPromotion[]): PromotionDecision | null {
+export function onePerSource(facts: FactForPromotion[]): FactForPromotion[] {
+  const earliest = new Map<string, FactForPromotion>();
+  for (const fact of facts) {
+    const existing = earliest.get(fact.sourceId);
+    if (!existing || new Date(fact.eventTime).getTime() < new Date(existing.eventTime).getTime()) {
+      earliest.set(fact.sourceId, fact);
+    }
+  }
+  return [...earliest.values()];
+}
+
+/**
+ * Decide what a group of facts amounts to. Pure: no database, no model.
+ *
+ * Every count below -- instances, weight, distinct sources, the bar -- is taken
+ * after onePerSource, so it measures distinct content, never copies.
+ */
+export function evaluateGroup(groupFacts: FactForPromotion[]): PromotionDecision | null {
+  const facts = onePerSource(groupFacts);
   if (facts.length === 0) return null;
   const key = clusterKey(facts);
   if (!key) return null;

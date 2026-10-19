@@ -158,10 +158,13 @@ Use your tools to enrich this outline with historical context. Treat the onboard
     messages.push({ role: 'user', content: toolResults });
   }
 
-  input.trace?.addCost({
-    anthropic_tokens_input: totalInputTokens,
-    anthropic_tokens_output: totalOutputTokens,
-  });
+  input.trace?.addCost(
+    {
+      anthropic_tokens_input: totalInputTokens,
+      anthropic_tokens_output: totalOutputTokens,
+    },
+    config.anthropic.cookBModel
+  );
 
   if (!finalContent) {
     throw new Error(

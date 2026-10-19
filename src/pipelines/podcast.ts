@@ -109,10 +109,13 @@ Produce the structured OutlineV1 JSON. Use the User Understanding Document as th
     userMessage,
     { temperature: 0.4, maxTokens: 4096, model: config.openai.cookAModel }
   );
-  input.trace.addCost({
-    openai_tokens_input: usage.promptTokens,
-    openai_tokens_output: usage.completionTokens,
-  });
+  input.trace.addCost(
+    {
+      openai_tokens_input: usage.promptTokens,
+      openai_tokens_output: usage.completionTokens,
+    },
+    config.openai.cookAModel
+  );
   input.trace.setOutlineV1(data);
   return data;
 }
@@ -172,10 +175,13 @@ Write the final podcast script now. Honor the notRealizedYet hints — set up th
     maxTokens: 6000,
     model: config.anthropic.cookCModel,
   });
-  input.trace.addCost({
-    anthropic_tokens_input: usage.inputTokens,
-    anthropic_tokens_output: usage.outputTokens,
-  });
+  input.trace.addCost(
+    {
+      anthropic_tokens_input: usage.inputTokens,
+      anthropic_tokens_output: usage.outputTokens,
+    },
+    config.anthropic.cookCModel
+  );
   input.trace.setFinalScript(text);
   return text;
 }
@@ -432,10 +438,13 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       `Theme: "${outlineV2.theme}"\n\nScript preview:\n${script.slice(0, 600)}`,
       { temperature: 0.6, maxTokens: 256 }
     );
-    trace.addCost({
-      openai_tokens_input: titleDescRes.usage.promptTokens,
-      openai_tokens_output: titleDescRes.usage.completionTokens,
-    });
+    trace.addCost(
+      {
+        openai_tokens_input: titleDescRes.usage.promptTokens,
+        openai_tokens_output: titleDescRes.usage.completionTokens,
+      },
+      config.openai.chatModel
+    );
     const titleDesc = titleDescRes.data;
 
     // Summary (will be embedded and saved)
@@ -444,10 +453,13 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       `Theme: ${outlineV2.theme}\n\nScript:\n${script}`,
       { temperature: 0.4, maxTokens: 600 }
     );
-    trace.addCost({
-      openai_tokens_input: summaryRes.usage.promptTokens,
-      openai_tokens_output: summaryRes.usage.completionTokens,
-    });
+    trace.addCost(
+      {
+        openai_tokens_input: summaryRes.usage.promptTokens,
+        openai_tokens_output: summaryRes.usage.completionTokens,
+      },
+      config.openai.chatModel
+    );
     const summary = summaryRes.text.trim();
     trace.setEpisodeSummary(summary);
 

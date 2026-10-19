@@ -10,7 +10,19 @@
  * whether a failure is transient, and when to look at it next.
  */
 
-export type FailureKind = 'transient' | 'terminal';
+/**
+ * `not_applicable` is not a failure at all. It is the pipeline deciding,
+ * correctly, that a row has nothing to extract -- a duplicate it already
+ * handled, or a sensor summary with no quotable statement in it.
+ *
+ * Added 18 October 2026 after auditing the live backlog, where it cost twice
+ * over. Those rows were recorded as `failed`, so 186 of the 2,024 "failures"
+ * were the pipeline working as intended and being counted as broken. And
+ * because the classifier did not recognise the pipeline's own skip wording,
+ * they fell through to the transient default -- so draining the backlog would
+ * have paid six attempts each to reach the same correct answer.
+ */
+export type FailureKind = 'transient' | 'terminal' | 'not_applicable';
 
 /** Give up on a row after this many attempts and stop spending money on it. */
 export const MAX_ATTEMPTS = 6;
@@ -31,6 +43,31 @@ const BACKOFF_MINUTES = [1, 5, 20, 90, 360, 1440];
  */
 export function classifyFailure(message: string): FailureKind {
   const m = (message ?? '').toLowerCase();
+
+  // 0. The pipeline's own deliberate skips. These must be recognised first,
+  //    because they are worded like prose rather than like errors and every
+  //    rule below would miss them -- including the transient catch-all, which
+  //    would retry a correct decision until it ran out of attempts.
+  //
+  //    Matched by prefix rather than by phrasing. An earlier version of this
+  //    rule listed the three wordings I had seen, and reading the live backlog
+  //    then turned up a dozen more -- "link list, not personal writing",
+  //    "someone else's design brief", "too short to contain a verifiable
+  //    claim", "contains personal contact information". Enumerating them was
+  //    never going to converge, because the pipeline writes these in prose.
+  //
+  //    What is stable is how it announces them: "not processed: ..." or
+  //    "withheld from processing: ...". That prefix is the contract.
+  if (/^\s*(not processed|withheld from processing)\s*:/.test(m)) {
+    return 'not_applicable';
+  }
+  if (
+    /duplicate of an already-queued|not reprocessed|contains no quotable statement|no usable content/.test(
+      m
+    )
+  ) {
+    return 'not_applicable';
+  }
 
   // Order matters. The first rules catch causes that a later, blunter rule
   // would otherwise mis-read.
@@ -87,9 +124,34 @@ export function nextAttemptAt(attemptCount: number, now = new Date()): Date {
   return new Date(now.getTime() + BACKOFF_MINUTES[idx]! * 60_000);
 }
 
+/**
+ * When to look at the Nth row of a recovered backlog.
+ *
+ * Draining a backlog is not the same problem as retrying one row. The 2,024
+ * rows stranded in May include 755 that failed on rate limits in the first
+ * place, so scheduling them all for "now" would reproduce the exact failure
+ * being recovered from -- and at a worse scale, because the backlog is larger
+ * than the burst that broke it.
+ *
+ * So the backlog is spread: `perHour` rows become due each hour, in order. The
+ * existing due-retries query then picks up a survivable slice on each run, and
+ * no new scheduler has to exist.
+ *
+ * @param index zero-based position in the backlog
+ * @param perHour how many rows to make due per hour
+ */
+export function backlogAttemptAt(index: number, perHour: number, now = new Date()): Date {
+  if (perHour <= 0) throw new Error('backlogAttemptAt: perHour must be positive');
+  const hoursOut = Math.floor(index / perHour);
+  // A minute of head start on the first slice, so a drain begun now starts now.
+  return new Date(now.getTime() + hoursOut * 3_600_000 + 60_000);
+}
+
 /** False once a row has had its run of attempts, or its failure is terminal. */
 export function shouldRetry(kind: FailureKind, attemptCount: number): boolean {
   if (kind === 'terminal') return false;
+  // Nothing to retry: the pipeline already reached the right answer.
+  if (kind === 'not_applicable') return false;
   return attemptCount < MAX_ATTEMPTS;
 }
 
@@ -106,7 +168,7 @@ export function failureUpdate(
   previousAttempts: number,
   now = new Date(),
 ): {
-  processing_status: 'pending' | 'failed';
+  processing_status: 'pending' | 'failed' | 'completed';
   processing_error: string;
   attempt_count: number;
   failure_kind: FailureKind;
@@ -114,6 +176,25 @@ export function failureUpdate(
 } {
   const attempt_count = previousAttempts + 1;
   const failure_kind = classifyFailure(message);
+
+  // A deliberate skip is a finished row, not a broken one. Marking it
+  // `completed` is what stops it being counted as a failure for the rest of
+  // its life -- and `completed` is accurate: it was processed, and the right
+  // answer was that there was nothing to extract.
+  //
+  // (`skipped` would read better, but processing_status has a CHECK constraint
+  // allowing only pending/processing/completed/failed, and widening it is a
+  // migration this change does not need.)
+  if (failure_kind === 'not_applicable') {
+    return {
+      processing_status: 'completed',
+      processing_error: message.slice(0, 500),
+      attempt_count: previousAttempts,
+      failure_kind,
+      next_attempt_at: null,
+    };
+  }
+
   const retry = shouldRetry(failure_kind, attempt_count);
 
   return {

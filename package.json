@@ -26,7 +26,8 @@
     "test": "tsx --test $(find tests -name '*.test.ts')",
     "setup": "tsx scripts/setup.ts",
     "lint:brain": "tsx scripts/lint.ts",
-    "requeue": "tsx scripts/requeue-failed.ts"
+    "requeue": "tsx scripts/requeue-failed.ts",
+    "health": "tsx scripts/health.ts"
   },
   "keywords": [
     "agent",
@@ -60,6 +61,8 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@electric-sql/pglite-pgvector": "^0.0.11",
     "tsx": "^4.7.0"
   },
   "engines": {
