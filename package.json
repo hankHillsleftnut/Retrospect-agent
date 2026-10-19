@@ -33,7 +33,8 @@
     "questions:first-pass": "tsx scripts/questions-first-pass.ts",
     "bank:score": "tsx scripts/bank-score.ts",
     "import:transcript": "tsx scripts/import-transcript.ts",
-    "questions:research": "tsx scripts/questions-research.ts"
+    "questions:research": "tsx scripts/questions-research.ts",
+    "brief:prototype": "tsx scripts/brief-prototype.ts"
   },
   "keywords": [
     "agent",
