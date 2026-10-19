@@ -3,6 +3,8 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runMagicMoments } from '../pipelines/magic-moments';
 import { extractStatedGoals } from '../onboarding/stated-goals';
+import { loadOnboardingFacts, stageFor, advanceOnboarding } from '../onboarding/pipeline';
+import { defaultAdvanceDeps } from '../jobs/onboarding-pipeline';
 import { costLines, estimateCostUsd } from '../pipelines/trace';
 import { writeNewDocumentVersion } from '../agents/cook0-agent';
 import type { DbUserUnderstanding, MagicMoment, UserUnderstandingDocument } from '../types';
@@ -148,6 +150,31 @@ onboardingRouter.post('/goals', async (req, res) => {
     return res.json({ goals: result.goals, dropped: result.dropped, cost: costLines(breakdown) });
   } catch (err) {
     console.error('[onboarding/goals] failed:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/**
+ * GET /onboarding/readiness/:userId -- where this person is: reading,
+ * understanding, making_episode, or ready. The app polls this to bring them in
+ * once their first episode is ready, without a tap.
+ */
+onboardingRouter.get('/readiness/:userId', async (req, res) => {
+  try {
+    const facts = await loadOnboardingFacts(req.params.userId);
+    return res.json({ stage: stageFor(facts, new Date()), facts });
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/** POST /onboarding/advance { userId } -- take the next step now instead of waiting for the next tick. */
+onboardingRouter.post('/advance', async (req, res) => {
+  const { userId } = req.body ?? {};
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  try {
+    return res.json(await advanceOnboarding(userId, defaultAdvanceDeps));
+  } catch (err) {
     return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
 });
