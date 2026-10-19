@@ -27,6 +27,7 @@ class Query implements PromiseLike<Result> {
   private params: unknown[] = [];
   private orderBy: string[] = [];
   private limitN: number | null = null;
+  private offsetN = 0;
   private columns = '*';
   private countMode: { head: boolean } | null = null;
   private mode: 'select' | 'update' | 'insert' | 'upsert' | 'delete' = 'select';
@@ -86,6 +87,8 @@ class Query implements PromiseLike<Result> {
     return this;
   }
   limit(n: number) { this.limitN = n; return this; }
+  /** PostgREST's inclusive range: rows from..to. */
+  range(from: number, to: number) { this.offsetN = from; this.limitN = to - from + 1; return this; }
   single() { this.cardinality = 'single'; return this; }
   maybeSingle() { this.cardinality = 'maybeSingle'; return this; }
 
@@ -117,7 +120,7 @@ class Query implements PromiseLike<Result> {
       case 'select': {
         if (this.countMode) return `SELECT count(*)::int AS count FROM ${t}${this.whereSql()}`;
         const order = this.orderBy.length ? ` ORDER BY ${this.orderBy.join(', ')}` : '';
-        const limit = this.limitN !== null ? ` LIMIT ${Number(this.limitN)}` : '';
+        const limit = (this.limitN !== null ? ` LIMIT ${Number(this.limitN)}` : '') + (this.offsetN ? ` OFFSET ${Number(this.offsetN)}` : '');
         return `SELECT ${this.columns} FROM ${t}${this.whereSql()}${order}${limit}`;
       }
       case 'update': {

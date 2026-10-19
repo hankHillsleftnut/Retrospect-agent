@@ -22,6 +22,8 @@
  */
 
 import { normalizeHealthSummary } from '../pipelines/health-summary';
+import { supabase } from '../db/supabase';
+import { Tables } from '../db/tables';
 
 export type Domain = 'calendar' | 'own_words' | 'mail' | 'content' | 'health' | 'screen_time';
 
@@ -178,4 +180,58 @@ export function labelledReadings(text: string): Record<string, number> {
     out[key] = value;
   }
   return out;
+}
+
+// ── Building them ─────────────────────────────────────────────────────────────
+
+
+/** Lookups go in chunks: hundreds of ids in one URL is a "Bad Request" (#56). */
+const CHUNK = 100;
+const TEXT_DOMAINS = new Set(['healthkit', 'screen_time']);
+
+/**
+ * Rebuild one person's summaries for the last `days` days. Summaries are
+ * derived, never claims: each day in the window is recomputed from its items,
+ * and a day whose items are gone loses its row.
+ */
+export async function rebuildDailySummaries(userId: string, days = 120, db: typeof supabase = supabase, now = new Date()): Promise<{ days: number; rows: number }> {
+  const since = new Date(now.getTime() - days * 864e5);
+  const rows: Array<{ id: string; content_type: string; created_at: string; trust_class: string | null; metadata: Record<string, unknown> | null; source_item_id: string | null; content: string | null }> = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db.from(Tables.RAW_CONTENT)
+      .select('id,content_type,created_at,trust_class,metadata,source_item_id,content')
+      .eq('user_id', userId).gte('created_at', new Date(since.getTime() - 365 * 864e5).toISOString())
+      .order('created_at', { ascending: true }).range(from, from + 999);
+    if (error) throw new Error(`rebuildDailySummaries: ${error.message}`);
+    rows.push(...((data ?? []) as typeof rows));
+    if ((data ?? []).length < 1000) break;
+  }
+
+  const sourceIds = [...new Set(rows.map((r) => r.source_item_id).filter(Boolean) as string[])];
+  const sources = new Map<string, { occurred_at: string | null; normalized_data: Record<string, unknown> | null }>();
+  for (let i = 0; i < sourceIds.length; i += CHUNK) {
+    const { data, error } = await db.from(Tables.SOURCE_ITEMS).select('id,occurred_at,normalized_data').in('id', sourceIds.slice(i, i + CHUNK));
+    if (error) throw new Error(`rebuildDailySummaries sources: ${error.message}`);
+    for (const s of (data ?? []) as Array<{ id: string; occurred_at: string | null; normalized_data: Record<string, unknown> | null }>) sources.set(s.id, s);
+  }
+
+  const items: SummaryItem[] = rows.map((r) => {
+    const src = r.source_item_id ? sources.get(r.source_item_id) : undefined;
+    return {
+      id: r.id, content_type: r.content_type, created_at: r.created_at, trust_class: r.trust_class, metadata: r.metadata,
+      occurred_at: src?.occurred_at ?? null, normalized_data: src?.normalized_data ?? null,
+      chars: r.content?.length ?? 0,
+      text: TEXT_DOMAINS.has(r.content_type) ? r.content ?? '' : undefined,
+    };
+  });
+
+  const firstDay = since.toISOString().slice(0, 10);
+  const summaries = summariseDays(items).filter((d) => d.day >= firstDay);
+  const { error: delError } = await db.from(Tables.DAILY_SUMMARIES).delete().eq('user_id', userId).gte('day', firstDay);
+  if (delError) throw new Error(`rebuildDailySummaries clear: ${delError.message}`);
+  for (let i = 0; i < summaries.length; i += CHUNK) {
+    const { error } = await db.from(Tables.DAILY_SUMMARIES).insert(summaries.slice(i, i + CHUNK).map((d) => ({ user_id: userId, ...d, built_at: now.toISOString() })));
+    if (error) throw new Error(`rebuildDailySummaries write: ${error.message}`);
+  }
+  return { days: new Set(summaries.map((d) => d.day)).size, rows: summaries.length };
 }
