@@ -70,7 +70,11 @@ export interface MigrationResult {
  * follow it.
  */
 export async function freshDatabase(
-  options: { onApplied?: (file: string, db: PGlite) => Promise<void> } = {},
+  options: {
+    onApplied?: (file: string, db: PGlite) => Promise<void>;
+    /** Stop after this migration file; '' applies the base schema only. */
+    through?: string;
+  } = {},
 ): Promise<{ db: PGlite; results: MigrationResult[] }> {
   // Loaded dynamically: this repo compiles to CommonJS, and PGlite's extension
   // modules are ESM-only. A static import runs under tsx but fails the
@@ -96,6 +100,7 @@ export async function freshDatabase(
 
   await apply('base-schema.sql', readFileSync(BASE_SCHEMA, 'utf8'));
   for (const file of migrationFiles()) {
+    if (options.through !== undefined && file > options.through) break;
     await apply(file, readFileSync(join(MIGRATIONS, file), 'utf8'));
   }
   return { db, results };

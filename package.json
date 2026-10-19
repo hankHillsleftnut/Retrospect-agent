@@ -28,7 +28,8 @@
     "lint:brain": "tsx scripts/lint.ts",
     "requeue": "tsx scripts/requeue-failed.ts",
     "health": "tsx scripts/health.ts",
-    "db:check": "tsx scripts/schema-check.ts"
+    "db:check": "tsx scripts/schema-check.ts",
+    "db:migrate": "tsx scripts/migrate.ts"
   },
   "keywords": [
     "agent",
@@ -57,6 +58,7 @@
     "gpt-tokenizer": "^4.0.0",
     "node-cron": "^3.0.3",
     "openai": "^4.24.0",
+    "pg": "^8.23.1",
     "typescript": "^5.3.3",
     "uuid": "^9.0.1",
     "zod": "^3.22.4"
@@ -64,6 +66,7 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
     "@electric-sql/pglite-pgvector": "^0.0.11",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.7.0"
   },
   "engines": {
