@@ -191,3 +191,18 @@ test('long writing is split into sections that rejoin to the original, breaking 
   assert.ok(parts.slice(0, -1).every((p) => p.trimEnd().endsWith('.')), 'cuts fall at sentence ends');
   assert.deepEqual(splitIntoSections('short', 300), ['short']);
 });
+
+// ── Calendar variety (19 October 2026) ──────────────────────────────────────
+import { distinctEvents } from '../src/questions/run-first-pass';
+
+test('a recurring event is shown once, with how often it occurs, leaving room for meetings with people', () => {
+  const rows = [
+    ...Array.from({ length: 15 }, (_, n) => ({ id: `dive${n}`, content: 'Calendar event: Dive Radio\nWhen: Thursday' })),
+    { id: 'f1', content: 'Calendar event: Shaurya X Francis\nWith: fxchen12@gmail.com' },
+    { id: 'y1', content: 'Calendar event: Yehuda <> Shaurya\nWith: yehuda@example.com' },
+  ];
+  const out = distinctEvents(rows, 3);
+  assert.deepEqual(out.map((r) => r.id), ['dive0', 'f1', 'y1']);
+  assert.equal(out[0]!.repeats, 15);
+  assert.equal(out[1]!.repeats, 1);
+});
