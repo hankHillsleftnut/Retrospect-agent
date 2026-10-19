@@ -42,6 +42,18 @@ export interface Plan {
  * including that file as already present -- used once, to adopt a database
  * whose earlier migrations were applied by hand.
  */
+/**
+ * Narrow a plan to one pending migration, so each change can be approved on its
+ * own (19 October 2026: 128 was pre-approved as additive while 127, which
+ * replaces a function, still waited for the founder). Baselining is not mixed in.
+ */
+export function only(p: Plan, file: string): Plan {
+  if (!p.toApply.includes(file)) {
+    throw new Error(p.alreadyRecorded.includes(file) ? `${file} is already applied` : `${file} is not a pending migration`);
+  }
+  return { alreadyRecorded: p.alreadyRecorded, toBaseline: [], toApply: [file] };
+}
+
 export function plan(files: string[], recorded: Set<string>, baselineThrough?: string): Plan {
   const sorted = [...files].sort();
   if (baselineThrough && !sorted.includes(baselineThrough)) {

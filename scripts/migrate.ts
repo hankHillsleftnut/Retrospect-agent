@@ -4,6 +4,7 @@
  *
  *   npm run db:migrate                                       show the plan; change nothing
  *   npm run db:migrate -- --apply                            apply it
+ *   npm run db:migrate -- --only 128_x.sql [--apply]         just that one pending migration
  *   npm run db:migrate -- --baseline-through 114_x.sql       first run only: record 100..114
  *                                                            as already applied, without running them
  *
@@ -27,7 +28,7 @@ import { Client } from 'pg';
 import { parseArgs } from './_args';
 import { compareWithProduction } from './_schema';
 import { migrationFiles } from '../tests/support/fresh-database';
-import { applyPlan, plan, recordedMigrations } from '../src/db/migrate';
+import { applyPlan, only, plan, recordedMigrations } from '../src/db/migrate';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
 
@@ -46,7 +47,8 @@ async function main() {
   try {
     console.log(`Database: ${new URL(url).hostname}`);
     // A preview only reads; the ledger table is created only when applying.
-    const p = plan(migrationFiles(), await recordedMigrations(client, { create: apply }), baseline);
+    const full = plan(migrationFiles(), await recordedMigrations(client, { create: apply }), baseline);
+    const p = typeof args.only === 'string' ? only(full, args.only) : full;
 
     console.log(`\nAlready recorded: ${p.alreadyRecorded.length}`);
     if (p.toBaseline.length) console.log(`Record as already applied (not run): ${p.toBaseline.join(', ')}`);
