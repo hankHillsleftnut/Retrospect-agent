@@ -1,7 +1,7 @@
 /** W3.1: the shape of each day. Gate: numbers add up to their items, nothing counted twice, local days. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { summariseDays, usualOffset, localTime, type SummaryItem } from '../src/brain/daily-summaries';
+import { summariseDays, usualOffset, localTime, labelledReadings, type SummaryItem } from '../src/brain/daily-summaries';
 
 let n = 0;
 const ev = (start: string, end: string, extra: Record<string, unknown> = {}): SummaryItem => ({
@@ -70,4 +70,16 @@ test('gate: every summarised item is counted exactly once, and the counts add up
 
 test('local time helper', () => {
   assert.deepEqual(localTime('2026-10-15T06:30:00Z', -420), { day: '2026-10-14', minute: 23 * 60 + 30 });
+});
+
+test('health: the day\'s latest sync, labelled readings with units; zeros are "not recorded" and dropped', () => {
+  const h = (created_at: string, text: string): SummaryItem =>
+    ({ id: `h${++n}`, content_type: 'healthkit', created_at, metadata: { sync_day: '2026-10-12' }, text });
+  const days = summariseDays([
+    h('2026-10-12T20:00:00Z', 'Apple Health summary for Oct 12:\nSteps: 4,100\nSleep: 0.0 hours'),
+    h('2026-10-13T08:00:00Z', 'Apple Health summary for Oct 12:\nSteps: 8,412\nSleep: 0.0 hours\nResting heart rate: 58 bpm\nHeart rate: 0 BPM'),
+  ], 0);
+  assert.deepEqual(days.map((d) => [d.day, d.domain, d.items, d.metrics]),
+    [['2026-10-12', 'health', 2, { steps: 8412, resting_heart_rate_bpm: 58 }]]);
+  assert.deepEqual(labelledReadings('Mindful minutes: 12 min\nNotes: felt fine'), { mindful_minutes_min: 12 });
 });
