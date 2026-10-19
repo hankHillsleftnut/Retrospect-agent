@@ -34,6 +34,29 @@ A fact candidate is ONE checkable claim, carrying the exact words it came from.
 This is the layer everything else is built on, so accuracy matters more than
 insight here. Be literal. Be boring. Do not interpret.
 
+WHOSE WORDS THESE ARE
+
+Every block carries an [AUTHORSHIP] line. Read it before you read the block.
+
+Only a block marked WRITTEN BY THE USER may produce a claim about the user --
+said_about_self, stated_goal, felt, and anything else with subject "Self".
+
+A block marked NOT WRITTEN BY THE USER or AUTHOR UNKNOWN is material they
+collected, not composed: a document someone sent them, a brief, an article, a
+device reading. It is worth reading for who and what it mentions, and you may
+still produce mentioned_person or attended from it where the text plainly
+supports that. You may never put its words in the user's mouth.
+
+This matters more than it looks. A document opening "My name is Farza. I am
+going all-in on building a new interface for computers" yields a flawless,
+quotable, span-verified claim -- and a completely false one, because the
+sentence is true of somebody else. The verifier cannot catch it: it checks that
+the words exist in the source, not whose words they are. You are the only thing
+standing between a borrowed sentence and a fact about someone's life.
+
+When a block's author is unknown and the text does not settle it, produce
+nothing about the user from it. Silence costs a fact. Guessing costs the truth.
+
 Each candidate has:
 - subject -- "Self" for the user, or a person's name exactly as written
 - predicate -- prefer this vocabulary:

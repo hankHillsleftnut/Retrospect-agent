@@ -30,6 +30,42 @@ const LONGFORM_TYPES = new Set([
  * that cannot measure what it is sending will always eventually send too much,
  * so there is now one definition and both sides read it.
  */
+export type Authorship = 'self' | 'other' | 'unknown';
+
+/**
+ * Whose words these are, when the row does not say.
+ *
+ * Kept as a fallback for rows written before authorship was recorded. New rows
+ * carry the column; this only fills the gap, and it errs toward `unknown`,
+ * because assuming the user wrote something they merely collected is the
+ * failure this whole idea exists to prevent.
+ */
+const SELF_AUTHORED = new Set([
+  'text_entry', 'journal_entry', 'voice_recording', 'voice_journal',
+  'video_entry', 'onboarding_profile',
+]);
+const NOT_WRITING = new Set([
+  'healthkit', 'screen_time', 'calendar', 'apple_music', 'photos', 'contacts',
+]);
+
+export function inferAuthorship(contentType: string): Authorship {
+  if (SELF_AUTHORED.has(contentType)) return 'self';
+  if (NOT_WRITING.has(contentType)) return 'other';
+  return 'unknown';
+}
+
+/** The line that tells the model how to read a block. */
+export function authorshipLabel(a: Authorship): string {
+  switch (a) {
+    case 'self':
+      return 'WRITTEN BY THE USER — their own words';
+    case 'other':
+      return 'NOT WRITTEN BY THE USER — a third party or a device reading. Context only: never attribute any statement here to the user';
+    default:
+      return 'AUTHOR UNKNOWN — collected material that may or may not be the user\'s writing. Do not attribute statements here to the user unless the text itself makes their authorship explicit';
+  }
+}
+
 export function contentCharLimit(contentType: string): number {
   if (contentType === 'onboarding_profile') return 20000;
   return LONGFORM_TYPES.has(contentType) ? 16000 : 4000;
@@ -116,6 +152,7 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
     const isOnboarding = rc.content_type === 'onboarding_profile';
     const limit = contentCharLimit(rc.content_type);
     const label = isOnboarding ? 'FOUNDATIONAL ONBOARDING PROFILE' : 'Raw content';
+    const authorship = (rc.authorship as Authorship | null) ?? inferAuthorship(rc.content_type);
 
     const body = rc.content.slice(0, limit);
     if (rc.content.length > limit) {
@@ -125,7 +162,7 @@ export async function runIngestionAgent(input: IngestionInput): Promise<Ingestio
           `${rc.content.length - limit} characters were not analysed.`
       );
     }
-    return `### [index=${idx}] ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n${body}`;
+    return `### [index=${idx}] ${label} [${rc.id}] (type: ${rc.content_type}, date: ${date})\n[AUTHORSHIP] ${authorshipLabel(authorship)}\n${body}`;
   });
 
   const onboardingInstruction =
