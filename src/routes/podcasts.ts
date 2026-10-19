@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { runPodcast } from '../pipelines/podcast';
+import { checkDailySpend } from '../pipelines/spend-guard';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 
@@ -13,6 +14,14 @@ podcastsRouter.post('/generate', async (req, res) => {
   const { userId, daysBack, skipTTS, dryRun, persona, notes } = req.body ?? {};
   if (!userId) return res.status(400).json({ error: 'userId required' });
   try {
+    // Episodes are the expensive part; a dry run makes no audio and is not limited.
+    if (!dryRun) {
+      const spend = await checkDailySpend(userId);
+      if (!spend.allowed) {
+        console.warn(`[podcasts] refused for ${userId}: ${spend.message}`);
+        return res.status(429).json({ error: spend.message, spentUsd: spend.spentUsd, capUsd: spend.capUsd });
+      }
+    }
     const result = await runPodcast({
       userId,
       daysBack,
