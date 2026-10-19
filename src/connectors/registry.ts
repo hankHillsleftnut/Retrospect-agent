@@ -1,5 +1,6 @@
 import { googleDocsConnector } from './google-docs';
 import { gmailConnector } from './gmail';
+import { googleCalendarConnector } from './google-calendar';
 import { spotifyConnector } from './spotify';
 import { redditConnector } from './reddit';
 import { youtubeConnector } from './youtube';
@@ -12,6 +13,7 @@ import { registerConnector, type IntegrationConnector } from './connector';
 export const continuousIntegrationConnectors: IntegrationConnector[] = [
   googleDocsConnector,
   gmailConnector,
+  googleCalendarConnector,
   spotifyConnector,
   redditConnector,
   youtubeConnector,

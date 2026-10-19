@@ -81,6 +81,26 @@ export const SOURCE_INTELLIGENCE_PROFILES: Record<string, SourceIntelligenceProf
       'Attendee presence is relationship context, not relationship quality.',
     ],
   },
+  google_calendar: {
+    providerId: 'google_calendar',
+    label: 'Google Calendar',
+    collectionPreference: 'continuous_oauth',
+    defaultOnboarding: true,
+    generalPurpose: 'commitments, schedule shape, people, organizations, routines, and temporal context',
+    specialPurpose: 'the shape of the user’s actual week from their Google calendars: what time is protected, crowded out, repeated, or spent with whom',
+    signalTypes: ['time-use', 'commitment', 'routine', 'relationship-context', 'organization-context'],
+    typicalClaimTypes: ['fact', 'observation', 'routine_signal', 'relationship_signal', 'capacity_hypothesis'],
+    defaultEvidenceStrength: 'strong',
+    interpretationGuidance: [
+      'Use events as factual evidence that time was scheduled or protected.',
+      'A declined event is evidence of what they chose not to do; an accepted one is not proof they attended.',
+      'Event descriptions are deliberately not collected; never infer their content.',
+    ],
+    claimBoundaries: [
+      'Scheduled time does not prove attendance or emotional importance by itself.',
+      'Attendee presence is relationship context, not relationship quality.',
+    ],
+  },
   contacts: {
     providerId: 'contacts',
     label: 'Contacts',

@@ -83,6 +83,7 @@ test('tap-to-sign-in OAuth providers have worker connectors and source lenses', 
   const { continuousConnectorProviderIds } = await import('../src/connectors/registry.js');
   const expectedOAuthProviders = [
     'gmail',
+    'google_calendar',
     'google_docs',
     'linkedin',
     'pinterest',
