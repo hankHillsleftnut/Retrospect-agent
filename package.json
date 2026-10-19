@@ -34,7 +34,8 @@
     "bank:score": "tsx scripts/bank-score.ts",
     "import:transcript": "tsx scripts/import-transcript.ts",
     "questions:research": "tsx scripts/questions-research.ts",
-    "costs": "tsx scripts/costs.ts"
+    "costs": "tsx scripts/costs.ts",
+    "brief": "tsx scripts/daily-brief.ts"
   },
   "keywords": [
     "agent",

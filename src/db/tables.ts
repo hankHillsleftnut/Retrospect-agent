@@ -60,4 +60,5 @@ export const Tables = {
   DOMAIN_COVERAGE: 'domain_coverage',
   EVIDENCE_KINDS: 'evidence_kinds',
   QUESTION_RESEARCH_LOG: 'question_research_log',
+  DAILY_BRIEFS: 'daily_briefs',
 } as const;

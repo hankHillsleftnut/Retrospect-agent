@@ -4,6 +4,8 @@ import cors from 'cors';
 import path from 'path';
 import cron from 'node-cron';
 import { runOnboardingPipeline } from './jobs/onboarding-pipeline';
+import { runDailyBriefs } from './jobs/daily-brief';
+import { briefsRouter } from './routes/briefs';
 import { config } from './config';
 import { requireInternalSecret } from './middleware/internal-auth';
 import { healthRouter } from './routes/health';
@@ -49,6 +51,7 @@ app.use('/feedback', requireInternalSecret, feedbackRouter);
 app.use('/onboarding', requireInternalSecret, onboardingRouter);
 app.use('/notifications', requireInternalSecret, notificationsRouter);
 app.use('/integrations', requireInternalSecret, integrationsRouter);
+app.use('/briefs', requireInternalSecret, briefsRouter);
 
 app.get('/', (_req, res) => {
   res.redirect('/runs');
@@ -75,6 +78,15 @@ function envFlag(name: string, fallback = false): boolean {
   if (raw === 'true') return true;
   if (raw === 'false') return false;
   return fallback;
+}
+
+// The daily brief: 8am UTC for each person who switched it on. Off unless
+// ENABLE_DAILY_BRIEF=true; each person's switch is also off by default.
+if (envFlag('ENABLE_DAILY_BRIEF')) {
+  cron.schedule('0 8 * * *', () => {
+    runDailyBriefs().catch((err) => console.error('[cron] daily-brief error:', err));
+  });
+  console.log('[cron] daily brief enabled (8am UTC, for people who switched it on)');
 }
 
 // The onboarding pipeline: every 2 minutes, move each new account one step
