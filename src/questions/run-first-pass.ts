@@ -119,7 +119,7 @@ export async function runFirstPass(userId: string, deps: FirstPassDeps = {}): Pr
 
 // ── Loading ─────────────────────────────────────────────────────────────────
 
-async function loadQuestions(db: typeof supabase): Promise<Question[]> {
+export async function loadQuestions(db: typeof supabase): Promise<Question[]> {
   const { data, error } = await db.from(Tables.CANONICAL_QUESTIONS)
     .select('id,domain_id,text,requires_own_words,hypothesis_only').order('id');
   if (error) throw new Error(`first pass: could not load questions: ${error.message}`);
@@ -129,7 +129,7 @@ async function loadQuestions(db: typeof supabase): Promise<Question[]> {
   }));
 }
 
-async function loadDomains(db: typeof supabase): Promise<{ id: string; label: string }[]> {
+export async function loadDomains(db: typeof supabase): Promise<{ id: string; label: string }[]> {
   const { data, error } = await db.from(Tables.QUESTION_DOMAINS).select('id,label').order('position');
   if (error) throw new Error(`first pass: could not load domains: ${error.message}`);
   return data ?? [];
@@ -140,15 +140,17 @@ async function loadDomains(db: typeof supabase): Promise<{ id: string; label: st
  * appear once: the database counts them once, so showing five copies would
  * only invite the model to cite the same thing five times.
  */
-export async function buildPool(userId: string, db: typeof supabase): Promise<PoolItem[]> {
+export async function buildPool(userId: string, db: typeof supabase, since?: string): Promise<PoolItem[]> {
   const pool: PoolItem[] = [];
   const add = (item: Omit<PoolItem, 'handle'>) => pool.push({ ...item, handle: `E${pool.length + 1}` });
   const day = (iso: string | null | undefined) => (iso ?? '').slice(0, 10);
+  // With `since`, only what arrived after it: the researcher's "what's new".
+  const after = (q: any, column: string) => (since ? q.gt(column, since) : q);
 
   // Their own words: the richest evidence there is.
-  const { data: words } = await db.from(Tables.RAW_CONTENT)
+  const { data: words } = await after(db.from(Tables.RAW_CONTENT)
     .select('id,content_type,content,content_date,created_at')
-    .eq('user_id', userId).in('content_type', [...OWN_WORDS_CONTENT_TYPES])
+    .eq('user_id', userId).in('content_type', [...OWN_WORDS_CONTENT_TYPES]), 'created_at')
     .order('created_at', { ascending: false }).limit(POOL_LIMITS.ownWords * 4);
   const seen = new Set<string>();
   for (const r of (words ?? []) as any[]) {
@@ -159,15 +161,15 @@ export async function buildPool(userId: string, db: typeof supabase): Promise<Po
     add({
       ref: { raw_content_id: r.id }, ownWords: true,
       label: `${r.content_type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}`,
-      text, quotable: text,
+      text, quotable: text, at: r.created_at,
     });
     if (seen.size >= POOL_LIMITS.ownWords) break;
   }
 
   // Facts already extracted and verified.
-  const { data: facts } = await db.from(Tables.ASSERTIONS)
-    .select('id,predicate,object_value,event_time,observed_at,metadata')
-    .eq('user_id', userId).eq('status', 'active')
+  const { data: facts } = await after(db.from(Tables.ASSERTIONS)
+    .select('id,predicate,object_value,event_time,observed_at,created_at,metadata')
+    .eq('user_id', userId).eq('status', 'active'), 'created_at')
     .order('observed_at', { ascending: false }).limit(POOL_LIMITS.facts);
   for (const f of (facts ?? []) as any[]) {
     const object = f.object_value?.normalized ?? f.object_value?.label ?? JSON.stringify(f.object_value ?? {}).slice(0, 200);
@@ -176,18 +178,20 @@ export async function buildPool(userId: string, db: typeof supabase): Promise<Po
       ref: { assertion_id: f.id }, ownWords: OWN_WORDS_CONTENT_TYPES.has(contentType),
       label: `fact${contentType ? ` from ${contentType.replace(/_/g, ' ')}` : ''} · ${day(f.event_time ?? f.observed_at)}`,
       text: `${String(f.predicate).replace(/_/g, ' ')}: ${object}`,
+      at: f.created_at,
     });
   }
 
   // Patterns that have earned "live".
-  const { data: patterns } = await db.from(Tables.BEHAVIOR_PATTERNS)
-    .select('id,label,instance_count,first_seen_at,last_seen_at')
-    .eq('user_id', userId).eq('status', 'live').limit(POOL_LIMITS.patterns);
+  const { data: patterns } = await after(db.from(Tables.BEHAVIOR_PATTERNS)
+    .select('id,label,instance_count,first_seen_at,last_seen_at,updated_at')
+    .eq('user_id', userId).eq('status', 'live'), 'updated_at').limit(POOL_LIMITS.patterns);
   for (const b of (patterns ?? []) as any[]) {
     add({
       ref: { pattern_id: b.id }, ownWords: false,
       label: `pattern · seen ${b.instance_count} times, ${day(b.first_seen_at)} to ${day(b.last_seen_at)}`,
       text: b.label,
+      at: b.updated_at,
     });
   }
 
@@ -195,9 +199,9 @@ export async function buildPool(userId: string, db: typeof supabase): Promise<Po
   // something to work with. Health readings are cleaned so a zero reads as
   // "not recorded" -- the lesson of the false sleep claims.
   for (const type of ['calendar', 'screen_time', 'healthkit']) {
-    const { data: records } = await db.from(Tables.RAW_CONTENT)
+    const { data: records } = await after(db.from(Tables.RAW_CONTENT)
       .select('id,content_type,content,content_date,created_at')
-      .eq('user_id', userId).eq('content_type', type)
+      .eq('user_id', userId).eq('content_type', type), 'created_at')
       .order('created_at', { ascending: false }).limit(POOL_LIMITS.recordsPerType);
     for (const r of (records ?? []) as any[]) {
       const text = isHealthSummary(r.content_type) ? normalizeHealthSummary(r.content) : String(r.content ?? '');
@@ -205,6 +209,7 @@ export async function buildPool(userId: string, db: typeof supabase): Promise<Po
         ref: { raw_content_id: r.id }, ownWords: false,
         label: `${type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}`,
         text,
+        at: r.created_at,
       });
     }
   }

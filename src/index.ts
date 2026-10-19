@@ -18,6 +18,7 @@ import { integrationsRouter } from './routes/integrations';
 import { runDailyIngestion } from './jobs/daily-ingestion';
 import { runWeeklyPodcasts } from './jobs/weekly-podcast';
 import { startIntegrationSchedulerLoop } from './jobs/integration-scheduler';
+import { runQuestionResearch } from './jobs/question-research';
 import { startIntegrationWorkerLoop } from './jobs/integration-worker';
 
 const app = express();
@@ -100,6 +101,17 @@ if (cronsEnabled) {
   console.log(
     '[cron] agent crons disabled (set ENABLE_AGENT_CRONS=true to enable daily ingest + weekly podcast)'
   );
+}
+
+// The ambient researcher: daily at 7 AM UTC, after ingestion has turned the
+// day's material into facts. Its own flag, off by default, because it spends
+// money per person per day.
+if (envFlag('ENABLE_QUESTION_RESEARCH')) {
+  cron.schedule('0 7 * * *', () => {
+    console.log('[cron] question-research fired');
+    runQuestionResearch().catch((err) => console.error('[cron] question-research error:', err));
+  });
+  console.log('[cron] question research enabled (daily 7am UTC)');
 }
 
 const integrationRuntimeEnabled = envFlag('ENABLE_INTEGRATION_RUNTIME');

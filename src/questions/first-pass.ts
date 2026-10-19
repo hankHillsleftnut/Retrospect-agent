@@ -49,6 +49,8 @@ export interface PoolItem {
   text: string;
   /** For items the person wrote: the full text a quote is checked against. */
   quotable?: string;
+  /** When it reached the system. The researcher uses this to find what is new. */
+  at?: string;
 }
 
 /** Content types that are the person's own words. Same list as migration 121. */
@@ -139,33 +141,7 @@ export function vetFirstPass(questions: Question[], pool: PoolItem[], reply: { a
     const text = typeof a.answer === 'string' ? a.answer.trim() : '';
     if (a.no_basis === true || !text) return { questionId: q.id, status: 'no_basis', dropped: [] };
 
-    const dropped: DroppedCitation[] = [];
-    const kept: Guess['evidence'] = [];
-    const usedOwnWords: boolean[] = [];
-    const seen = new Set<string>();
-
-    for (const raw of Array.isArray(a.evidence) ? (a.evidence as Record<string, unknown>[]) : []) {
-      const handle = String(raw?.handle ?? '');
-      const stance = raw?.stance === 'contradicts' ? 'contradicts' : 'supports';
-      const item = byHandle.get(handle);
-      if (!item) { dropped.push({ handle, reason: 'unknown_handle' }); continue; }
-      if (seen.has(`${handle}:${stance}`)) continue;
-
-      let excerpt: string | undefined;
-      if (item.quotable !== undefined) {
-        const quote = typeof raw?.quote === 'string' ? raw.quote : '';
-        if (!quote.trim()) { dropped.push({ handle, reason: 'missing_quote' }); continue; }
-        const check = verifyExcerpt(quote, item.quotable);
-        if (!check.ok) { dropped.push({ handle, reason: 'quote_not_found' }); continue; }
-        excerpt = check.matchedText;
-      }
-
-      seen.add(`${handle}:${stance}`);
-      kept.push({ ...item.ref, stance, ...(excerpt ? { excerpt } : {}) });
-      if (stance === 'supports') usedOwnWords.push(item.ownWords);
-    }
-
-    const supported = q.requiresOwnWords ? usedOwnWords.some(Boolean) : usedOwnWords.length > 0;
+    const { kept, dropped, supported } = vetCitations(a.evidence, byHandle, q.requiresOwnWords);
     if (!supported) return { questionId: q.id, status: 'unsupported', dropped };
 
     return {
@@ -175,6 +151,50 @@ export function vetFirstPass(questions: Question[], pool: PoolItem[], reply: { a
       dropped,
     };
   });
+}
+
+export type VettedEvidence = Guess['evidence'];
+
+/**
+ * Check a model's citations against what it was shown. Shared by the first
+ * pass and the researcher, so both obey exactly the same rules.
+ *
+ * `supported` is true when at least one supporting citation survived -- and,
+ * for questions that need the person's own words, at least one of those.
+ */
+export function vetCitations(
+  rawEvidence: unknown,
+  byHandle: Map<string, PoolItem>,
+  requiresOwnWords: boolean,
+): { kept: VettedEvidence; dropped: DroppedCitation[]; supported: boolean } {
+  const dropped: DroppedCitation[] = [];
+  const kept: VettedEvidence = [];
+  const usedOwnWords: boolean[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of Array.isArray(rawEvidence) ? (rawEvidence as Record<string, unknown>[]) : []) {
+    const handle = String(raw?.handle ?? '');
+    const stance = raw?.stance === 'contradicts' ? 'contradicts' : 'supports';
+    const item = byHandle.get(handle);
+    if (!item) { dropped.push({ handle, reason: 'unknown_handle' }); continue; }
+    if (seen.has(`${handle}:${stance}`)) continue;
+
+    let excerpt: string | undefined;
+    if (item.quotable !== undefined) {
+      const quote = typeof raw?.quote === 'string' ? raw.quote : '';
+      if (!quote.trim()) { dropped.push({ handle, reason: 'missing_quote' }); continue; }
+      const check = verifyExcerpt(quote, item.quotable);
+      if (!check.ok) { dropped.push({ handle, reason: 'quote_not_found' }); continue; }
+      excerpt = check.matchedText;
+    }
+
+    seen.add(`${handle}:${stance}`);
+    kept.push({ ...item.ref, stance, ...(excerpt ? { excerpt } : {}) });
+    if (stance === 'supports') usedOwnWords.push(item.ownWords);
+  }
+
+  const supported = requiresOwnWords ? usedOwnWords.some(Boolean) : usedOwnWords.length > 0;
+  return { kept, dropped, supported };
 }
 
 /** One derivation per question per person: re-running the first pass updates it. */
