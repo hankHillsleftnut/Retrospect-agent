@@ -688,3 +688,14 @@ test('132: the app roles cannot see or touch the arrival queue', async () => {
     `SELECT has_table_privilege('anon', 'material_arrivals', 'SELECT') AS anon, has_table_privilege('authenticated', 'material_arrivals', 'SELECT') AS authed`);
   assert.deepEqual(rows[0], { anon: false, authed: false });
 });
+
+// ── 134: daily summaries (W3.1) ──────────────────────────────────────────────
+test('134: one summary per person, day and domain; the app roles cannot read it', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO daily_summaries (user_id, day, domain, metrics, items) VALUES ($1, '2026-10-14', 'calendar', '{"events":3}', 3)`, [user]);
+  assert.equal(await failureCode(`INSERT INTO daily_summaries (user_id, day, domain) VALUES ($1, '2026-10-14', 'calendar')`, [user]), UNIQUE_VIOLATION);
+  assert.equal(await failureCode(`INSERT INTO daily_summaries (user_id, day, domain) VALUES ($1, '2026-10-14', 'vibes')`, [user]), CHECK_VIOLATION);
+  const { rows } = await db.query<{ anon: boolean; authed: boolean }>(
+    `SELECT has_table_privilege('anon', 'daily_summaries', 'SELECT') AS anon, has_table_privilege('authenticated', 'daily_summaries', 'SELECT') AS authed`);
+  assert.deepEqual(rows[0], { anon: false, authed: false });
+});
