@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { processIntegrationBatch } from '../pipelines/integration-sync';
 import { runIntegrationTests } from '../pipelines/integration-tests';
 import { enqueueIntegrationJob, ensureConnection } from '../services/integration-queue';
+import { revokeAccountGrants } from '../integrations/revoke';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { storeIntegrationCredentials } from '../services/credential-vault';
@@ -209,6 +210,21 @@ integrationsRouter.post('/test/:connectionId', async (req, res) => {
   try {
     const result = await runIntegrationTests(req.params.connectionId);
     return res.status(result.status === 'failed' ? 500 : 200).json(result);
+  } catch (err) {
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+/**
+ * POST /integrations/accounts/revoke
+ * Body: { userId } -- revoke every OAuth grant this person gave. Called by the
+ * backend just before it deletes their account.
+ */
+integrationsRouter.post('/accounts/revoke', async (req, res) => {
+  const userId = z.string().uuid().safeParse(req.body?.userId);
+  if (!userId.success) return res.status(400).json({ error: 'invalid userId' });
+  try {
+    return res.json(await revokeAccountGrants(userId.data));
   } catch (err) {
     return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
   }
