@@ -31,6 +31,9 @@ export interface Question {
   text: string;
   requiresOwnWords: boolean;
   hypothesisOnly: boolean;
+  /** Where an answer can come from, as in canonical_questions.answerable_from
+   *  ("calendar", "mail", "words", ...). */
+  answerableFrom?: string[];
 }
 
 export type EvidenceRef =
@@ -51,6 +54,10 @@ export interface PoolItem {
   quotable?: string;
   /** When it reached the system. The researcher uses this to find what is new. */
   at?: string;
+  /** The content type it came from (calendar, gmail, journal_entry, ...), or
+   *  "pattern". The researcher shows a question the sources it can be
+   *  answered from first. */
+  contentType?: string;
 }
 
 /** Content types that are the person's own words. Same list as migration 121. */

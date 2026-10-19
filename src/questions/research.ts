@@ -43,6 +43,44 @@ export interface QuestionState {
 }
 
 /** Questions researched per person per run. */
+/**
+ * Which content types each source in canonical_questions.answerable_from means.
+ * "words" is anything in the person's own words, whatever its type.
+ */
+export const SOURCE_CONTENT_TYPES: Record<string, string[]> = {
+  calendar: ['calendar', 'google_calendar'],
+  mail: ['gmail'],
+  health: ['healthkit'],
+  screen_time: ['screen_time'],
+  onboarding: ['onboarding_profile'],
+  notion: ['notion'],
+  appetite: ['youtube', 'twitter_bookmarks', 'apple_music', 'spotify', 'reddit', 'tiktok', 'x'],
+  behaviour: ['calendar', 'google_calendar', 'healthkit', 'screen_time'],
+  web: ['google_docs'],
+  linkedin: ['google_docs'],
+  hypothesis: ['pattern'],
+};
+
+/**
+ * The new items a question is shown: those from the sources it can be answered
+ * from first, newest first within each group.
+ *
+ * Before this, every question saw the 40 newest items of any kind. When a whole
+ * calendar, inbox and YouTube history arrived in the same minute (19 October
+ * 2026), "a normal week" was shown YouTube items and none of the calendar.
+ */
+export function rankNewItems<T extends { at?: string; contentType?: string; ownWords: boolean }>(
+  items: T[],
+  answerableFrom: string[] = [],
+  limit = 40,
+): T[] {
+  const types = new Set(answerableFrom.flatMap((s) => SOURCE_CONTENT_TYPES[s] ?? []));
+  const wantsWords = answerableFrom.includes('words');
+  const fits = (i: T) => (i.contentType !== undefined && types.has(i.contentType)) || (wantsWords && i.ownWords);
+  const newest = (a: T, b: T) => (b.at ?? '').localeCompare(a.at ?? '');
+  return [...items.filter(fits).sort(newest), ...items.filter((i) => !fits(i)).sort(newest)].slice(0, limit);
+}
+
 export const RESEARCH_BUDGET = 6;
 
 /**
