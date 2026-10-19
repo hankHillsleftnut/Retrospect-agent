@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { applyPlan, plan, recordedMigrations, LEDGER_TABLE, type Executor } from '../src/db/migrate';
+import { applyPlan, only, plan, recordedMigrations, LEDGER_TABLE, type Executor } from '../src/db/migrate';
 import { freshDatabase, migrationFiles, type PGlite } from './support/fresh-database';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
@@ -73,4 +73,16 @@ test('a preview changes nothing: it does not even create the ledger', async () =
   assert.equal(recorded.size, 0);
   const { rows } = await db.query(`SELECT to_regclass('${LEDGER_TABLE}') AS t`);
   assert.equal((rows[0] as any).t, null);
+});
+
+test('--only narrows a plan to one pending migration', () => {
+  const p = only(plan(['126.sql', '127.sql', '128.sql'], new Set(['126.sql'])), '128.sql');
+  assert.deepEqual(p.toApply, ['128.sql']);
+  assert.deepEqual(p.toBaseline, []);
+});
+
+test('--only refuses a migration that is applied or unknown', () => {
+  const p = plan(['126.sql', '127.sql'], new Set(['126.sql']));
+  assert.throws(() => only(p, '126.sql'), /already applied/);
+  assert.throws(() => only(p, '999.sql'), /not a pending migration/);
 });
