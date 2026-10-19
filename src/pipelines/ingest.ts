@@ -1,6 +1,5 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
-import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent, contentCharLimit, renderPromptContext } from '../agents/ingestion-agent';
 import { extractFacts } from '../agents/fact-extractor';
 import { splitIntoSections } from '../text/sections';
@@ -9,7 +8,7 @@ import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
 import { countTokens, contentTokenBudget } from '../services/token-budget';
 import { writeLegacyOutputs } from './legacy-writes';
-import { writeJournalFacts } from '../brain/write-journal-facts';
+import { writeBatchFacts, embedSources } from './batch-outputs';
 import type { PromoterRunResult } from '../brain/run-promoter';
 import { runCook0Step, consolidateFacts } from './after-reading';
 import { claimWork, releaseClaim } from './claim-work';
@@ -346,49 +345,20 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
 
       if (isDryRun) continue;
 
-      // 5.0 Facts FIRST. The graph is the bank; observations below are a
-      // compatibility shim for Cook A until it reads facts (04, 06).
-      // A claim whose quote is not in the source is dropped here and never
-      // reaches the graph.
-      if ((result.fact_candidates ?? []).length > 0) {
-        try {
-          const factResult = await writeJournalFacts({
-            userId: options.userId,
-            candidates: result.fact_candidates ?? [],
-            sources: batch.map((rc) => ({
-              id: rc.id,
-              content: rc.content,
-              content_type: rc.content_type,
-              content_date: rc.content_date,
-            })),
-            sourceRunId: trace.id,
-            transcriptionConfidence: Object.fromEntries(
-              batch
-                .map((rc) => {
-                  const meta = (rc.metadata ?? {}) as Record<string, unknown>;
-                  const c = meta.transcription_confidence;
-                  return typeof c === 'number' ? [rc.id, c] : null;
-                })
-                .filter((e): e is [string, number] => e !== null)
-            ),
-          });
-          factsWritten += factResult.written;
-          factsDropped += factResult.dropped;
-          for (const [reason, n] of Object.entries(factResult.dropReasons)) {
-            factDropReasons[reason] = (factDropReasons[reason] ?? 0) + n;
-          }
-          selfNamedLoopIds.push(...factResult.selfNamedLoops);
-          console.log(
-            `[ingest]     facts: ${factResult.written} written, ${factResult.dropped} dropped` +
-              (factResult.dropped > 0 ? ` (${JSON.stringify(factResult.dropReasons)})` : '')
-          );
-        } catch (err) {
-          // A graph failure must not lose the batch: observations below still
-          // persist, and the origin keys make a retry safe.
-          console.error(`[ingest]     facts FAILED: ${(err as Error).message}`);
-          factWriteErrors.push((err as Error).message);
-        }
+      // 5.0 Facts FIRST (batch-outputs.ts).
+      const facts = await writeBatchFacts({
+        userId: options.userId,
+        batch,
+        candidates: result.fact_candidates ?? [],
+        sourceRunId: trace.id,
+      });
+      factsWritten += facts.written;
+      factsDropped += facts.dropped;
+      for (const [reason, n] of Object.entries(facts.dropReasons)) {
+        factDropReasons[reason] = (factDropReasons[reason] ?? 0) + n;
       }
+      selfNamedLoopIds.push(...facts.selfNamedLoops);
+      if (facts.error) factWriteErrors.push(facts.error);
 
       // 5a-d. The old framework's tables (legacy-writes.ts). Writes nothing in facts mode.
       const legacy = await writeLegacyOutputs({
@@ -404,32 +374,8 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
       totalCandidatesCreated += legacy.candidatesCreated;
       batchNotes.push(...legacy.notes);
 
-      // Embed the SOURCE, not just the derived rows. 0.4% of raw_content
-      // carried an embedding at audit, which made search_raw_content dead.
-      // Facts do not need this to exist; fallback search does.
-      try {
-        const toEmbed = batch.filter((row) => !row.embedding && row.content?.trim());
-        if (toEmbed.length > 0) {
-          const vectors = await generateEmbeddings(
-            toEmbed.map((row) => row.content.slice(0, 8000))
-          );
-          trace.addCost({
-            embedding_tokens: toEmbed.reduce((acc, r) => acc + r.content.length / 4, 0),
-          });
-          for (let i = 0; i < toEmbed.length; i++) {
-            const vector = vectors[i];
-            if (!vector) continue;
-            await supabase
-              .from(Tables.RAW_CONTENT)
-              .update({ embedding: vector })
-              .eq('id', toEmbed[i]!.id);
-            rawEmbedded += 1;
-          }
-        }
-      } catch (err) {
-        // Never fail a batch over search hygiene.
-        console.warn(`[ingest]     raw embedding failed: ${(err as Error).message}`);
-      }
+      // Make each entry searchable (batch-outputs.ts).
+      rawEmbedded += await embedSources(batch, trace);
 
       const { error: completedError } = await supabase
         .from(Tables.RAW_CONTENT)
