@@ -17,7 +17,7 @@ import { estimateCostUsd } from '../pipelines/trace';
 import { buildPool, loadQuestions } from './run-first-pass';
 import type { PoolItem } from './first-pass';
 import {
-  RESEARCH_BUDGET, RESEARCH_SYSTEM, buildResearchPrompt, mergeEvidence, pickQuestions, researchDerivationKey,
+  RESEARCH_BUDGET, RESEARCH_SYSTEM, buildResearchPrompt, rankNewItems, mergeEvidence, pickQuestions, researchDerivationKey,
   researchPool, vetResearch, type CurrentAnswer, type QuestionState, type ResearchAction,
 } from './research';
 
@@ -32,6 +32,22 @@ export interface ResearchDeps {
   modelName?: string;
   budget?: number;
   now?: () => Date;
+  /** Look again at everything since this time, whatever was read before. One-off use. */
+  rereadSince?: string;
+}
+
+/**
+ * How far a look counts as having read. Everything up to the newest item shown --
+ * unless some new items were not shown (more than fit), in which case only up to
+ * just before the earliest unshown one, so they are shown next time instead of
+ * being skipped for good (found 19 October 2026: a whole calendar arriving in
+ * the same minute as a YouTube history was marked read without being seen).
+ */
+export function readUpTo(shown: Array<{ at?: string }>, unshownEarliest: string | null, now: Date): string {
+  const newestShown = shown.reduce((max, i) => (i.at && i.at > max ? i.at : max), '') || now.toISOString();
+  if (!unshownEarliest) return newestShown;
+  const justBefore = new Date(new Date(unshownEarliest).getTime() - 1).toISOString();
+  return justBefore < newestShown ? justBefore : newestShown;
 }
 
 export interface ResearchEntry {
@@ -48,7 +64,7 @@ export async function runResearch(userId: string, deps: ResearchDeps = {}): Prom
     ?? ((system, user) => claudeJsonCompletion<Record<string, unknown>>(system, user, { maxTokens: 2000, model: modelName }));
   const now = deps.now ?? (() => new Date());
 
-  const states = await loadStates(userId, db);
+  const states = await loadStates(userId, db, deps.rereadSince);
   const picked = pickQuestions(states, deps.budget ?? RESEARCH_BUDGET);
   const researched: ResearchEntry[] = [];
   let costUsd = 0;
@@ -56,7 +72,7 @@ export async function runResearch(userId: string, deps: ResearchDeps = {}): Prom
   for (const state of picked) {
     const pool = researchPool(state);
     const shownNew = state.newItems;
-    const materialUntil = shownNew.reduce((max, i) => (i.at && i.at > max ? i.at : max), '') || now().toISOString();
+    const materialUntil = readUpTo(shownNew, state.unshownEarliest, now());
     let action: ResearchAction | { kind: 'failed'; detail: string };
     let cost = 0;
 
@@ -151,7 +167,11 @@ function priced(model: string, usage: ClaudeUsage): number {
 // ── Loading ─────────────────────────────────────────────────────────────────
 
 /** Every question's state for one person: current answer, its evidence, what is new. */
-export async function loadStates(userId: string, db: typeof supabase): Promise<Array<QuestionState & { since: string | null }>> {
+export async function loadStates(
+  userId: string,
+  db: typeof supabase,
+  rereadSince?: string,
+): Promise<Array<QuestionState & { since: string | null; unshownEarliest: string | null }>> {
   const questions = await loadQuestions(db);
 
   const [{ data: domains }, { data: current }, { data: log }] = await Promise.all([
@@ -163,6 +183,7 @@ export async function loadStates(userId: string, db: typeof supabase): Promise<A
   const floor = new Map((domains ?? []).map((d: any) => [d.id, Number(d.confidence_floor)]));
   const since = new Map<number, string>();
   for (const l of (log ?? []) as any[]) if (!since.has(l.question_id)) since.set(l.question_id, l.material_until);
+  if (rereadSince) for (const q of questions) since.set(q.id, rereadSince);
 
   const answers = await loadCurrentAnswers(db, (current ?? []) as any[]);
 
@@ -174,10 +195,12 @@ export async function loadStates(userId: string, db: typeof supabase): Promise<A
   return questions.map((q) => {
     const s = since.get(q.id) ?? null;
     const cited = new Set((answers.get(q.id)?.evidence ?? []).map((e) => JSON.stringify(e.ref)));
-    const newItems = material
-      .filter((i) => (!s || (i.at ?? '') > s) && !cited.has(JSON.stringify(i.ref)))
-      .sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
-      .slice(0, NEW_ITEMS_PER_QUESTION);
+    const candidates = material.filter((i) => (!s || (i.at ?? '') > s) && !cited.has(JSON.stringify(i.ref)));
+    const newItems = rankNewItems(candidates, q.answerableFrom, NEW_ITEMS_PER_QUESTION);
+    const shownSet = new Set(newItems);
+    const unshownEarliest = candidates
+      .filter((i) => !shownSet.has(i) && i.at)
+      .reduce<string | null>((min, i) => (min === null || i.at! < min ? i.at! : min), null);
     const row = ((current ?? []) as any[]).find((c) => c.question_id === q.id);
     return {
       question: q,
@@ -186,6 +209,7 @@ export async function loadStates(userId: string, db: typeof supabase): Promise<A
       competing: Number(row?.competing_answers ?? 0),
       newItems,
       since: s,
+      unshownEarliest,
     };
   });
 }

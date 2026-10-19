@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { PoolItem, Question } from '../src/questions/first-pass';
+import { readUpTo } from '../src/questions/run-research';
 import {
-  mergeEvidence, pickQuestions, researchDerivationKey, researchPool, vetResearch,
+  rankNewItems, mergeEvidence, pickQuestions, researchDerivationKey, researchPool, vetResearch,
   type CurrentAnswer, type QuestionState,
 } from '../src/questions/research';
 import { runResearch } from '../src/questions/run-research';
@@ -168,4 +169,50 @@ test('a failed look is logged without moving past the material, so it is retried
   assert.equal(result.researched[0]!.outcome, 'failed');
   assert.equal(rpc.length, 0);
   assert.equal(inserts[0]!.row.material_until, new Date(0).toISOString());
+});
+
+// ── Routing new items by source (19 October 2026) ───────────────────────────
+
+const routed = (id: string, contentType: string | undefined, at: string, ownWords = false) =>
+  ({ id, contentType, at, ownWords });
+
+test('a calendar question sees calendar items first, even when other items are newer', () => {
+  const items = [
+    routed('yt1', 'youtube', '2026-10-19T21:17:00Z'),
+    routed('cal1', 'calendar', '2026-10-19T21:16:00Z'),
+    routed('mail1', 'gmail', '2026-10-19T21:16:30Z'),
+    routed('cal2', 'calendar', '2026-10-19T21:16:10Z'),
+  ];
+  assert.deepEqual(rankNewItems(items, ['calendar'], 3).map((i) => i.id), ['cal2', 'cal1', 'yt1']);
+});
+
+test('"words" means the person\'s own words, whatever the type', () => {
+  const items = [
+    routed('fact-from-mail', 'gmail', '2026-10-19T21:17:00Z'),
+    routed('journal', 'journal_entry', '2026-10-01T09:00:00Z', true),
+  ];
+  assert.deepEqual(rankNewItems(items, ['words'], 1).map((i) => i.id), ['journal']);
+});
+
+test('a question with no listed sources keeps plain newest-first order', () => {
+  const items = [routed('a', 'gmail', '2026-10-01T00:00:00Z'), routed('b', 'calendar', '2026-10-02T00:00:00Z')];
+  assert.deepEqual(rankNewItems(items, [], 2).map((i) => i.id), ['b', 'a']);
+});
+
+test('the limit still holds', () => {
+  const items = Array.from({ length: 60 }, (_, n) => routed(`c${n}`, 'calendar', `2026-10-19T21:${String(n % 60).padStart(2, '0')}:00Z`));
+  assert.equal(rankNewItems(items, ['calendar'], 40).length, 40);
+});
+
+test('when everything new was shown, the look counts up to the newest item', () => {
+  const now = new Date('2026-10-19T22:00:00Z');
+  assert.equal(readUpTo([{ at: '2026-10-19T21:16:00Z' }, { at: '2026-10-19T21:17:00Z' }], null, now), '2026-10-19T21:17:00Z');
+});
+
+test('items that did not fit are not skipped: the look stops just before the earliest unshown one', () => {
+  const now = new Date('2026-10-19T22:00:00Z');
+  assert.equal(
+    readUpTo([{ at: '2026-10-19T21:17:00Z' }], '2026-10-19T21:16:00.000Z', now),
+    '2026-10-19T21:15:59.999Z',
+  );
 });

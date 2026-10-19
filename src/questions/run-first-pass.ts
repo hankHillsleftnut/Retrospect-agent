@@ -34,6 +34,9 @@ export const POOL_LIMITS = {
   facts: 80,
   patterns: 30,
   recordsPerType: 8,
+  /** Calendar and mail are where the week and the people are; 8 hid most of a
+   *  calendar (19 October 2026). Each entry is short. */
+  recordsPerTypeWeekAndPeople: 40,
 };
 
 const PERSONAL_WRITING_TYPES = ['journal_entry', 'voice_journal', 'voice_recording', 'text_entry', 'video_entry', 'conversation'];
@@ -148,11 +151,12 @@ export async function runFirstPass(userId: string, deps: FirstPassDeps = {}): Pr
 
 export async function loadQuestions(db: typeof supabase): Promise<Question[]> {
   const { data, error } = await db.from(Tables.CANONICAL_QUESTIONS)
-    .select('id,domain_id,text,requires_own_words,hypothesis_only').order('id');
+    .select('id,domain_id,text,requires_own_words,hypothesis_only,answerable_from').order('id');
   if (error) throw new Error(`first pass: could not load questions: ${error.message}`);
   return (data ?? []).map((q: any) => ({
     id: q.id, domainId: q.domain_id, text: q.text,
     requiresOwnWords: q.requires_own_words, hypothesisOnly: q.hypothesis_only,
+    answerableFrom: q.answerable_from ?? [],
   }));
 }
 
@@ -204,7 +208,7 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
       add({
         ref: { raw_content_id: r.id }, ownWords: theirs,
         label: `${label}${theirs ? '' : ' (author not known to be them)'}${sections.length > 1 ? ` (part ${i + 1} of ${sections.length})` : ''} · ${day(r.content_date ?? r.created_at)}`,
-        text: section, quotable: text, at: r.created_at,
+        text: section, quotable: text, at: r.created_at, contentType: r.content_type,
       });
     });
     return true;
@@ -267,6 +271,7 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
       label: `fact${contentType ? ` from ${contentType.replace(/_/g, ' ')}` : ''} · ${day(f.event_time ?? f.observed_at)}`,
       text: `${String(f.predicate).replace(/_/g, ' ')}: ${object}`,
       at: f.created_at,
+      contentType: contentType || undefined,
     });
   }
 
@@ -280,17 +285,19 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
       label: `pattern · seen ${b.instance_count} times, ${day(b.first_seen_at)} to ${day(b.last_seen_at)}`,
       text: b.label,
       at: b.updated_at,
+      contentType: 'pattern',
     });
   }
 
   // A few recent records of each other kind, so record-based questions have
   // something to work with. Health readings are cleaned so a zero reads as
   // "not recorded" -- the lesson of the false sleep claims.
-  for (const type of ['calendar', 'screen_time', 'healthkit']) {
+  for (const type of ['calendar', 'gmail', 'screen_time', 'healthkit']) {
     const { data: records } = await after(db.from(Tables.RAW_CONTENT)
       .select('id,content_type,content,content_date,created_at')
       .eq('user_id', userId).eq('content_type', type), 'created_at')
-      .order('created_at', { ascending: false }).limit(POOL_LIMITS.recordsPerType);
+      .order('created_at', { ascending: false })
+      .limit(type === 'calendar' || type === 'gmail' ? POOL_LIMITS.recordsPerTypeWeekAndPeople : POOL_LIMITS.recordsPerType);
     for (const r of (records ?? []) as any[]) {
       // Only what was actually recorded. A "not recorded" line, even labelled
       // as such, was still read as behaviour in the first dry run.
@@ -301,6 +308,7 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
         label: `${type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}`,
         text,
         at: r.created_at,
+        contentType: r.content_type,
       });
     }
   }
