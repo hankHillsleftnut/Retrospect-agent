@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runMagicMoments } from '../pipelines/magic-moments';
+import { extractStatedGoals } from '../onboarding/stated-goals';
+import { costLines, estimateCostUsd } from '../pipelines/trace';
 import { writeNewDocumentVersion } from '../agents/cook0-agent';
 import type { DbUserUnderstanding, MagicMoment, UserUnderstandingDocument } from '../types';
 
@@ -120,3 +122,32 @@ ${moments
     emerging_dimensions: [...keptDimensions, ...momentDimensions],
   };
 }
+
+/**
+ * POST /onboarding/goals
+ * Body: { userId: string, answersText: string }
+ *
+ * The goals the person stated in onboarding, from one model call over their
+ * answers (src/onboarding/stated-goals.ts). Seconds, not the minutes the full
+ * pipeline took. Saves nothing: the backend stores the goals it shows.
+ */
+onboardingRouter.post('/goals', async (req, res) => {
+  const { userId, answersText } = req.body ?? {};
+  if (!userId || typeof answersText !== 'string') {
+    return res.status(400).json({ error: 'userId and answersText required' });
+  }
+  try {
+    const result = await extractStatedGoals(answersText);
+    const breakdown = {
+      openai_tokens_input: 0, openai_tokens_output: 0,
+      anthropic_tokens_input: result.usage.inputTokens, anthropic_tokens_output: result.usage.outputTokens,
+      embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: 0, est_usd: 0,
+      by_model: { [result.model]: { input: result.usage.inputTokens, output: result.usage.outputTokens, calls: 1 } },
+    };
+    console.log(`[onboarding/goals] user=${userId} goals=${result.goals.length} dropped=${result.dropped} $${estimateCostUsd(breakdown).usd.toFixed(4)}`);
+    return res.json({ goals: result.goals, dropped: result.dropped, cost: costLines(breakdown) });
+  } catch (err) {
+    console.error('[onboarding/goals] failed:', err);
+    return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
