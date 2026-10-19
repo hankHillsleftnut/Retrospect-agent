@@ -590,3 +590,34 @@ test('130: automated evidence alone weighs far less than a person\'s message', a
   const human = await record(answer(user, 1, [{ raw_content_id: await mail(user, 'third_party', 'Great working with you on the design') }]));
   assert.ok((await confidenceOf(auto)) < (await confidenceOf(human)));
 });
+
+// ── 131: one lineage graph over every claim (F1.2) ───────────────────────────
+test('131: answer -> pattern -> fact -> source, and why -> pattern/fact, all appear once in claim_edges', async () => {
+  const s = await factSetup();
+  const factId = await writeFact(fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }]));
+  const { rows: [pat] } = await db.query<{ id: string }>(
+    `INSERT INTO behavior_patterns (user_id, slug, label, grouping_key, status) VALUES ($1, 'skips-standup', 'Skips standup', 'skipped_or_avoided:standup', 'live') RETURNING id`, [s.user]);
+  await db.query(`INSERT INTO behavior_pattern_facts (pattern_id, assertion_id, user_id) VALUES ($1, $2, $3)`, [pat!.id, factId, s.user]);
+  const { rows: [why] } = await db.query<{ id: string }>(
+    `INSERT INTO behavior_pattern_whys (pattern_id, user_id, mechanism, evidence_assertion_ids) VALUES ($1, $2, 'avoidance', ARRAY[$3::uuid]) RETURNING id`,
+    [pat!.id, s.user, factId]);
+  const answerId = await record(answer(s.user, 13, [{ pattern_id: pat!.id }]));
+
+  const { rows } = await db.query<{ claim_kind: string; claim_id: string; evidence_kind: string; evidence_id: string }>(
+    `SELECT claim_kind, claim_id, evidence_kind, evidence_id FROM claim_edges WHERE user_id = $1 ORDER BY claim_kind, evidence_kind`, [s.user]);
+  assert.deepEqual(rows.map((r) => [r.claim_kind, r.evidence_kind, r.evidence_id]), [
+    ['answer', 'pattern', pat!.id],
+    ['fact', 'raw_content', s.entry],
+    ['pattern', 'fact', factId],
+    ['why', 'fact', factId],
+    ['why', 'pattern', pat!.id],
+  ]);
+  assert.ok(rows.some((r) => r.claim_kind === 'answer' && r.claim_id === answerId));
+  assert.ok(rows.some((r) => r.claim_kind === 'why' && r.claim_id === why!.id));
+});
+
+test('131: the app roles cannot read lineage', async () => {
+  const { rows } = await db.query<{ anon: boolean; authed: boolean }>(
+    `SELECT has_table_privilege('anon', 'claim_edges', 'SELECT') AS anon, has_table_privilege('authenticated', 'claim_edges', 'SELECT') AS authed`);
+  assert.deepEqual(rows[0], { anon: false, authed: false });
+});
