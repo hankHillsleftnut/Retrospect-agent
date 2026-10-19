@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { freshDatabase, insertUser, type PGlite } from './support/fresh-database';
 import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
-import { stampTrustClasses } from '../src/brain/trust-stamp';
+import { stampTrustClasses, STAMP_CHUNK } from '../src/brain/trust-stamp';
 import { trustForRow } from '../src/brain/trust';
 
 let db: PGlite;
@@ -39,4 +39,13 @@ test('a mixed batch is recorded class by class', async () => {
 test('a Gmail row without stored labels falls back to its From line', () => {
   assert.equal(trustForRow({ content_type: 'gmail', content: 'Email: Sale!\nFrom: Shop <news@shop.example>' }), 'automated');
   assert.equal(trustForRow({ content_type: 'gmail', content: 'Email: Climbing?\nFrom: Priya Raman <priya@example.com>' }), 'third_party');
+});
+
+test('large batches are recorded in chunks small enough for the API', async () => {
+  const calls: number[] = [];
+  const fakeDb = { from: () => ({ update: () => ({ in: async (_c: string, ids: string[]) => { calls.push(ids.length); return { error: null }; } }) }) } as any;
+  const rows = Array.from({ length: 250 }, (_, i) => ({ id: `r${i}`, content_type: 'calendar' }));
+  const counts = await stampTrustClasses(rows, fakeDb);
+  assert.deepEqual(calls, [STAMP_CHUNK, STAMP_CHUNK, 50]);
+  assert.deepEqual(counts, { record: 250 });
 });
