@@ -14,7 +14,14 @@
  *   content    subscriptions (dated). Liked videos are NOT dated by the API --
  *              their date is when the video was published -- so they are left
  *              out of daily counts rather than placed on the wrong day.
+ *   health, screen_time
+ *              the labelled readings ("Steps: 8,412") of the day's latest
+ *              sync. A zero is "not recorded", never a measurement: a passive
+ *              sensor can't tell "you did none" from "I saw nothing" (see
+ *              health-summary.ts, 18 Oct: 746 nights of "0 hours sleep").
  */
+
+import { normalizeHealthSummary } from '../pipelines/health-summary';
 
 export type Domain = 'calendar' | 'own_words' | 'mail' | 'content' | 'health' | 'screen_time';
 
@@ -29,6 +36,8 @@ export interface SummaryItem {
   normalized_data?: Record<string, unknown> | null;
   /** Length of the text, for own words. Never the text itself. */
   chars?: number;
+  /** The text, for health and screen time only: labelled readings are parsed from it. */
+  text?: string;
 }
 
 export interface DailySummary {
@@ -75,6 +84,8 @@ function domainOf(i: SummaryItem): Domain | null {
   if (OWN_WORDS.has(i.content_type) && i.trust_class !== 'automated') return 'own_words';
   if (i.content_type === 'gmail') return 'mail';
   if (i.content_type === 'youtube' && i.metadata?.relationship === 'subscribed_to') return 'content';
+  if (i.content_type === 'healthkit') return 'health';
+  if (i.content_type === 'screen_time') return 'screen_time';
   return null;
 }
 
@@ -88,6 +99,9 @@ export function summariseDays(items: SummaryItem[], offset = usualOffset(items))
       const start = i.normalized_data?.start;
       if (typeof start !== 'string') continue;
       day = i.normalized_data?.all_day ? start.slice(0, 10) : localTime(start, offsetMinutes(start) ?? offset).day;
+    } else if ((domain === 'health' || domain === 'screen_time') && typeof i.metadata?.sync_day === 'string') {
+      // A daily summary names its own day; trust that over when it was synced.
+      day = String(i.metadata.sync_day).slice(0, 10);
     } else {
       day = localTime(i.occurred_at ?? i.created_at, offset).day;
     }
@@ -141,5 +155,27 @@ function metricsFor(domain: Domain, its: SummaryItem[], offset: number): DailySu
       automated: its.filter((i) => i.trust_class === 'automated').length,
     };
   }
+  if (domain === 'health' || domain === 'screen_time') {
+    // Synced twice that day: the latest sync is the day's reading.
+    const latest = [...its].sort((a, b) => b.created_at.localeCompare(a.created_at))[0]!;
+    return labelledReadings(latest.text ?? '');
+  }
   return { subscribed: its.length };
+}
+
+/**
+ * "Steps: 8,412" -> { steps: 8412 }. Zero readings are dropped: not recorded.
+ * Units are kept in the key ("sleep_hours") so a number never loses its meaning.
+ */
+export function labelledReadings(text: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const line of normalizeHealthSummary(text).split('\n')) {
+    const m = /^\s*([A-Za-z][A-Za-z ()/-]*?)\s*:\s*([\d,]+(?:\.\d+)?)\s*([A-Za-z%]+)?\s*$/.exec(line);
+    if (!m) continue;
+    const value = Number(m[2]!.replace(/,/g, ''));
+    if (!Number.isFinite(value) || value === 0) continue;
+    const key = [m[1], m[3]].filter(Boolean).join(' ').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    out[key] = value;
+  }
+  return out;
 }
