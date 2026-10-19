@@ -14,14 +14,26 @@ import { Tables } from '../db/tables';
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { estimateCostUsd } from '../pipelines/trace';
-import { isHealthSummary, normalizeHealthSummary } from '../pipelines/health-summary';
+import { isHealthSummary, recordedReadingsOnly } from '../pipelines/health-summary';
 import {
   FIRST_PASS_SYSTEM, OWN_WORDS_CONTENT_TYPES, buildFirstPassPrompt, firstPassDerivationKey, vetFirstPass,
   type Outcome, type PoolItem, type Question,
 } from './first-pass';
 
 /** How much is put in front of the model. Newest first within each group. */
-export const POOL_LIMITS = { ownWords: 60, facts: 80, patterns: 30, recordsPerType: 8 };
+export const POOL_LIMITS = {
+  /** Journal entries, voice notes, text entries: the most candid words there are. */
+  personalWriting: 45,
+  /** Onboarding is one profile, often re-uploaded; the latest copy says it all. */
+  onboarding: 1,
+  /** Document sections, spread across documents. */
+  documentSections: 14,
+  facts: 80,
+  patterns: 30,
+  recordsPerType: 8,
+};
+
+const PERSONAL_WRITING_TYPES = ['journal_entry', 'voice_journal', 'voice_recording', 'text_entry', 'video_entry'];
 /** A piece of writing shorter than this says too little to cite. */
 const MIN_WORDS_CHARS = 20;
 
@@ -148,22 +160,68 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
   const after = (q: any, column: string) => (since ? q.gt(column, since) : q);
 
   // Their own words: the richest evidence there is.
-  const { data: words } = await after(db.from(Tables.RAW_CONTENT)
-    .select('id,content_type,content,content_date,created_at')
-    .eq('user_id', userId).in('content_type', [...OWN_WORDS_CONTENT_TYPES]), 'created_at')
-    .order('created_at', { ascending: false }).limit(POOL_LIMITS.ownWords * 4);
+  //
+  // Drawn by kind, each with its own share. Taking "the newest N" across all
+  // kinds let one source crowd out the rest: in the first dry run (18 October
+  // 2026), 1,357 rows of four Google Docs -- chunked, and re-synced again and
+  // again -- left room for almost none of the founder's 65 text entries and 13
+  // voice notes. Copies are dropped by content, and a document counts once per
+  // section however many times it was synced.
   const seen = new Set<string>();
-  for (const r of (words ?? []) as any[]) {
+  const addWords = (r: any, label: string) => {
     const text = String(r.content ?? '');
     const key = createHash('sha256').update(text).digest('hex');
-    if (text.trim().length < MIN_WORDS_CHARS || seen.has(key)) continue;
+    if (text.trim().length < MIN_WORDS_CHARS || seen.has(key)) return false;
     seen.add(key);
     add({
       ref: { raw_content_id: r.id }, ownWords: true,
-      label: `${r.content_type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}`,
+      label: `${label} · ${day(r.content_date ?? r.created_at)}`,
       text, quotable: text, at: r.created_at,
     });
-    if (seen.size >= POOL_LIMITS.ownWords) break;
+    return true;
+  };
+  const wordsOf = async (types: string[], limit: number) => {
+    const { data } = await after(db.from(Tables.RAW_CONTENT)
+      .select('id,content_type,content,content_date,created_at,metadata')
+      .eq('user_id', userId).in('content_type', types), 'created_at')
+      .order('created_at', { ascending: false }).limit(limit);
+    return (data ?? []) as any[];
+  };
+
+  let taken = 0;
+  for (const r of await wordsOf(PERSONAL_WRITING_TYPES, POOL_LIMITS.personalWriting * 4)) {
+    if (taken >= POOL_LIMITS.personalWriting) break;
+    if (addWords(r, String(r.content_type).replace(/_/g, ' '))) taken += 1;
+  }
+
+  taken = 0;
+  for (const r of await wordsOf(['onboarding_profile'], 20)) {
+    if (taken >= POOL_LIMITS.onboarding) break;
+    if (addWords(r, 'onboarding')) taken += 1;
+  }
+
+  // Documents: newest version of each section, then round-robin across
+  // documents so one long doc cannot take every slot.
+  const sections = new Map<string, any>();
+  for (const r of await wordsOf(['google_docs'], 600)) {
+    const key = `${r.metadata?.document_id ?? r.id}#${r.metadata?.chunk_index ?? 0}`;
+    if (!sections.has(key)) sections.set(key, r);
+  }
+  const byDoc = new Map<string, any[]>();
+  for (const r of sections.values()) {
+    const doc = String(r.metadata?.document_id ?? r.id);
+    byDoc.set(doc, [...(byDoc.get(doc) ?? []), r]);
+  }
+  const queues = [...byDoc.values()].map((rows) =>
+    rows.sort((x, y) => Number(x.metadata?.chunk_index ?? 0) - Number(y.metadata?.chunk_index ?? 0)));
+  taken = 0;
+  while (taken < POOL_LIMITS.documentSections && queues.some((q) => q.length)) {
+    for (const q of queues) {
+      const r = q.shift();
+      if (!r || taken >= POOL_LIMITS.documentSections) continue;
+      const title = r.metadata?.title ? `document "${r.metadata.title}"` : 'document';
+      if (addWords(r, title)) taken += 1;
+    }
   }
 
   // Facts already extracted and verified.
@@ -204,7 +262,10 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
       .eq('user_id', userId).eq('content_type', type), 'created_at')
       .order('created_at', { ascending: false }).limit(POOL_LIMITS.recordsPerType);
     for (const r of (records ?? []) as any[]) {
-      const text = isHealthSummary(r.content_type) ? normalizeHealthSummary(r.content) : String(r.content ?? '');
+      // Only what was actually recorded. A "not recorded" line, even labelled
+      // as such, was still read as behaviour in the first dry run.
+      const text = isHealthSummary(r.content_type) ? recordedReadingsOnly(r.content) : String(r.content ?? '');
+      if (!text || text.split('\n').length <= 1) continue;
       add({
         ref: { raw_content_id: r.id }, ownWords: false,
         label: `${type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}`,

@@ -79,7 +79,7 @@ Rules:
 2. For items marked THEIR WORDS, copy a short exact quote (under 25 words), character for character. Quotes are checked; a paraphrase is discarded.
 3. OWN WORDS ONLY questions can only be answered from THEIR WORDS items.
 4. A zero or missing reading in a health or screen-time record means "not recorded", never "none".
-5. Answers are one or two plain sentences, specific, third person, no hedging words, never clinical, never presenting an inference as something they said.
+5. Answers are one or two plain sentences, specific, third person, no hedging words, never clinical, never presenting an inference as something they said. Refer to the person as "they" unless their own words state their pronouns. Never mention item handles (E1, E2, ...) in the answer text; they belong only in "evidence".
 6. Prefer "unchanged" to a strained connection. Only cite what genuinely bears on the question.
 
 Return STRICT JSON only:

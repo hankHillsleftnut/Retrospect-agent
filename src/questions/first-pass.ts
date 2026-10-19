@@ -76,7 +76,7 @@ Rules:
 3. If an item points against your guess, cite it with "stance": "contradicts". Do not hide disagreement.
 4. Questions marked OWN WORDS ONLY can only be answered from items marked THEIR WORDS. A health or calendar record cannot tell you how someone feels or what they want.
 5. A zero or missing reading in a health or screen-time record means "not recorded", never "none".
-6. Write the answer in one or two plain sentences, specific to this person, in the third person. No hedging words; uncertainty is tracked separately. Never diagnose, never use clinical language.
+6. Write the answer in one or two plain sentences, specific to this person, in the third person. No hedging words; uncertainty is tracked separately. Never diagnose, never use clinical language. Refer to the person as "they" unless their own words state their pronouns. Never mention item handles (E1, E2, ...) in the answer text; they belong only in "evidence".
 7. Never present an inference as something they told you.
 
 Return STRICT JSON only:

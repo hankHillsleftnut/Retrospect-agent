@@ -158,3 +158,12 @@ test('a person with nothing on record gets no guesses and costs nothing', async 
   assert.equal(rpc.length, 0);
   assert.equal(report.byStatus.not_returned, 1);
 });
+
+test('the model is told not to assume pronouns or leak item handles into answers', async () => {
+  const { FIRST_PASS_SYSTEM } = await import('../src/questions/first-pass.js');
+  const { RESEARCH_SYSTEM } = await import('../src/questions/research.js');
+  for (const prompt of [FIRST_PASS_SYSTEM, RESEARCH_SYSTEM]) {
+    assert.match(prompt, /as "they" unless their own words state their pronouns/);
+    assert.match(prompt, /Never mention item handles/);
+  }
+});

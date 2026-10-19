@@ -31,6 +31,26 @@ export function normalizeHealthSummary(text: string): string {
   return text.replace(ZERO_READING, (_line, label: string) => `${label}not recorded`);
 }
 
+/**
+ * Only the readings that were actually recorded. "Not recorded" and
+ * "Unavailable" lines are removed entirely rather than shown.
+ *
+ * Found in the first question-store dry run, 18 October 2026: shown "Sleep:
+ * not recorded" day after day, and told explicitly that this means nothing was
+ * measured, the model still concluded the person "does not practise" sleep
+ * tracking or mindfulness. An instruction does not reliably stop a model reading
+ * absence as behaviour; not showing the absence does.
+ */
+export function recordedReadingsOnly(text: string): string {
+  return normalizeHealthSummary(text)
+    .split('\n')
+    // An empty reading ("Sleep stages: ") goes too -- but not the title line
+    // ("Apple Health summary for Aug 8:"), which also ends in a colon.
+    .filter((line, i) => !/:\s*(not recorded|unavailable)\b/i.test(line) && (i === 0 || !/:\s*$/.test(line)))
+    .join('\n')
+    .trim();
+}
+
 /** Whether a content type is a passive health summary this applies to. */
 export function isHealthSummary(contentType: string): boolean {
   return contentType === 'healthkit';
