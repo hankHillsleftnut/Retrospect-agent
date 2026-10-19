@@ -1,5 +1,6 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { config } from '../config';
 
 interface IntegrationCheck {
   name: string;
@@ -149,15 +150,22 @@ export async function runIntegrationTests(connectionId: string) {
     status: analysisEligibleIds.length === 0 ? 'warning' : incompleteRawCount === 0 ? 'passed' : 'failed',
     detail: `${rawCount - incompleteRawCount}/${rawCount} projected raw-content item(s) completed analysis`,
   });
-  checks.push({
-    name: 'derived_evidence_links',
-    status: sourceItemIds.length === 0 || evidenceCount === 0 ? 'warning' : 'passed',
-    detail: `${evidenceCount} exact evidence link(s) into derived intelligence`,
-  });
   let assertionEvidenceCount = 0;
   if (sourceItemIds.length > 0) {
     assertionEvidenceCount = await countByForeignKey(Tables.ASSERTION_EVIDENCE, 'source_item_id', sourceItemIds);
   }
+  // Links into observations/insights measure the old framework. Since the
+  // facts-only extractor (decision-record #18) that layer no longer grows, so
+  // in facts mode zero is correct and this check reports, not warns; the next
+  // check -- facts with their evidence -- is the one that matters.
+  const legacyRetired = config.extraction.mode !== 'legacy';
+  checks.push({
+    name: 'derived_evidence_links',
+    status: legacyRetired ? 'passed' : (sourceItemIds.length === 0 || evidenceCount === 0 ? 'warning' : 'passed'),
+    detail: legacyRetired
+      ? `${evidenceCount} link(s) into the retired observations/insights layer (not expected in facts mode)`
+      : `${evidenceCount} exact evidence link(s) into derived intelligence`,
+  });
   checks.push({
     name: 'graph_v2_assertion_evidence',
     status: sourceItemIds.length === 0 || assertionEvidenceCount === 0 ? 'warning' : 'passed',
