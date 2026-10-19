@@ -12,7 +12,7 @@ import {
   EPISODE_TITLE_DESC_SYSTEM_PROMPT,
 } from '../prompts/episode-summary';
 import { runPodcastAgent } from '../agents/podcast-agent';
-import { Trace, TraceTrigger } from './trace';
+import { Trace, TraceTrigger, costLines, type CostLine } from './trace';
 import { formatUnderstanding, loadUnderstanding } from '../questions/understanding';
 import type {
   DbGoal,
@@ -59,6 +59,8 @@ export interface PodcastResult {
   description: string;
   mood: string;
   durationSeconds: number;
+  /** Where the money went: provider, model, calls, tokens, price. */
+  cost: CostLine[];
 }
 
 // ============================================
@@ -603,6 +605,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       description: titleDesc.description,
       mood: titleDesc.mood,
       durationSeconds,
+      cost: costLines(trace.snapshot().cost_breakdown),
     };
   } catch (err) {
     await trace.fail(err);

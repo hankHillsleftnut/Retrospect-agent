@@ -343,7 +343,7 @@ export class Trace {
 }
 
 export interface CostLine {
-  provider: 'Anthropic' | 'OpenAI' | 'unknown';
+  provider: 'Anthropic' | 'OpenAI' | 'ElevenLabs' | 'Perplexity' | 'unknown';
   model: string;
   calls: number | null;
   inputTokens: number;
@@ -354,6 +354,8 @@ export interface CostLine {
   usd: number;
   /** True when the model is missing from the price table and the fallback was used. */
   estimatedAtFallback: boolean;
+  /** For services not billed by tokens: what was counted, e.g. "4,210 characters". */
+  units?: string;
 }
 
 /**
@@ -362,6 +364,19 @@ export interface CostLine {
  * founder deciding whether a run was worth it needs the parts.
  */
 export function costLines(cost: CostBreakdown): CostLine[] {
+  // Services billed by something other than chat tokens get their own lines,
+  // so a run's total never hides voice, research or embeddings.
+  const other: CostLine[] = [];
+  const line = (provider: CostLine['provider'], model: string, units: string, usd: number, calls: number | null = null): CostLine =>
+    ({ provider, model, calls, inputTokens: 0, outputTokens: 0, pricePerMTokIn: 0, pricePerMTokOut: 0,
+       usd: Math.round(usd * 10000) / 10000, estimatedAtFallback: false, units });
+  if (cost.elevenlabs_chars > 0) other.push(line('ElevenLabs', 'voice', `${cost.elevenlabs_chars.toLocaleString()} characters @ $${TTS_PRICE_PER_1K_CHARS}/1k`, cost.elevenlabs_chars * TTS_PRICE_PER_1K_CHARS / 1000));
+  if (cost.perplexity_calls > 0) other.push(line('Perplexity', 'web research', `@ $${PERPLEXITY_PRICE_PER_CALL}/call`, cost.perplexity_calls * PERPLEXITY_PRICE_PER_CALL, cost.perplexity_calls));
+  if (cost.embedding_tokens > 0) other.push(line('OpenAI', 'embeddings', `${cost.embedding_tokens.toLocaleString()} tokens @ $${EMBEDDING_PRICE_PER_MTOK}/M`, cost.embedding_tokens * EMBEDDING_PRICE_PER_MTOK / 1_000_000));
+  return [...modelLines(cost), ...other];
+}
+
+function modelLines(cost: CostBreakdown): CostLine[] {
   return Object.entries(cost.by_model ?? {}).map(([model, u]) => {
     const price = MODEL_PRICES[model];
     const { in: pin, out: pout } = price ?? FALLBACK_PRICE;
@@ -381,7 +396,9 @@ export function costLines(cost: CostBreakdown): CostLine[] {
 
 /** The lines as a small table for a terminal, with what each model was used for. */
 export function formatCostLines(lines: CostLine[], purpose: Record<string, string> = {}): string {
-  const rows = lines.map((l) =>
+  const rows = lines.map((l) => l.units
+    ? `  ${l.provider.padEnd(10)} ${l.model.padEnd(18)} ${l.calls !== null ? `${String(l.calls).padStart(4)} calls  ` : ''}${l.units}  = $${l.usd.toFixed(3)}${purpose[l.model] ? `  -- ${purpose[l.model]}` : ''}`
+    :
     `  ${l.provider.padEnd(9)} ${l.model.padEnd(18)} ${String(l.calls ?? '?').padStart(4)} calls  ` +
     `${l.inputTokens.toLocaleString().padStart(9)} in / ${l.outputTokens.toLocaleString().padStart(7)} out  ` +
     `@ $${l.pricePerMTokIn}/$${l.pricePerMTokOut} per M  = $${l.usd.toFixed(3)}` +

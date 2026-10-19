@@ -219,3 +219,13 @@ test('the cost breakdown names the provider, model, calls, tokens and price', as
   ]);
   assert.match(formatCostLines(lines, { 'gpt-4o': 'extractor' }), /OpenAI\s+gpt-4o\s+20 calls.*-- extractor/);
 });
+
+test('voice, web research and embeddings get their own cost lines', async () => {
+  const { costLines } = await import('../src/pipelines/trace.js');
+  const lines = costLines({
+    openai_tokens_input: 0, openai_tokens_output: 0, anthropic_tokens_input: 0, anthropic_tokens_output: 0,
+    embedding_tokens: 1_000_000, perplexity_calls: 3, elevenlabs_chars: 5_000, est_usd: 0,
+  });
+  assert.deepEqual(lines.map((l) => l.provider), ['ElevenLabs', 'Perplexity', 'OpenAI']);
+  assert.ok(lines.every((l) => l.usd > 0 && l.units));
+});
