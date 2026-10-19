@@ -11,6 +11,7 @@
 import 'dotenv/config';
 import { parseArgs, requireArg } from './_args';
 import { runFirstPass } from '../src/questions/run-first-pass';
+import { formatCostLines } from '../src/pipelines/trace';
 
 async function main() {
   const args = parseArgs();
@@ -30,6 +31,7 @@ async function main() {
   console.log(`\n${JSON.stringify(report.byStatus)}`);
   if (!dryRun) console.log(`recorded ${report.recorded} of ${report.guessed}`);
   for (const r of report.refusedByDatabase) console.log(`refused Q${r.questionId}: ${r.reason}`);
+  console.log(`\nCost:\n${formatCostLines(report.cost, Object.fromEntries(report.cost.map((l) => [l.model, 'guessing answers, one call per part of life'])))}`);
 }
 
 main().catch((err) => { console.error(err); process.exit(1); });

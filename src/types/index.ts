@@ -513,6 +513,8 @@ export interface Cook0Result {
 export interface ModelUsage {
   input: number;
   output: number;
+  /** Number of API calls. Optional: rows written before it existed lack it. */
+  calls?: number;
 }
 
 export interface CostBreakdown {
