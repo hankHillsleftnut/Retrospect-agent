@@ -621,3 +621,70 @@ test('131: the app roles cannot read lineage', async () => {
     `SELECT has_table_privilege('anon', 'claim_edges', 'SELECT') AS anon, has_table_privilege('authenticated', 'claim_edges', 'SELECT') AS authed`);
   assert.deepEqual(rows[0], { anon: false, authed: false });
 });
+
+// ── 132: material arrived — the event that starts reading (F3.1) ────────────
+const arrivalOf = async (user: string) =>
+  (await db.query<{ arrivals: number; claimed_at: string | null }>(`SELECT arrivals, claimed_at FROM material_arrivals WHERE user_id = $1`, [user])).rows[0];
+const claimAll = async (quiet = '0 seconds', maxWait = '1 hour') =>
+  (await db.query<{ user_id: string; claimed_at: string }>(`SELECT * FROM claim_material_arrivals($1::interval, $2::interval, '15 minutes'::interval, 1000)`, [quiet, maxWait])).rows;
+const finish = async (user: string, claimedAt: unknown, ok: boolean) =>
+  (await db.query<{ r: string }>(`SELECT finish_material_arrival($1, $2, $3) AS r`, [user, claimedAt, ok])).rows[0]!.r;
+
+test('132: a batch upload is one arrival for that person, counting every item', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'calendar', 'a'), ($1, 'calendar', 'b'), ($1, 'calendar', 'c')`, [user]);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'd')`, [user]);
+  assert.deepEqual(await arrivalOf(user), { arrivals: 4, claimed_at: null });
+});
+
+test('132: someone still sending is not claimed until quiet; a long wait is claimed anyway', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'x')`, [user]);
+  assert.ok(!(await claimAll('1 hour', '1 hour')).some((r) => r.user_id === user), 'not quiet yet');
+  await db.query(`UPDATE material_arrivals SET first_pending_at = now() - interval '11 minutes' WHERE user_id = $1`, [user]);
+  assert.ok((await claimAll('1 hour', '10 minutes')).some((r) => r.user_id === user), 'waited too long');
+});
+
+test('132: a claim is taken once; finishing spends it, or keeps it if more arrived meanwhile', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'one')`, [user]);
+  await db.query(`UPDATE material_arrivals SET last_arrival_at = now() - interval '1 minute' WHERE user_id = $1`, [user]);
+  const [c] = (await claimAll()).filter((r) => r.user_id === user);
+  assert.ok(c);
+  assert.ok(!(await claimAll()).some((r) => r.user_id === user), 'not claimed twice');
+  assert.equal(await finish(user, c!.claimed_at, true), 'done');
+  assert.equal(await arrivalOf(user), undefined);
+
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'two')`, [user]);
+  await db.query(`UPDATE material_arrivals SET last_arrival_at = now() - interval '1 minute' WHERE user_id = $1`, [user]);
+  const [c2] = (await claimAll()).filter((r) => r.user_id === user);
+  await db.query(`UPDATE material_arrivals SET last_arrival_at = now() + interval '1 second' WHERE user_id = $1`, [user]);
+  assert.equal(await finish(user, c2!.claimed_at, true), 'more_arrived');
+  assert.equal((await arrivalOf(user))!.claimed_at, null, 'released, still pending');
+});
+
+test('132: a failed run releases the claim so it is tried again', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'x')`, [user]);
+  await db.query(`UPDATE material_arrivals SET last_arrival_at = now() - interval '1 minute' WHERE user_id = $1`, [user]);
+  const [c] = (await claimAll()).filter((r) => r.user_id === user);
+  assert.equal(await finish(user, c!.claimed_at, false), 'released');
+  assert.ok((await claimAll()).some((r) => r.user_id === user));
+});
+
+test('132: if the arrival record cannot be written, the upload still lands', async () => {
+  const user = await insertUser(db);
+  await db.query(`ALTER TABLE material_arrivals RENAME TO material_arrivals_away`);
+  try {
+    await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'kept')`, [user]);
+    assert.equal(await countWhere(`SELECT count(*) AS n FROM raw_content WHERE user_id = $1`, [user]), 1);
+  } finally {
+    await db.query(`ALTER TABLE material_arrivals_away RENAME TO material_arrivals`);
+  }
+});
+
+test('132: the app roles cannot see or touch the arrival queue', async () => {
+  const { rows } = await db.query<{ anon: boolean; authed: boolean }>(
+    `SELECT has_table_privilege('anon', 'material_arrivals', 'SELECT') AS anon, has_table_privilege('authenticated', 'material_arrivals', 'SELECT') AS authed`);
+  assert.deepEqual(rows[0], { anon: false, authed: false });
+});
