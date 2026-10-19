@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { freshDatabase, insertUser, type PGlite } from './support/fresh-database';
 import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
-import { handleArrivals, claimFromDb, finishInDb, type ArrivalDeps, type Claim } from '../src/events/arrivals';
+import { handleArrivals, claimFromDb, finishInDb, summariseLatency, type ArrivalDeps, type Claim } from '../src/events/arrivals';
 
 const claim = (user_id: string): Claim => ({ user_id, claimed_at: '2026-10-19T00:00:00Z', arrivals: 1 });
 
@@ -64,4 +64,13 @@ test('against the database: an upload is claimed once settled and spent when don
 test('133: a run can record that an event started it', async () => {
   const user = await insertUser(db);
   await db.query(`INSERT INTO pipeline_run_traces (user_id, kind, triggered_by) VALUES ($1, 'ingest', 'event')`, [user]);
+});
+
+test('F3.3: latency is summarised from arrival and read times; waiting items are counted apart', async () => {
+  const at = (m: number) => new Date(Date.UTC(2026, 9, 19, 12, m)).toISOString();
+  const s = summariseLatency(
+    [{ created_at: at(0), processed_at: at(3) }, { created_at: at(0), processed_at: at(5) }, { created_at: at(0), processed_at: at(45) }, { created_at: at(0), processed_at: null }],
+    [{ triggered_by: 'event' }, { triggered_by: 'event' }, { triggered_by: 'cron' }],
+  );
+  assert.deepEqual(s, { read: 3, pending: 1, p50Minutes: 5, p90Minutes: 45, within10Min: 0.67, runsBy: { event: 2, cron: 1 } });
 });

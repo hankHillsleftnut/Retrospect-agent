@@ -38,6 +38,7 @@
     "brief": "tsx scripts/daily-brief.ts",
     "e2e:onboarding": "tsx scripts/e2e-onboarding.ts",
     "eval:brain": "tsx scripts/eval-brain.ts",
+    "events:report": "tsx scripts/events-report.ts",
     "trust:backfill": "tsx scripts/backfill-trust.ts"
   },
   "keywords": [
