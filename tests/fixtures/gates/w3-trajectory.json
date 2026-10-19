@@ -1,0 +1,18 @@
+{
+  "gate": "W3 pattern trajectory",
+  "note": "Counts of a pattern's instances in the previous window and the recent window, each 28 days unless stated. 'insufficient' means the honest answer is: not enough evidence to say it changed.",
+  "cases": [
+    { "id": "r1", "pattern": "skipped the gym", "prior": 5, "recent": 2, "expect": "insufficient", "note": "the spec's own example, 'twice this month, five times last' — 5 vs 2 is not yet significant on its own; it may be described as a count, not asserted as weakening" },
+    { "id": "r2", "pattern": "skipped the gym", "prior": 12, "recent": 2, "expect": "weakening" },
+    { "id": "r3", "pattern": "stayed up past 2am", "prior": 3, "recent": 14, "expect": "strengthening", "note": "it must be able to say a pattern got worse" },
+    { "id": "r4", "pattern": "called home", "prior": 4, "recent": 4, "expect": "holding" },
+    { "id": "r5", "pattern": "doom-scrolled before bed", "prior": 0, "recent": 1, "expect": "insufficient" },
+    { "id": "r6", "pattern": "said yes to things they didn't care about", "prior": 9, "recent": 8, "expect": "holding" },
+    { "id": "r7", "pattern": "worked weekends", "prior": 8, "recent": 0, "expect": "weakening" },
+    { "id": "r8", "pattern": "went quiet when feeling inadequate", "prior": 1, "recent": 0, "expect": "insufficient", "note": "one instance to zero is not evidence of change" },
+    { "id": "r9", "pattern": "ran in the morning", "prior": 2, "recent": 11, "expect": "strengthening" },
+    { "id": "r10", "pattern": "skipped standup", "prior": 6, "recent": 3, "expect": "insufficient" },
+    { "id": "r11", "pattern": "skipped standup", "prior": 20, "recent": 9, "expect": "weakening", "note": "same ratio as r10, more evidence" },
+    { "id": "r12", "pattern": "late-night snacking", "prior": 7, "recent": 7, "recent_days": 14, "expect": "strengthening", "note": "same count in half the time: the rate doubled" }
+  ]
+}
