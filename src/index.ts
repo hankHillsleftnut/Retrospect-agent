@@ -3,6 +3,7 @@ import './services/telemetry';
 import cors from 'cors';
 import path from 'path';
 import cron from 'node-cron';
+import { runOnboardingPipeline } from './jobs/onboarding-pipeline';
 import { config } from './config';
 import { requireInternalSecret } from './middleware/internal-auth';
 import { healthRouter } from './routes/health';
@@ -74,6 +75,16 @@ function envFlag(name: string, fallback = false): boolean {
   if (raw === 'true') return true;
   if (raw === 'false') return false;
   return fallback;
+}
+
+// The onboarding pipeline: every 2 minutes, move each new account one step
+// toward its first episode (read -> first pass -> episode). Off unless
+// ENABLE_ONBOARDING_PIPELINE=true, so it can be switched on deliberately.
+if (envFlag('ENABLE_ONBOARDING_PIPELINE')) {
+  cron.schedule('*/2 * * * *', () => {
+    runOnboardingPipeline().catch((err) => console.error('[cron] onboarding-pipeline error:', err));
+  });
+  console.log('[cron] onboarding pipeline enabled (every 2 minutes)');
 }
 
 // In-process cron jobs. Gated behind ENABLE_AGENT_CRONS so we can deploy the
