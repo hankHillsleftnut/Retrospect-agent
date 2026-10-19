@@ -99,3 +99,20 @@ export function trustForRow(row: { content_type: string; authorship?: string | n
     text: row.content,
   }).trustClass;
 }
+
+/**
+ * Which claims about the person ("Self") each class may support. Own words may
+ * support anything; the rest only what they can witness -- behaviour, never
+ * inner life (felt, believes, values, wants, said_about_self, stated_goal...).
+ * W1.3; judged by the W1 gate and tests/trust-enforcement.test.ts.
+ */
+export const SELF_PREDICATES_BY_CLASS: Record<Exclude<TrustClass, 'own_words'>, ReadonlySet<string>> = {
+  record: new Set(['attended', 'scheduled', 'health_metric', 'consumed_or_followed', 'communicated_with', 'mentioned_person']),
+  third_party: new Set(['communicated_with', 'scheduled', 'mentioned_person']),
+  automated: new Set(['consumed_or_followed']),
+  reference: new Set(),
+};
+
+export function selfClaimAllowed(trustClass: TrustClass, predicate: string): boolean {
+  return trustClass === 'own_words' || SELF_PREDICATES_BY_CLASS[trustClass].has(predicate);
+}
