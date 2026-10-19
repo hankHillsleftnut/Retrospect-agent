@@ -31,7 +31,8 @@
     "db:check": "tsx scripts/schema-check.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "questions:first-pass": "tsx scripts/questions-first-pass.ts",
-    "bank:score": "tsx scripts/bank-score.ts"
+    "bank:score": "tsx scripts/bank-score.ts",
+    "import:transcript": "tsx scripts/import-transcript.ts"
   },
   "keywords": [
     "agent",

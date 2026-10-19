@@ -24,6 +24,8 @@ import {
 export const POOL_LIMITS = {
   /** Journal entries, voice notes, text entries: the most candid words there are. */
   personalWriting: 45,
+  /** Characters of personal writing shown in total, newest first. */
+  personalWritingChars: 60_000,
   /** Onboarding is one profile, often re-uploaded; the latest copy says it all. */
   onboarding: 1,
   /** Document sections, spread across documents. */
@@ -33,7 +35,30 @@ export const POOL_LIMITS = {
   recordsPerType: 8,
 };
 
-const PERSONAL_WRITING_TYPES = ['journal_entry', 'voice_journal', 'voice_recording', 'text_entry', 'video_entry'];
+const PERSONAL_WRITING_TYPES = ['journal_entry', 'voice_journal', 'voice_recording', 'text_entry', 'video_entry', 'conversation'];
+/** Long writing is shown in sections of about this many characters. */
+export const SECTION_CHARS = 1_200;
+
+/**
+ * Split text into sections near `size`, breaking at a paragraph if possible,
+ * otherwise at a sentence, never mid-word. Joined back, the sections are the
+ * original text.
+ */
+export function splitIntoSections(text: string, size: number): string[] {
+  if (text.length <= size * 1.25) return [text];
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > size * 1.25) {
+    const window = rest.slice(0, size);
+    const cut = Math.max(window.lastIndexOf('\n\n'), window.lastIndexOf('. '), window.lastIndexOf('\n'));
+    const at = cut > size * 0.5 ? cut + 1 : (window.lastIndexOf(' ') > 0 ? window.lastIndexOf(' ') + 1 : size);
+    out.push(rest.slice(0, at));
+    rest = rest.slice(at);
+  }
+  out.push(rest);
+  return out;
+}
+
 /** A piece of writing shorter than this says too little to cite. */
 const MIN_WORDS_CHARS = 20;
 
@@ -175,19 +200,29 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
   // voice notes. Copies are dropped by content, and a document counts once per
   // section however many times it was synced.
   const seen = new Set<string>();
-  const addWords = (r: any, label: string) => {
+  const addWords = (r: any, label: string, budget?: { chars: number }) => {
     const text = String(r.content ?? '');
     const key = createHash('sha256').update(text).digest('hex');
     if (text.trim().length < MIN_WORDS_CHARS || seen.has(key)) return false;
+    if (budget && budget.chars <= 0) return false;
     seen.add(key);
     // Whose words these are (migration 115). A document in their Drive may be
     // someone else's -- a hiring post, a company's brief -- so only 'self'
     // counts as their voice. No authorship recorded keeps the old behaviour.
     const theirs = r.authorship ? r.authorship === 'self' : true;
-    add({
-      ref: { raw_content_id: r.id }, ownWords: theirs,
-      label: `${label}${theirs ? '' : ' (author not known to be them)'} · ${day(r.content_date ?? r.created_at)}`,
-      text, quotable: text, at: r.created_at,
+    // Long writing is shown in sections, each in full. The model is shown at
+    // most ITEM_PREVIEW_CHARS of any one item, so a 36,000-character
+    // conversation shown whole was 98% unread (found 18 October 2026). Every
+    // section is checked against the full text, so quotes still verify.
+    const sections = splitIntoSections(text, SECTION_CHARS);
+    sections.forEach((section, i) => {
+      if (budget && budget.chars <= 0) return;
+      if (budget) budget.chars -= section.length;
+      add({
+        ref: { raw_content_id: r.id }, ownWords: theirs,
+        label: `${label}${theirs ? '' : ' (author not known to be them)'}${sections.length > 1 ? ` (part ${i + 1} of ${sections.length})` : ''} · ${day(r.content_date ?? r.created_at)}`,
+        text: section, quotable: text, at: r.created_at,
+      });
     });
     return true;
   };
@@ -200,9 +235,10 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
   };
 
   let taken = 0;
+  const writingBudget = { chars: POOL_LIMITS.personalWritingChars };
   for (const r of await wordsOf(PERSONAL_WRITING_TYPES, POOL_LIMITS.personalWriting * 4)) {
-    if (taken >= POOL_LIMITS.personalWriting) break;
-    if (addWords(r, String(r.content_type).replace(/_/g, ' '))) taken += 1;
+    if (taken >= POOL_LIMITS.personalWriting || writingBudget.chars <= 0) break;
+    if (addWords(r, String(r.content_type).replace(/_/g, ' '), writingBudget)) taken += 1;
   }
 
   taken = 0;

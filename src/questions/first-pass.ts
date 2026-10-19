@@ -56,11 +56,11 @@ export interface PoolItem {
 /** Content types that are the person's own words. Same list as migration 121. */
 export const OWN_WORDS_CONTENT_TYPES = new Set([
   'journal_entry', 'voice_journal', 'voice_recording', 'text_entry', 'video_entry',
-  'onboarding_profile', 'google_docs',
+  'onboarding_profile', 'google_docs', 'conversation',
 ]);
 
 /** How much of one item the model sees. The quote check uses the full text. */
-export const ITEM_PREVIEW_CHARS = 700;
+export const ITEM_PREVIEW_CHARS = 1_600;
 
 export const FIRST_PASS_SYSTEM = `You are working out who a person is from what they have already written and done. You never ask them anything. You are making a careful first guess that will be strengthened or overturned by later evidence.
 

@@ -19,7 +19,7 @@ import type {
  * they are repetitive and cheap to sample.
  */
 const LONGFORM_TYPES = new Set([
-  'journal_entry', 'text_entry', 'voice_journal', 'voice_recording', 'google_docs',
+  'journal_entry', 'text_entry', 'voice_journal', 'voice_recording', 'google_docs', 'conversation',
 ]);
 
 /**
