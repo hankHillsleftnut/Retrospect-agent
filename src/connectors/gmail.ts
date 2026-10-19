@@ -8,13 +8,33 @@ interface Message { id: string; threadId: string; internalDate?: string; labelId
 function header(part: Part | undefined, name: string): string {
   return part?.headers?.find((item) => item.name.toLowerCase() === name.toLowerCase())?.value ?? '';
 }
+/**
+ * Real conversations and what they sent -- not marketing. The first sync on the
+ * founder's account (19 October 2026) was 25 messages of promotions,
+ * newsletters and an overdue-library notice, each read into facts at a cost,
+ * crowding out the calendar when questions about people were researched.
+ * Gmail's own categories do the sorting.
+ */
+export const GMAIL_QUERY = '-category:promotions -category:social -category:updates -category:forums -in:spam -in:trash';
+
+/** A page token belongs to the search that produced it; a cursor from a
+ *  different search (e.g. before GMAIL_QUERY existed) starts again. */
+export function pageTokenFor(cursor: Record<string, unknown>): string | undefined {
+  return cursor.query === GMAIL_QUERY && typeof cursor.pageToken === 'string' && cursor.pageToken ? cursor.pageToken : undefined;
+}
+
+export function gmailListUrl(pageToken?: unknown): string {
+  const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
+  url.searchParams.set('maxResults', '25');
+  url.searchParams.set('q', GMAIL_QUERY);
+  if (typeof pageToken === 'string' && pageToken) url.searchParams.set('pageToken', pageToken);
+  return url.toString();
+}
+
 export const gmailConnector: IntegrationConnector = {
   providerId: 'gmail',
   async sync(context) {
-    const url = new URL('https://gmail.googleapis.com/gmail/v1/users/me/messages');
-    url.searchParams.set('maxResults', '25');
-    if (typeof context.cursor.pageToken === 'string' && context.cursor.pageToken) url.searchParams.set('pageToken', context.cursor.pageToken);
-    const list = await oauthJson<MessageList>(context, url.toString());
+    const list = await oauthJson<MessageList>(context, gmailListUrl(pageTokenFor(context.cursor)));
     const items = [];
     for (const summary of list.messages ?? []) {
       const messageUrl = new URL(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${summary.id}`);
@@ -59,6 +79,6 @@ export const gmailConnector: IntegrationConnector = {
         metadata: { source: 'gmail', thread_id: message.threadId, subject },
       });
     }
-    return { cursorAfter: { pageToken: list.nextPageToken ?? '', completedAt: new Date().toISOString() }, items };
+    return { cursorAfter: { query: GMAIL_QUERY, pageToken: list.nextPageToken ?? '', completedAt: new Date().toISOString() }, items };
   },
 };
