@@ -179,3 +179,20 @@ test("facts-only mode: no claim about the user survives from someone else's docu
   assert.deepEqual(r.fact_candidates.map((c: any) => [c.subject, c.source_index]), [['Self', 0], ['Farza', 1]]);
   assert.deepEqual([r.observations, r.insights, r.identity_inferences, r.goal_candidates], [[], [], [], []], 'the old outputs stop');
 });
+
+test('a long entry is read in sections, all of it, not cut at the first 16,000 characters', async () => {
+  const { extractLongEntry, EXTRACTION_SECTION_CHARS } = await import('../src/pipelines/ingest.js');
+  const { Trace } = await import('../src/pipelines/trace.js');
+  const sentence = 'I keep thinking about moving to New York. ';
+  const content = sentence.repeat(Math.ceil(36_000 / sentence.length)); // ~36,000 chars, like the conversation
+  const seen: string[] = [];
+  const facts = await extractLongEntry(
+    [{ id: 'conv', user_id: 'u', content, content_type: 'conversation', content_date: null, processing_status: 'pending', created_at: '' }] as any,
+    Trace.forTesting(),
+    async ({ items }) => { seen.push(items[0]!.content); return [{ subject: 'Self', predicate: 'felt', object: 'x', excerpt: 'New York', source_index: 7 }] as any; },
+  );
+  assert.ok(seen.length >= 3, `read in ${seen.length} sections`);
+  assert.ok(seen.every((s) => s.length <= EXTRACTION_SECTION_CHARS * 1.25));
+  assert.equal(seen.join(''), content, 'every character read once, none lost');
+  assert.ok(facts.every((f: any) => f.source_index === 0), 'facts point at the whole entry');
+});

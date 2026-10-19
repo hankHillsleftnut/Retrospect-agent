@@ -3,6 +3,7 @@ import { Tables } from '../db/tables';
 import { generateEmbeddings } from '../services/embeddings';
 import { runIngestionAgent, contentCharLimit, renderPromptContext } from '../agents/ingestion-agent';
 import { extractFacts } from '../agents/fact-extractor';
+import { splitIntoSections } from '../text/sections';
 import { config } from '../config';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
 import { RequestTooLargeError } from '../services/openai';
@@ -498,7 +499,7 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
               currentDocument,
               trace,
             })
-          : factsOnlyResult(batch, await extractFacts({ items: batch, trace, model: config.extraction.model }));
+          : factsOnlyResult(batch, await extractLongEntry(batch, trace));
       } catch (err) {
         // Too large is the one failure we can answer intelligently: halve the
         // batch and try again. Retrying the identical request -- which is what
@@ -1032,4 +1033,32 @@ export function factsOnlyResult(
     return !(notTheirs && /^self$/i.test(String(c.subject ?? '').trim()));
   });
   return { fact_candidates: kept, observations: [], insights: [], goal_candidates: [], identity_inferences: [] } as any;
+}
+
+/** Characters of one entry per extraction call. Under the 16,000 the extractor
+ *  is shown, with room so a section is never cut by the extractor's own limit. */
+export const EXTRACTION_SECTION_CHARS = 12_000;
+
+/**
+ * Facts from one entry, however long. An entry over EXTRACTION_SECTION_CHARS is
+ * read in sections, one call each, instead of being cut at 16,000 characters --
+ * which silently dropped 20,000 characters of a 36,000-character conversation
+ * (18 October 2026; Phase 3 item 3.2). Every quote is still checked against the
+ * whole entry by writeJournalFacts, so a section boundary cannot produce a
+ * quote that is not really there.
+ */
+export async function extractLongEntry(
+  batch: DbRawContent[],
+  trace: Trace,
+  extract: typeof extractFacts = extractFacts,
+): Promise<Awaited<ReturnType<typeof extractFacts>>> {
+  const rc = batch[0]!;
+  const sections = splitIntoSections(rc.content, EXTRACTION_SECTION_CHARS);
+  const out: Awaited<ReturnType<typeof extractFacts>> = [];
+  for (const section of sections) {
+    const found = await extract({ items: [{ ...rc, content: section }], trace, model: config.extraction.model });
+    // One entry per call, so every candidate belongs to source 0.
+    out.push(...found.map((c) => ({ ...c, source_index: 0 })));
+  }
+  return out;
 }

@@ -9,6 +9,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { splitIntoSections } from '../text/sections';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { config } from '../config';
@@ -39,25 +40,7 @@ const PERSONAL_WRITING_TYPES = ['journal_entry', 'voice_journal', 'voice_recordi
 /** Long writing is shown in sections of about this many characters. */
 export const SECTION_CHARS = 1_200;
 
-/**
- * Split text into sections near `size`, breaking at a paragraph if possible,
- * otherwise at a sentence, never mid-word. Joined back, the sections are the
- * original text.
- */
-export function splitIntoSections(text: string, size: number): string[] {
-  if (text.length <= size * 1.25) return [text];
-  const out: string[] = [];
-  let rest = text;
-  while (rest.length > size * 1.25) {
-    const window = rest.slice(0, size);
-    const cut = Math.max(window.lastIndexOf('\n\n'), window.lastIndexOf('. '), window.lastIndexOf('\n'));
-    const at = cut > size * 0.5 ? cut + 1 : (window.lastIndexOf(' ') > 0 ? window.lastIndexOf(' ') + 1 : size);
-    out.push(rest.slice(0, at));
-    rest = rest.slice(at);
-  }
-  out.push(rest);
-  return out;
-}
+export { splitIntoSections } from '../text/sections';
 
 /** A piece of writing shorter than this says too little to cite. */
 const MIN_WORDS_CHARS = 20;
