@@ -1,3 +1,4 @@
+import { completeDocument } from '../brain/complete-document';
 import { Router } from 'express';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
@@ -86,7 +87,7 @@ function mergeMomentsIntoDocument(
   prior: UserUnderstandingDocument | null,
   moments: MagicMoment[]
 ): UserUnderstandingDocument {
-  const base: UserUnderstandingDocument = prior ?? {
+  const base: UserUnderstandingDocument = completeDocument(prior) ?? {
     identity_core: '(seeded from onboarding interpretation — Cook 0 will flesh this out on first ingestion)',
     active_goals: [],
     behavioral_patterns: '',
