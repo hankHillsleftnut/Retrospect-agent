@@ -195,6 +195,12 @@ const TEXT_DOMAINS = new Set(['healthkit', 'screen_time']);
  * and a day whose items are gone loses its row.
  */
 export async function rebuildDailySummaries(userId: string, days = 120, db: typeof supabase = supabase, now = new Date()): Promise<{ days: number; rows: number }> {
+  const { days: d, rows } = await rebuildDailySummariesWithDetail(userId, days, db, now);
+  return { days: d, rows };
+}
+
+/** As rebuildDailySummaries, also handing back the summaries and item text (for record patterns, W3.2). */
+export async function rebuildDailySummariesWithDetail(userId: string, days = 120, db: typeof supabase = supabase, now = new Date()): Promise<{ days: number; rows: number; summaries: DailySummary[]; textById: Map<string, string> }> {
   const since = new Date(now.getTime() - days * 864e5);
   const rows: Array<{ id: string; content_type: string; created_at: string; trust_class: string | null; metadata: Record<string, unknown> | null; source_item_id: string | null; content: string | null }> = [];
   for (let from = 0; ; from += 1000) {
@@ -233,5 +239,6 @@ export async function rebuildDailySummaries(userId: string, days = 120, db: type
     const { error } = await db.from(Tables.DAILY_SUMMARIES).insert(summaries.slice(i, i + CHUNK).map((d) => ({ user_id: userId, ...d, built_at: now.toISOString() })));
     if (error) throw new Error(`rebuildDailySummaries write: ${error.message}`);
   }
-  return { days: new Set(summaries.map((d) => d.day)).size, rows: summaries.length };
+  const textById = new Map(rows.map((r) => [r.id, r.content ?? '']));
+  return { days: new Set(summaries.map((d) => d.day)).size, rows: summaries.length, summaries, textById };
 }

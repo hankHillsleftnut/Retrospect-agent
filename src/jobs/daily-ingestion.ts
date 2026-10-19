@@ -1,7 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runIngest } from '../pipelines/ingest';
-import { rebuildDailySummaries } from '../brain/daily-summaries';
+import { refreshRecordBehaviour } from '../brain/record-patterns';
 
 /**
  * Daily cron job — runs the ingestion pipeline for every active user
@@ -27,7 +27,7 @@ export async function runDailyIngestion(): Promise<void> {
   for (const userId of userIds) {
     try {
       const result = await runIngest({ userId, daysBack: 7, triggeredBy: 'cron' });
-      await rebuildDailySummaries(userId, 14);
+      await refreshRecordBehaviour(userId, 14);
       console.log(
         `[daily-ingestion] user=${userId} obs=${result.observations_created} ins=${result.insights_created} cand=${result.goal_candidates_created}`
       );

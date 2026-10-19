@@ -72,9 +72,11 @@ export async function runPromoter(options: {
     eventTime: r.event_time ?? r.observed_at,
     // Falls back to the row id -- exactly the previous behaviour -- if the
     // content could not be read, so this can never count worse than before.
-    sourceId: String(
-      contentKeyByRow.get(r.metadata?.raw_content_id) ?? r.metadata?.raw_content_id ?? r.id,
-    ),
+    // A detected day (W3.2) is one instance per day by construction; two days
+    // with identical readings are still two days, not two copies of one upload.
+    sourceId: r.metadata?.content_type === 'daily_summary' && r.metadata?.day
+      ? `daily:${r.metadata.detector}:${r.metadata.day}`
+      : String(contentKeyByRow.get(r.metadata?.raw_content_id) ?? r.metadata?.raw_content_id ?? r.id),
     contentType: String(r.metadata?.content_type ?? 'journal_entry'),
     severity: (r.metadata?.severity_hint ?? 'standard') as Severity,
     namesOwnLoop: r.metadata?.names_own_loop === true,
