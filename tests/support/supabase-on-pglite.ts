@@ -182,7 +182,9 @@ class Query implements PromiseLike<Result> {
       return { data: this.countMode.head ? null : [], error: null, count };
     }
     if (this.mode !== 'select' && !this.returning) return { data: null, error: null };
-    const rows = res.rows;
+    // PostgREST sends timestamps as ISO strings; PGlite hands back Dates.
+    const rows = res.rows.map((r) => Object.fromEntries(
+      Object.entries(r).map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v]))) as Row[];
     if (this.cardinality === 'single') {
       return rows.length === 1
         ? { data: rows[0], error: null }
