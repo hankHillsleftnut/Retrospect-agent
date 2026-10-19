@@ -160,6 +160,22 @@ export async function loadQuestions(db: typeof supabase): Promise<Question[]> {
   }));
 }
 
+/**
+ * One entry per distinct calendar event title, newest kept, with how many times
+ * it occurs. A weekly block shown 15 times crowded every meeting with a person
+ * out of what "who you spend time with" could see (19 October 2026).
+ */
+export function distinctEvents<T extends { content?: string | null }>(rows: T[], limit: number): Array<T & { repeats: number }> {
+  const byTitle = new Map<string, { row: T; repeats: number }>();
+  for (const r of rows) {
+    const title = String(r.content ?? '').split('\n')[0]!.trim().toLowerCase();
+    const seen = byTitle.get(title);
+    if (seen) seen.repeats += 1;
+    else byTitle.set(title, { row: r, repeats: 1 });
+  }
+  return [...byTitle.values()].slice(0, limit).map(({ row, repeats }) => ({ ...row, repeats }));
+}
+
 export async function loadDomains(db: typeof supabase): Promise<{ id: string; label: string }[]> {
   const { data, error } = await db.from(Tables.QUESTION_DOMAINS).select('id,label').order('position');
   if (error) throw new Error(`first pass: could not load domains: ${error.message}`);
@@ -293,19 +309,21 @@ export async function buildPool(userId: string, db: typeof supabase, since?: str
   // something to work with. Health readings are cleaned so a zero reads as
   // "not recorded" -- the lesson of the false sleep claims.
   for (const type of ['calendar', 'gmail', 'screen_time', 'healthkit']) {
-    const { data: records } = await after(db.from(Tables.RAW_CONTENT)
+    const limit = type === 'calendar' || type === 'gmail' ? POOL_LIMITS.recordsPerTypeWeekAndPeople : POOL_LIMITS.recordsPerType;
+    const { data: fetched } = await after(db.from(Tables.RAW_CONTENT)
       .select('id,content_type,content,content_date,created_at')
       .eq('user_id', userId).eq('content_type', type), 'created_at')
       .order('created_at', { ascending: false })
-      .limit(type === 'calendar' || type === 'gmail' ? POOL_LIMITS.recordsPerTypeWeekAndPeople : POOL_LIMITS.recordsPerType);
-    for (const r of (records ?? []) as any[]) {
+      .limit(type === 'calendar' ? limit * 5 : limit);
+    const records = type === 'calendar' ? distinctEvents((fetched ?? []) as any[], limit) : (fetched ?? []) as any[];
+    for (const r of records) {
       // Only what was actually recorded. A "not recorded" line, even labelled
       // as such, was still read as behaviour in the first dry run.
       const text = isHealthSummary(r.content_type) ? recordedReadingsOnly(r.content) : String(r.content ?? '');
       if (!text || text.split('\n').length <= 1) continue;
       add({
         ref: { raw_content_id: r.id }, ownWords: false,
-        label: `${type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}`,
+        label: `${type.replace(/_/g, ' ')} · ${day(r.content_date ?? r.created_at)}${r.repeats > 1 ? ` · one of ${r.repeats} with this title` : ''}`,
         text,
         at: r.created_at,
         contentType: r.content_type,
