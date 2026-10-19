@@ -1,0 +1,8 @@
+{
+  // The production build: the app only. scripts/ and tests/ use dev-only
+  // tools (pg, yaml, pglite) that Render does not install, so compiling them
+  // there failed every deploy from 18 October. `npm run typecheck` still
+  // checks everything, against tsconfig.json.
+  "extends": "./tsconfig.json",
+  "include": ["src/**/*"]
+}
