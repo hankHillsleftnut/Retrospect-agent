@@ -87,3 +87,15 @@ export function classifyTrust(i: TrustInput): TrustVerdict {
   // Unknown types are never trusted as the person's own words.
   return verdict('third_party');
 }
+
+/** The trust class of a stored row, from its type, authorship and metadata. */
+export function trustForRow(row: { content_type: string; authorship?: string | null; content?: string | null; metadata?: unknown }): TrustClass {
+  const m = (row.metadata ?? {}) as { labels?: unknown; from?: unknown };
+  return classifyTrust({
+    content_type: row.content_type,
+    authorship: row.authorship,
+    labels: Array.isArray(m.labels) ? (m.labels as string[]) : null,
+    from: typeof m.from === 'string' ? m.from : null,
+    text: row.content,
+  }).trustClass;
+}

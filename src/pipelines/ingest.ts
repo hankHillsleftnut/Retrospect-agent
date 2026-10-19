@@ -12,6 +12,7 @@ import { writeBatchFacts, embedSources } from './batch-outputs';
 import type { PromoterRunResult } from '../brain/run-promoter';
 import { runCook0Step, consolidateFacts } from './after-reading';
 import { claimWork, releaseClaim } from './claim-work';
+import { stampTrustClasses } from '../brain/trust-stamp';
 import { Trace, TraceTrigger } from './trace';
 import type {
   DbGoal,
@@ -295,6 +296,9 @@ export async function runIngest(options: IngestOptions): Promise<IngestSummary> 
     const factWriteErrors: string[] = [];
 
     let splitCount = 0;
+
+    // W1: record how much each item may say about the person before it is read.
+    if (!options.dryRun) await stampTrustClasses(newRawContent);
 
     for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
       const batch = batches[batchIdx]!;
