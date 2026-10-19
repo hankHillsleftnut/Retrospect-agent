@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc && cp -r src/public dist/src/public",
+    "build": "tsc -p tsconfig.build.json && cp -r src/public dist/src/public",
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit",
     "ingest": "tsx scripts/ingest.ts",
