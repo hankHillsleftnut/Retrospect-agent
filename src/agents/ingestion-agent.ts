@@ -1,3 +1,4 @@
+import { completeDocument } from '../brain/complete-document';
 import { jsonChatCompletion } from '../services/openai';
 import { config } from '../config';
 import { INGESTION_SYSTEM_PROMPT } from '../prompts/ingestion';
@@ -221,7 +222,8 @@ Extract identity_inferences first, then observations, insights, and any goal_can
   };
 }
 
-function formatDocumentForAgent(doc: UserUnderstandingDocument | null): string {
+function formatDocumentForAgent(stored: UserUnderstandingDocument | null): string {
+  const doc = completeDocument(stored);
   if (!doc) {
     return `# Current User Understanding Document
 (none yet — this is the first ingestion. Generate identity inferences freely; nothing to deduplicate against.)`;

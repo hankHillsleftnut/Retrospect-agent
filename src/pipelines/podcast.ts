@@ -1,3 +1,4 @@
+import { completeDocument } from '../brain/complete-document';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { config } from '../config';
@@ -272,7 +273,7 @@ async function loadContext(userId: string, daysBack: number) {
     lastEpisode: (lastEpisodeRes.data ?? null) as DbPodcastEpisode | null,
     onboardingProfile: (onboardingRes.data ?? null) as DbRawContent | null,
     userUnderstanding: understanding,
-    userUnderstandingDocument: (understanding?.document ?? null) as UserUnderstandingDocument | null,
+    userUnderstandingDocument: completeDocument(understanding?.document as Partial<UserUnderstandingDocument> | null),
   };
 }
 
