@@ -1,0 +1,27 @@
+{
+  "gate": "W1 trust classes",
+  "classes": {
+    "own_words": "written or said by the person",
+    "record": "a log of behaviour (calendar, health, screen time)",
+    "third_party": "someone else's words to or about the person (inbox from a human)",
+    "automated": "machine-generated: other AI assistants, receipts, notices, marketing",
+    "reference": "material saved for later, not about the person"
+  },
+  "cases": [
+    { "id": "t1", "content_type": "journal_entry", "authorship": "self", "text": "I skipped the gym again and told myself I was tired.", "expect_class": "own_words", "may_claim_inner_life": true },
+    { "id": "t2", "content_type": "voice_recording", "authorship": "self", "text": "Honestly I think I'm scared of shipping it.", "expect_class": "own_words", "may_claim_inner_life": true },
+    { "id": "t3", "content_type": "gmail", "labels": ["SENT"], "from": "me", "text": "Sorry, I can't make Thursday, I'm swamped with the launch.", "expect_class": "own_words", "may_claim_inner_life": true },
+    { "id": "t4", "content_type": "gmail", "labels": ["INBOX"], "from": "Priya Raman <priya@example.com>", "text": "Loved seeing you last week. Are we still on for climbing?", "expect_class": "third_party", "may_claim_inner_life": false },
+    { "id": "t5", "content_type": "gmail", "labels": ["INBOX"], "from": "Daybreak Assistant <brief@daybreak.ai>", "text": "Your morning brief: finish the pitch deck; reply to Sam; you seem stressed this week.", "expect_class": "automated", "may_claim_inner_life": false, "note": "another AI assistant's summary: may support 'uses another assistant', never a claim about how they feel" },
+    { "id": "t6", "content_type": "gmail", "labels": ["INBOX", "CATEGORY_UPDATES"], "from": "City Library <circ@library.example>", "text": "Overdue notice: 2 items are past due.", "expect_class": "automated", "may_claim_inner_life": false },
+    { "id": "t7", "content_type": "gmail", "labels": ["INBOX", "CATEGORY_PROMOTIONS"], "from": "Shop <news@shop.example>", "text": "48 hours only: 30% off everything.", "expect_class": "automated", "may_claim_inner_life": false },
+    { "id": "t8", "content_type": "calendar", "text": "Calendar event: Run club\nWhen: Saturday 8:00-9:00", "expect_class": "record", "may_claim_inner_life": false },
+    { "id": "t9", "content_type": "healthkit", "text": "Sleep: 5h 40m. Steps: 3,210.", "expect_class": "record", "may_claim_inner_life": false },
+    { "id": "t10", "content_type": "youtube", "text": "Watched: How to give a great product demo", "expect_class": "record", "may_claim_inner_life": false, "note": "what they watch is behaviour, not their words" },
+    { "id": "t11", "content_type": "google_docs", "authorship": "self", "text": "Our thesis: people drown in answers and starve for clarity.", "expect_class": "own_words", "may_claim_inner_life": true },
+    { "id": "t12", "content_type": "google_docs", "authorship": "unknown", "text": "Q3 hiring plan for the platform team.", "expect_class": "third_party", "may_claim_inner_life": false, "note": "a document not known to be theirs" },
+    { "id": "t13", "content_type": "shared_link", "text": "https://example.com/essay-on-focus  — saved because: for the deep-work section of the deck", "expect_class": "reference", "may_claim_inner_life": false },
+    { "id": "t14", "content_type": "conversation", "authorship": "self", "text": "Me: I keep saying yes to things I don't care about.", "expect_class": "own_words", "may_claim_inner_life": true },
+    { "id": "t15", "content_type": "onboarding_profile", "authorship": "self", "text": "Q: What's weighing on you? A: Money, mostly.", "expect_class": "own_words", "may_claim_inner_life": true }
+  ]
+}

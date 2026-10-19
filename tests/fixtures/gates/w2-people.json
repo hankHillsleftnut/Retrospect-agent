@@ -1,0 +1,22 @@
+{
+  "gate": "W2 people",
+  "decisions": {
+    "link": "the same person",
+    "hold": "could be the same person; ask, never guess",
+    "separate": "different people"
+  },
+  "cases": [
+    { "id": "p1", "a": { "name": "Francis", "source": "conversation" }, "b": { "name": "Francis Chen", "email": "fchen@example.com", "source": "calendar" }, "context": "only one Francis anywhere in their data", "expect": "link" },
+    { "id": "p2", "a": { "name": "Francis Chen", "email": "fchen@example.com" }, "b": { "email": "fchen@example.com", "source": "gmail" }, "expect": "link", "note": "same email is decisive" },
+    { "id": "p3", "a": { "name": "Sam", "source": "journal" }, "b": { "name": "Sam Ortiz", "email": "sam.o@example.com" }, "context": "two Sams exist: Sam Ortiz (coworker) and Sam Lee (sister)", "expect": "hold", "note": "ambiguous first name with two candidates: ask" },
+    { "id": "p4", "a": { "name": "Sam Ortiz", "email": "sam.o@example.com" }, "b": { "name": "Sam Lee", "email": "samlee@example.com" }, "expect": "separate", "note": "same first name, different people: must never merge" },
+    { "id": "p5", "a": { "name": "Priya", "source": "journal", "co_occurs_with": ["climbing"] }, "b": { "name": "Priya Raman", "email": "priya@example.com", "co_occurs_with": ["climbing"] }, "context": "one Priya", "expect": "link" },
+    { "id": "p6", "a": { "name": "Mom", "source": "journal" }, "b": { "name": "Anita Narayan", "email": "anita@example.com" }, "context": "nothing connects the two", "expect": "hold", "note": "a role word is not a name: never guess who it refers to" },
+    { "id": "p7", "a": { "name": "Jordan Blake", "email": "jordan@example.com" }, "b": { "name": "Jordan Blake", "email": "jblake@other.example" }, "context": "same full name, different email domains, never seen together", "expect": "hold" },
+    { "id": "p8", "a": { "name": "Alex Kim", "email": "alex.kim@example.com" }, "b": { "name": "Alexander Kim", "email": "alex.kim@example.com" }, "expect": "link", "note": "nickname, same email" },
+    { "id": "p9", "a": { "name": "Taylor", "source": "calendar", "email": "taylor.w@example.com" }, "b": { "name": "Taylor", "source": "calendar", "email": "t.reyes@example.com" }, "expect": "separate", "note": "same first name, different emails" },
+    { "id": "p10", "a": { "name": "Nina Park" }, "b": { "name": "Nina Park" }, "context": "one Nina Park across journal and calendar, no conflicting signal", "expect": "link" },
+    { "id": "p11", "a": { "name": "Acme Corp" }, "b": { "name": "Acme", "email": "hello@acme.example" }, "expect": "link", "note": "organisations resolve too; never into a person" },
+    { "id": "p12", "a": { "name": "Chris", "source": "voice_recording", "transcript_confidence": 0.55 }, "b": { "name": "Kris Mendez", "email": "kris@example.com" }, "expect": "hold", "note": "a possibly misheard name: ask" }
+  ]
+}

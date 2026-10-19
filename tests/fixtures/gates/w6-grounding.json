@@ -1,0 +1,16 @@
+{
+  "gate": "W6 guard",
+  "note": "Each case: a sentence the writer produced, and the evidence it cites. 'must_catch' marks cases where passing an unsupported sentence would put words in the person's mouth.",
+  "cases": [
+    { "id": "g1", "sentence": "You skipped the gym three Thursdays running.", "evidence": ["Skipped the gym again.", "Thursday: no gym, too tired.", "Missed gym, third Thursday in a row."], "expect": "supported" },
+    { "id": "g2", "sentence": "You feel ashamed about skipping the gym.", "evidence": ["Skipped the gym again.", "Thursday: no gym, too tired."], "expect": "unsupported", "must_catch": true },
+    { "id": "g3", "sentence": "You said money is what's weighing on you most.", "evidence": ["Q: What's weighing on you? A: Money, mostly."], "expect": "supported" },
+    { "id": "g4", "sentence": "Money worries are making you anxious and keeping you up at night.", "evidence": ["Q: What's weighing on you? A: Money, mostly."], "expect": "unsupported", "must_catch": true },
+    { "id": "g5", "sentence": "I wonder whether it's the mornings rather than the gym itself.", "evidence": ["Skipped the gym again.", "Morning workouts never stick."], "register": "asked", "expect": "supported", "note": "asked, not asserted; the evidence makes the question reasonable" },
+    { "id": "g6", "sentence": "You've stopped working weekends.", "evidence": ["Worked Saturday again.", "Sunday at the office."], "expect": "unsupported", "must_catch": true, "note": "contradicts the evidence" },
+    { "id": "g7", "sentence": "You met Priya twice this month.", "evidence": ["Calendar event: Climbing with Priya (Oct 3)", "Calendar event: Climbing with Priya (Oct 17)"], "expect": "supported" },
+    { "id": "g8", "sentence": "Priya is your closest friend.", "evidence": ["Calendar event: Climbing with Priya (Oct 3)", "Calendar event: Climbing with Priya (Oct 17)"], "expect": "unsupported", "must_catch": true },
+    { "id": "g9", "sentence": "You've been using another AI assistant for daily briefs.", "evidence": ["From: Daybreak Assistant <brief@daybreak.ai> — Your morning brief"], "expect": "supported", "note": "automated mail can support 'uses X' (founder, 19 Oct)" },
+    { "id": "g10", "sentence": "You've been stressed this week.", "evidence": ["From: Daybreak Assistant <brief@daybreak.ai> — you seem stressed this week."], "expect": "unsupported", "must_catch": true, "note": "an assistant's guess about them is not evidence about them" }
+  ]
+}

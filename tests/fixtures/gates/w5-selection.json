@@ -1,0 +1,46 @@
+{
+  "gate": "W5 planner",
+  "note": "Candidates for one weekly episode. 'bears_on' is the question or pattern each candidate relates to; 'strength' is how well-evidenced it is (0-1); 'moved' marks what changed this week. 'duplicates' marks candidates that say the same thing. The right selection follows the spine, covers distinct things, never repeats itself, and stops when the next item isn't worth saying.",
+  "cases": [
+    {
+      "id": "s1",
+      "spine": "Q31 pattern costing them most",
+      "candidates": [
+        { "id": "c1", "bears_on": "Q31", "strength": 0.8, "moved": true },
+        { "id": "c2", "bears_on": "Q31", "strength": 0.75, "moved": true, "duplicates": "c1" },
+        { "id": "c3", "bears_on": "Q16", "strength": 0.7, "moved": true },
+        { "id": "c4", "bears_on": "Q19", "strength": 0.2, "moved": false },
+        { "id": "c5", "bears_on": "Q22", "strength": 0.6, "moved": false }
+      ],
+      "expect_selected": ["c1", "c3", "c5"],
+      "expect_excluded_reasons": { "c2": "duplicate of c1", "c4": "below the bar" }
+    },
+    {
+      "id": "s2",
+      "spine": null,
+      "note": "quiet week: nothing moved, nothing strong",
+      "candidates": [
+        { "id": "d1", "bears_on": "Q18", "strength": 0.25, "moved": false },
+        { "id": "d2", "bears_on": "Q19", "strength": 0.2, "moved": false }
+      ],
+      "expect_selected": [],
+      "expect_excluded_reasons": { "d1": "below the bar", "d2": "below the bar" }
+    },
+    {
+      "id": "s3",
+      "spine": "Q12 a normal week",
+      "candidates": [
+        { "id": "e1", "bears_on": "Q12", "strength": 0.7, "moved": true },
+        { "id": "e2", "bears_on": "Q13", "strength": 0.7, "moved": true },
+        { "id": "e3", "bears_on": "Q14", "strength": 0.65, "moved": true },
+        { "id": "e4", "bears_on": "Q15", "strength": 0.6, "moved": true },
+        { "id": "e5", "bears_on": "Q16", "strength": 0.6, "moved": true },
+        { "id": "e6", "bears_on": "Q22", "strength": 0.55, "moved": true },
+        { "id": "e7", "bears_on": "Q23", "strength": 0.5, "moved": true }
+      ],
+      "max_items": 5,
+      "expect_selected": ["e1", "e2", "e3", "e4", "e5"],
+      "note_on_expect": "strong weeks still stop at the length cap; the cap announces what it left out"
+    }
+  ]
+}
