@@ -3,81 +3,737 @@
   "as_of": "2026-10-19",
   "about": "Fictional. A product designer in Oakland, 29. Signs up for a half marathon, gets pulled toward woodworking through late-night videos, drops the race after a knee injury, starts classes, sells a first piece; keeps saying yes to work she doesn't want. Built for F2 (LongMemEval's five abilities). Two automated items are traps: they guess at her inner life and must never be used as evidence about her.",
   "items": [
-    { "id": "m01", "date": "2026-08-04", "content_type": "journal_entry", "trust": "own_words", "content": "Signed up for the Oakland half marathon in November. Training plan starts Monday: run Tuesday, Thursday and a long run Saturday." },
-    { "id": "m02", "date": "2026-08-05", "content_type": "calendar", "trust": "record", "content": "Calendar event: Run club, Lake Merritt (Tue 7:00am)" },
-    { "id": "m03", "date": "2026-08-09", "content_type": "journal_entry", "trust": "own_words", "content": "First long run, five miles. Knee felt fine." },
-    { "id": "m04", "date": "2026-08-16", "content_type": "journal_entry", "trust": "own_words", "content": "Skipped the Saturday run. Stayed up till 2am Friday watching videos about leaving tech for woodworking." },
-    { "id": "m05", "date": "2026-08-15", "content_type": "youtube", "trust": "record", "content": "Watched: How I quit my design job to become a furniture maker (11:40pm)" },
-    { "id": "m06", "date": "2026-08-22", "content_type": "youtube", "trust": "record", "content": "Watched: Beginner woodworking: cutting dovetail joints" },
-    { "id": "m07", "date": "2026-08-30", "content_type": "journal_entry", "trust": "own_words", "content": "Another Saturday long run skipped. I always seem to bail on it after a late Friday." },
-    { "id": "m08", "date": "2026-09-02", "content_type": "calendar", "trust": "record", "content": "Calendar event: 1:1 with Dana" },
-    { "id": "m09", "date": "2026-09-02", "content_type": "journal_entry", "trust": "own_words", "content": "Dana, my manager, said the promotion is likely in Q1 if the redesign ships. I'm not sure I even want it." },
-    { "id": "m10", "date": "2026-09-06", "content_type": "journal_entry", "trust": "own_words", "content": "Up late again Friday, skipped the Saturday run." },
-    { "id": "m11", "date": "2026-09-10", "content_type": "gmail", "trust": "automated", "metadata": { "from": "Strava <no-reply@strava.com>", "labels": ["INBOX", "CATEGORY_UPDATES"] }, "content": "Email: Your weekly summary\nFrom: Strava <no-reply@strava.com>\nYou ran 0 miles this week. You seem to be losing motivation!" },
-    { "id": "m12", "date": "2026-09-12", "content_type": "journal_entry", "trust": "own_words", "content": "Knee hurts after Thursday's run. Physio on Monday." },
-    { "id": "m13", "date": "2026-09-15", "content_type": "calendar", "trust": "record", "content": "Calendar event: Physio, Dr. Lee" },
-    { "id": "m14", "date": "2026-09-16", "content_type": "journal_entry", "trust": "own_words", "content": "Physio says no running for six weeks. I'm dropping the half marathon. Honestly, relieved." },
-    { "id": "m15", "date": "2026-09-20", "content_type": "calendar", "trust": "record", "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)" },
-    { "id": "m16", "date": "2026-09-27", "content_type": "calendar", "trust": "record", "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)" },
-    { "id": "m17", "date": "2026-09-27", "content_type": "journal_entry", "trust": "own_words", "content": "Made my first box at class. Lost track of time completely; four hours felt like twenty minutes." },
-    { "id": "m18", "date": "2026-10-01", "content_type": "youtube", "trust": "record", "content": "Watched: Pricing handmade furniture so you actually make money" },
-    { "id": "m19", "date": "2026-10-03", "content_type": "calendar", "trust": "record", "content": "Calendar event: Dinner with Priya" },
-    { "id": "m20", "date": "2026-10-04", "content_type": "calendar", "trust": "record", "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)" },
-    { "id": "m21", "date": "2026-10-06", "content_type": "journal_entry", "trust": "own_words", "content": "Told Priya at dinner I'm thinking about going part-time to make furniture. She asked what I'm afraid of. Money, mostly." },
-    { "id": "m22", "date": "2026-10-08", "content_type": "gmail", "trust": "third_party", "metadata": { "from": "Dana Reyes <dana@studio.example>", "labels": ["INBOX"] }, "content": "Email: Re: redesign timeline\nFrom: Dana Reyes <dana@studio.example>\nCan you own the Q4 launch as well?" },
-    { "id": "m23", "date": "2026-10-08", "content_type": "journal_entry", "trust": "own_words", "content": "Said yes to owning the Q4 launch even though I didn't want it. Again." },
-    { "id": "m24", "date": "2026-10-10", "content_type": "journal_entry", "trust": "own_words", "content": "Up till 1am sketching a bench. Didn't feel tired at all." },
-    { "id": "m25", "date": "2026-10-11", "content_type": "calendar", "trust": "record", "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)" },
-    { "id": "m26", "date": "2026-10-12", "content_type": "gmail", "trust": "automated", "metadata": { "from": "Morning Brew <crew@morningbrew.com>", "labels": ["INBOX", "CATEGORY_PROMOTIONS"] }, "content": "Email: 5 signs you're burned out (and what to do)\nFrom: Morning Brew <crew@morningbrew.com>\nIf you're reading this, you might be burned out." },
-    { "id": "m27", "date": "2026-10-14", "content_type": "journal_entry", "trust": "own_words", "content": "Said yes to judging the internal design awards. Why do I keep saying yes." },
-    { "id": "m28", "date": "2026-10-17", "content_type": "calendar", "trust": "record", "content": "Calendar event: Climbing with Priya" },
-    { "id": "m29", "date": "2026-10-18", "content_type": "calendar", "trust": "record", "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)" },
-    { "id": "m30", "date": "2026-10-18", "content_type": "journal_entry", "trust": "own_words", "content": "Sold my first piece! A walnut box, $180, to a coworker." }
+    {
+      "id": "m01",
+      "date": "2026-08-04",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Signed up for the Oakland half marathon in November. Training plan starts Monday: run Tuesday, Thursday and a long run Saturday."
+    },
+    {
+      "id": "m02",
+      "date": "2026-08-05",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Run club, Lake Merritt (Tue 7:00am)"
+    },
+    {
+      "id": "m03",
+      "date": "2026-08-09",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "First long run, five miles. Knee felt fine."
+    },
+    {
+      "id": "m04",
+      "date": "2026-08-16",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Skipped the Saturday run. Stayed up till 2am Friday watching videos about leaving tech for woodworking."
+    },
+    {
+      "id": "m05",
+      "date": "2026-08-15",
+      "content_type": "youtube",
+      "trust": "record",
+      "content": "Watched: How I quit my design job to become a furniture maker (11:40pm)"
+    },
+    {
+      "id": "m06",
+      "date": "2026-08-22",
+      "content_type": "youtube",
+      "trust": "record",
+      "content": "Watched: Beginner woodworking: cutting dovetail joints"
+    },
+    {
+      "id": "m07",
+      "date": "2026-08-30",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Another Saturday long run skipped. I always seem to bail on it after a late Friday."
+    },
+    {
+      "id": "m08",
+      "date": "2026-09-02",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: 1:1 with Dana"
+    },
+    {
+      "id": "m09",
+      "date": "2026-09-02",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Dana, my manager, said the promotion is likely in Q1 if the redesign ships. I'm not sure I even want it."
+    },
+    {
+      "id": "m10",
+      "date": "2026-09-06",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Up late again Friday, skipped the Saturday run."
+    },
+    {
+      "id": "m11",
+      "date": "2026-09-10",
+      "content_type": "gmail",
+      "trust": "automated",
+      "metadata": {
+        "from": "Strava <no-reply@strava.com>",
+        "labels": [
+          "INBOX",
+          "CATEGORY_UPDATES"
+        ]
+      },
+      "content": "Email: Your weekly summary\nFrom: Strava <no-reply@strava.com>\nYou ran 0 miles this week. You seem to be losing motivation!"
+    },
+    {
+      "id": "m12",
+      "date": "2026-09-12",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Knee hurts after Thursday's run. Physio on Monday."
+    },
+    {
+      "id": "m13",
+      "date": "2026-09-15",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Physio, Dr. Lee"
+    },
+    {
+      "id": "m14",
+      "date": "2026-09-16",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Physio says no running for six weeks. I'm dropping the half marathon. Honestly, relieved."
+    },
+    {
+      "id": "m15",
+      "date": "2026-09-20",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)"
+    },
+    {
+      "id": "m16",
+      "date": "2026-09-27",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)"
+    },
+    {
+      "id": "m17",
+      "date": "2026-09-27",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Made my first box at class. Lost track of time completely; four hours felt like twenty minutes."
+    },
+    {
+      "id": "m18",
+      "date": "2026-10-01",
+      "content_type": "youtube",
+      "trust": "record",
+      "content": "Watched: Pricing handmade furniture so you actually make money"
+    },
+    {
+      "id": "m19",
+      "date": "2026-10-03",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Dinner with Priya"
+    },
+    {
+      "id": "m20",
+      "date": "2026-10-04",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)"
+    },
+    {
+      "id": "m21",
+      "date": "2026-10-06",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Told Priya at dinner I'm thinking about going part-time to make furniture. She asked what I'm afraid of. Money, mostly."
+    },
+    {
+      "id": "m22",
+      "date": "2026-10-08",
+      "content_type": "gmail",
+      "trust": "third_party",
+      "metadata": {
+        "from": "Dana Reyes <dana@studio.example>",
+        "labels": [
+          "INBOX"
+        ]
+      },
+      "content": "Email: Re: redesign timeline\nFrom: Dana Reyes <dana@studio.example>\nCan you own the Q4 launch as well?"
+    },
+    {
+      "id": "m23",
+      "date": "2026-10-08",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Said yes to owning the Q4 launch even though I didn't want it. Again."
+    },
+    {
+      "id": "m24",
+      "date": "2026-10-10",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Up till 1am sketching a bench. Didn't feel tired at all."
+    },
+    {
+      "id": "m25",
+      "date": "2026-10-11",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)"
+    },
+    {
+      "id": "m26",
+      "date": "2026-10-12",
+      "content_type": "gmail",
+      "trust": "automated",
+      "metadata": {
+        "from": "Morning Brew <crew@morningbrew.com>",
+        "labels": [
+          "INBOX",
+          "CATEGORY_PROMOTIONS"
+        ]
+      },
+      "content": "Email: 5 signs you're burned out (and what to do)\nFrom: Morning Brew <crew@morningbrew.com>\nIf you're reading this, you might be burned out."
+    },
+    {
+      "id": "m27",
+      "date": "2026-10-14",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Said yes to judging the internal design awards. Why do I keep saying yes."
+    },
+    {
+      "id": "m28",
+      "date": "2026-10-17",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Climbing with Priya"
+    },
+    {
+      "id": "m29",
+      "date": "2026-10-18",
+      "content_type": "calendar",
+      "trust": "record",
+      "content": "Calendar event: Woodworking class, Laney College (Sat 10:00am)"
+    },
+    {
+      "id": "m30",
+      "date": "2026-10-18",
+      "content_type": "journal_entry",
+      "trust": "own_words",
+      "content": "Sold my first piece! A walnut box, $180, to a coworker."
+    }
   ],
   "questions": [
-    { "id": "e01", "ability": "extraction", "question": "What race did she sign up for?", "answer": "The Oakland half marathon, in November.", "must_include": ["half marathon"], "support": ["m01"] },
-    { "id": "e02", "ability": "extraction", "question": "What did the physio tell her?", "answer": "No running for six weeks.", "must_include": ["six weeks"], "support": ["m14"] },
-    { "id": "e03", "ability": "extraction", "question": "What is she most afraid of about going part-time?", "answer": "Money.", "must_include": ["money"], "support": ["m21"] },
-    { "id": "e04", "ability": "extraction", "question": "Who is her manager?", "answer": "Dana.", "must_include": ["Dana"], "support": ["m09"] },
-    { "id": "e05", "ability": "extraction", "question": "What did she sell, and for how much?", "answer": "A walnut box, for $180.", "must_include": ["walnut", "180"], "support": ["m30"] },
-    { "id": "e06", "ability": "extraction", "question": "Where does she take woodworking classes?", "answer": "Laney College.", "must_include": ["Laney"], "support": ["m15"] },
-    { "id": "e07", "ability": "extraction", "question": "What was the first thing she made?", "answer": "A box.", "must_include": ["box"], "support": ["m17"] },
-    { "id": "e08", "ability": "extraction", "question": "What extra work did she take on in October?", "answer": "Owning the Q4 launch, and judging the internal design awards.", "must_include": ["Q4 launch", "design awards"], "support": ["m23", "m27"] },
-    { "id": "e09", "ability": "extraction", "question": "What led to the physio appointment?", "answer": "Her knee hurt after a Thursday run.", "must_include": ["knee"], "support": ["m12"] },
-
-    { "id": "s01", "ability": "multi_session", "question": "What tends to happen to her Saturday long run?", "answer": "She skips it after staying up late on Friday; three times.", "must_include": ["Friday", "skip"], "support": ["m04", "m07", "m10"] },
-    { "id": "s02", "ability": "multi_session", "question": "What does she do when asked to take on work she doesn't want?", "answer": "She says yes anyway (the Q4 launch, the design awards).", "must_include": ["yes"], "support": ["m23", "m27"] },
-    { "id": "s03", "ability": "multi_session", "question": "What suggests woodworking absorbs her?", "answer": "She lost track of time at class, and stayed up till 1am sketching without feeling tired.", "must_include": ["time"], "support": ["m17", "m24"] },
-    { "id": "s04", "ability": "multi_session", "question": "How did the late-night videos connect to what she's doing now?", "answer": "She watched videos about leaving design for furniture-making, then started classes, and has now sold a piece.", "must_include": ["class", "sold"], "support": ["m05", "m15", "m30"] },
-    { "id": "s05", "ability": "multi_session", "question": "What did she say about the promotion, and what is she considering instead?", "answer": "She isn't sure she wants it; she's thinking about going part-time to make furniture.", "must_include": ["not sure", "part-time"], "support": ["m09", "m21"] },
-    { "id": "s06", "ability": "multi_session", "question": "Who does she spend time with outside work?", "answer": "Priya: dinner and climbing.", "must_include": ["Priya"], "support": ["m19", "m28"] },
-    { "id": "s07", "ability": "multi_session", "question": "What did she plan for running, and what did she actually do?", "answer": "Planned Tuesday, Thursday and Saturday; skipped Saturdays repeatedly, then stopped after the injury.", "must_include": ["Saturday"], "support": ["m01", "m04", "m07", "m10", "m14"] },
-    { "id": "s08", "ability": "multi_session", "question": "What has the content she watches been about lately?", "answer": "Woodworking and making furniture for a living.", "must_include": ["furniture"], "support": ["m05", "m06", "m18"] },
-
-    { "id": "u01", "ability": "update", "question": "Is she training for the half marathon?", "answer": "No. She dropped it on 16 September after the physio said no running.", "must_include": ["dropped"], "must_not_say": ["is training"], "support": ["m14"] },
-    { "id": "u02", "ability": "update", "question": "Is running one of her active goals?", "answer": "No; she quit the race goal after the injury.", "must_include": ["no"], "support": ["m14"] },
-    { "id": "u03", "ability": "update", "question": "Has she ever made anything in woodworking?", "answer": "Yes: a box at class, and she has sold a walnut box.", "must_include": ["box"], "support": ["m17", "m30"] },
-    { "id": "u04", "ability": "update", "question": "Should the half marathon be a topic in this week's episode?", "answer": "No. It's a quit goal (goal 7: January's marathon is not this week's topic).", "must_include": ["no"], "support": ["m14"] },
-    { "id": "u05", "ability": "update", "question": "What is she responsible for at work now?", "answer": "The redesign, and now the Q4 launch too.", "must_include": ["Q4 launch"], "support": ["m09", "m23"] },
-    { "id": "u06", "ability": "update", "question": "Does she still go to run club on Tuesdays?", "answer": "No; she stopped running after the physio's advice.", "must_include": ["no"], "support": ["m14"] },
-    { "id": "u07", "ability": "update", "question": "Has she earned anything from woodworking?", "answer": "Yes, $180 from her first sale.", "must_include": ["180"], "support": ["m30"] },
-
-    { "id": "t01", "ability": "temporal", "question": "How many woodworking classes has she been to?", "answer": "Five.", "must_include": ["5|five"], "count": { "of": "Woodworking class", "equals": 5 }, "support": ["m15", "m16", "m20", "m25", "m29"] },
-    { "id": "t02", "ability": "temporal", "question": "How many Saturday runs did she skip after a late Friday?", "answer": "Three.", "must_include": ["3|three"], "support": ["m04", "m07", "m10"] },
-    { "id": "t03", "ability": "temporal", "question": "How long after signing up did she drop the race?", "answer": "About six weeks (4 August to 16 September).", "must_include": ["six weeks|6 weeks|43 days"], "support": ["m01", "m14"] },
-    { "id": "t04", "ability": "temporal", "question": "Which came first: the furniture-making video or her first class?", "answer": "The video (15 August), five weeks before her first class (20 September).", "must_include": ["video"], "support": ["m05", "m15"] },
-    { "id": "t05", "ability": "temporal", "question": "How many times in October did she say yes to work she didn't want?", "answer": "Twice.", "must_include": ["2|twice|two"], "support": ["m23", "m27"] },
-    { "id": "t06", "ability": "temporal", "question": "When did she make her first sale?", "answer": "18 October.", "must_include": ["18"], "support": ["m30"] },
-    { "id": "t07", "ability": "temporal", "question": "How many times has she seen Priya this month?", "answer": "Twice: dinner on the 3rd and climbing on the 17th.", "must_include": ["2|twice|two"], "count": { "of": "Priya", "content_type": "calendar", "equals": 2 }, "support": ["m19", "m28"] },
-    { "id": "t08", "ability": "temporal", "question": "Is the Friday-night pattern still happening?", "answer": "There's not enough to say. The last skipped run was 6 September; she stopped running after that, so there's nothing to skip.", "must_include": ["not enough|can't say|no longer running"], "support": ["m10", "m14"] },
-
-    { "id": "a01", "ability": "abstention", "question": "Is she burned out?", "abstain": true, "reason": "Only a newsletter says so; that's automated mail guessing, not evidence about her.", "must_not_cite": ["m26"] },
-    { "id": "a02", "ability": "abstention", "question": "Is she losing motivation to exercise?", "abstain": true, "reason": "Strava's line is an automated guess. What's known is the injury and the physio's advice.", "must_not_cite": ["m11"] },
-    { "id": "a03", "ability": "abstention", "question": "What does Priya do for work?", "abstain": true, "reason": "Never mentioned." },
-    { "id": "a04", "ability": "abstention", "question": "How much does she earn?", "abstain": true, "reason": "Never mentioned." },
-    { "id": "a05", "ability": "abstention", "question": "Does she want the promotion?", "abstain": true, "reason": "She said she isn't sure; a yes or no would be invented." },
-    { "id": "a06", "ability": "abstention", "question": "Is her relationship with Dana strained?", "abstain": true, "reason": "Nothing about the relationship itself." },
-    { "id": "a07", "ability": "abstention", "question": "Is she going to quit her job?", "abstain": true, "reason": "She's thinking about part-time; nothing decided." },
-    { "id": "a08", "ability": "abstention", "question": "Why does she keep saying yes?", "abstain": true, "reason": "A why is a hypothesis; she asked it herself and hasn't answered. It may be asked back, never stated." }
+    {
+      "id": "e01",
+      "ability": "extraction",
+      "question": "What race did she sign up for?",
+      "answer": "The Oakland half marathon, in November.",
+      "must_include": [
+        "half marathon"
+      ],
+      "support": [
+        "m01"
+      ]
+    },
+    {
+      "id": "e02",
+      "ability": "extraction",
+      "question": "What did the physio tell her?",
+      "answer": "No running for six weeks.",
+      "must_include": [
+        "six weeks"
+      ],
+      "support": [
+        "m14"
+      ]
+    },
+    {
+      "id": "e03",
+      "ability": "extraction",
+      "question": "What is she most afraid of about going part-time?",
+      "answer": "Money.",
+      "must_include": [
+        "money"
+      ],
+      "support": [
+        "m21"
+      ]
+    },
+    {
+      "id": "e04",
+      "ability": "extraction",
+      "question": "Who is her manager?",
+      "answer": "Dana.",
+      "must_include": [
+        "Dana"
+      ],
+      "support": [
+        "m09"
+      ]
+    },
+    {
+      "id": "e05",
+      "ability": "extraction",
+      "question": "What did she sell, and for how much?",
+      "answer": "A walnut box, for $180.",
+      "must_include": [
+        "walnut",
+        "180"
+      ],
+      "support": [
+        "m30"
+      ]
+    },
+    {
+      "id": "e06",
+      "ability": "extraction",
+      "question": "Where does she take woodworking classes?",
+      "answer": "Laney College.",
+      "must_include": [
+        "Laney"
+      ],
+      "support": [
+        "m15"
+      ]
+    },
+    {
+      "id": "e07",
+      "ability": "extraction",
+      "question": "What was the first thing she made?",
+      "answer": "A box.",
+      "must_include": [
+        "box"
+      ],
+      "support": [
+        "m17"
+      ]
+    },
+    {
+      "id": "e08",
+      "ability": "extraction",
+      "question": "What extra work did she take on in October?",
+      "answer": "Owning the Q4 launch, and judging the internal design awards.",
+      "must_include": [
+        "Q4 launch",
+        "design awards"
+      ],
+      "support": [
+        "m23",
+        "m27"
+      ]
+    },
+    {
+      "id": "e09",
+      "ability": "extraction",
+      "question": "What led to the physio appointment?",
+      "answer": "Her knee hurt after a Thursday run.",
+      "must_include": [
+        "knee"
+      ],
+      "support": [
+        "m12"
+      ]
+    },
+    {
+      "id": "s01",
+      "ability": "multi_session",
+      "question": "What tends to happen to her Saturday long run?",
+      "answer": "She skips it after staying up late on Friday; three times.",
+      "must_include": [
+        "Friday",
+        "skip"
+      ],
+      "support": [
+        "m04",
+        "m07",
+        "m10"
+      ]
+    },
+    {
+      "id": "s02",
+      "ability": "multi_session",
+      "question": "What does she do when asked to take on work she doesn't want?",
+      "answer": "She says yes anyway (the Q4 launch, the design awards).",
+      "must_include": [
+        "yes"
+      ],
+      "support": [
+        "m23",
+        "m27"
+      ]
+    },
+    {
+      "id": "s03",
+      "ability": "multi_session",
+      "question": "What suggests woodworking absorbs her?",
+      "answer": "She lost track of time at class, and stayed up till 1am sketching without feeling tired.",
+      "must_include": [
+        "time"
+      ],
+      "support": [
+        "m17",
+        "m24"
+      ]
+    },
+    {
+      "id": "s04",
+      "ability": "multi_session",
+      "question": "How did the late-night videos connect to what she's doing now?",
+      "answer": "She watched videos about leaving design for furniture-making, then started classes, and has now sold a piece.",
+      "must_include": [
+        "class",
+        "sold"
+      ],
+      "support": [
+        "m05",
+        "m15",
+        "m30"
+      ]
+    },
+    {
+      "id": "s05",
+      "ability": "multi_session",
+      "question": "What did she say about the promotion, and what is she considering instead?",
+      "answer": "She isn't sure she wants it; she's thinking about going part-time to make furniture.",
+      "must_include": [
+        "not sure",
+        "part-time"
+      ],
+      "support": [
+        "m09",
+        "m21"
+      ]
+    },
+    {
+      "id": "s06",
+      "ability": "multi_session",
+      "question": "Who does she spend time with outside work?",
+      "answer": "Priya: dinner and climbing.",
+      "must_include": [
+        "Priya"
+      ],
+      "support": [
+        "m19",
+        "m28"
+      ]
+    },
+    {
+      "id": "s07",
+      "ability": "multi_session",
+      "question": "What did she plan for running, and what did she actually do?",
+      "answer": "Planned Tuesday, Thursday and Saturday; skipped Saturdays repeatedly, then stopped after the injury.",
+      "must_include": [
+        "Saturday"
+      ],
+      "support": [
+        "m01",
+        "m04",
+        "m07",
+        "m10",
+        "m14"
+      ]
+    },
+    {
+      "id": "s08",
+      "ability": "multi_session",
+      "question": "What has the content she watches been about lately?",
+      "answer": "Woodworking and making furniture for a living.",
+      "must_include": [
+        "furniture"
+      ],
+      "support": [
+        "m05",
+        "m06",
+        "m18"
+      ]
+    },
+    {
+      "id": "u01",
+      "ability": "update",
+      "question": "Is she training for the half marathon?",
+      "answer": "No. She dropped it on 16 September after the physio said no running.",
+      "must_include": [
+        "dropped"
+      ],
+      "must_not_say": [
+        "is training"
+      ],
+      "support": [
+        "m14"
+      ]
+    },
+    {
+      "id": "u02",
+      "ability": "update",
+      "question": "Is running one of her active goals?",
+      "answer": "No; she quit the race goal after the injury.",
+      "must_include": [
+        "no"
+      ],
+      "support": [
+        "m14"
+      ]
+    },
+    {
+      "id": "u03",
+      "ability": "update",
+      "question": "Has she ever made anything in woodworking?",
+      "answer": "Yes: a box at class, and she has sold a walnut box.",
+      "must_include": [
+        "box"
+      ],
+      "support": [
+        "m17",
+        "m30"
+      ]
+    },
+    {
+      "id": "u04",
+      "ability": "update",
+      "question": "Should the half marathon be a topic in this week's episode?",
+      "answer": "No. It's a quit goal (goal 7: January's marathon is not this week's topic).",
+      "must_include": [
+        "no"
+      ],
+      "support": [
+        "m14"
+      ]
+    },
+    {
+      "id": "u05",
+      "ability": "update",
+      "question": "What is she responsible for at work now?",
+      "answer": "The redesign, and now the Q4 launch too.",
+      "must_include": [
+        "Q4 launch"
+      ],
+      "support": [
+        "m09",
+        "m23"
+      ]
+    },
+    {
+      "id": "u06",
+      "ability": "update",
+      "question": "Does she still go to run club on Tuesdays?",
+      "answer": "No; she stopped running after the physio's advice.",
+      "must_include": [
+        "no"
+      ],
+      "support": [
+        "m14"
+      ]
+    },
+    {
+      "id": "u07",
+      "ability": "update",
+      "question": "Has she earned anything from woodworking?",
+      "answer": "Yes, $180 from her first sale.",
+      "must_include": [
+        "180"
+      ],
+      "support": [
+        "m30"
+      ]
+    },
+    {
+      "id": "t01",
+      "ability": "temporal",
+      "question": "How many woodworking classes has she been to?",
+      "answer": "Five.",
+      "must_include": [
+        "5|five"
+      ],
+      "count": {
+        "of": "Woodworking class",
+        "equals": 5
+      },
+      "support": [
+        "m15",
+        "m16",
+        "m20",
+        "m25",
+        "m29"
+      ]
+    },
+    {
+      "id": "t02",
+      "ability": "temporal",
+      "question": "How many Saturday runs did she skip after a late Friday?",
+      "answer": "Three.",
+      "must_include": [
+        "3|three"
+      ],
+      "support": [
+        "m04",
+        "m07",
+        "m10"
+      ]
+    },
+    {
+      "id": "t03",
+      "ability": "temporal",
+      "question": "How long after signing up did she drop the race?",
+      "answer": "About six weeks (4 August to 16 September).",
+      "must_include": [
+        "six weeks|6 weeks|43 days"
+      ],
+      "support": [
+        "m01",
+        "m14"
+      ]
+    },
+    {
+      "id": "t04",
+      "ability": "temporal",
+      "question": "Which came first: the furniture-making video or her first class?",
+      "answer": "The video (15 August), five weeks before her first class (20 September).",
+      "must_include": [
+        "video"
+      ],
+      "support": [
+        "m05",
+        "m15"
+      ]
+    },
+    {
+      "id": "t05",
+      "ability": "temporal",
+      "question": "How many times in October did she say yes to work she didn't want?",
+      "answer": "Twice.",
+      "must_include": [
+        "2|twice|two"
+      ],
+      "support": [
+        "m23",
+        "m27"
+      ]
+    },
+    {
+      "id": "t06",
+      "ability": "temporal",
+      "question": "When did she make her first sale?",
+      "answer": "18 October.",
+      "must_include": [
+        "18"
+      ],
+      "support": [
+        "m30"
+      ]
+    },
+    {
+      "id": "t07",
+      "ability": "temporal",
+      "question": "How many times has she seen Priya this month?",
+      "answer": "Twice: dinner on the 3rd and climbing on the 17th.",
+      "must_include": [
+        "2|twice|two"
+      ],
+      "count": {
+        "of": "Priya",
+        "content_type": "calendar",
+        "equals": 2
+      },
+      "support": [
+        "m19",
+        "m28"
+      ]
+    },
+    {
+      "id": "t08",
+      "ability": "temporal",
+      "question": "Is the Friday-night pattern still happening?",
+      "answer": "There's not enough to say. The last skipped run was 6 September; she stopped running after that, so there's nothing to skip.",
+      "must_include": [
+        "not enough|can't say|no longer running"
+      ],
+      "support": [
+        "m10",
+        "m14"
+      ]
+    },
+    {
+      "id": "a01",
+      "ability": "abstention",
+      "question": "Is she burned out?",
+      "abstain": true,
+      "reason": "Only a newsletter says so; that's automated mail guessing, not evidence about her.",
+      "must_not_cite": [
+        "m26"
+      ]
+    },
+    {
+      "id": "a02",
+      "ability": "abstention",
+      "question": "Is she losing motivation to exercise?",
+      "abstain": true,
+      "reason": "Strava's line is an automated guess. What's known is the injury and the physio's advice.",
+      "must_not_cite": [
+        "m11"
+      ]
+    },
+    {
+      "id": "a03",
+      "ability": "abstention",
+      "question": "What does Priya do for work?",
+      "abstain": true,
+      "reason": "Never mentioned."
+    },
+    {
+      "id": "a04",
+      "ability": "abstention",
+      "question": "How much does she earn?",
+      "abstain": true,
+      "reason": "Never mentioned."
+    },
+    {
+      "id": "e10",
+      "ability": "extraction",
+      "question": "What has she said about wanting the promotion?",
+      "answer": "That she isn't sure she even wants it.",
+      "must_include": [
+        "not sure|unsure|isn't sure"
+      ],
+      "must_not_say": [
+        "she wants it",
+        "she doesn't want it"
+      ],
+      "support": [
+        "m09"
+      ]
+    },
+    {
+      "id": "a06",
+      "ability": "abstention",
+      "question": "Is her relationship with Dana strained?",
+      "abstain": true,
+      "reason": "Nothing about the relationship itself."
+    },
+    {
+      "id": "a07",
+      "ability": "abstention",
+      "question": "Is she going to quit her job?",
+      "abstain": true,
+      "reason": "She's thinking about part-time; nothing decided."
+    },
+    {
+      "id": "a08",
+      "ability": "abstention",
+      "question": "Why does she keep saying yes?",
+      "abstain": true,
+      "reason": "A why is a hypothesis; she asked it herself and hasn't answered. It may be asked back, never stated."
+    }
   ]
 }

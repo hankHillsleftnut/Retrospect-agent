@@ -8,3 +8,4 @@ scripts/outputs/
 !scripts/outputs/.gitkeep
 .vscode/
 .idea/
+.eval-results/
