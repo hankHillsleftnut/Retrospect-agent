@@ -521,3 +521,31 @@ test('126: a Google Doc stays unknown, a step count is no one\'s words, and an e
   assert.equal(await labelled('healthkit', null), 'other');
   assert.equal(await labelled('google_docs', 'self'), 'self');
 });
+
+test('127: re-reading an entry keeps the note you left when correcting a fact', async () => {
+  const s = await factSetup();
+  const p = fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }], { metadata: { model: 'a' } });
+  const id = await writeFact(p);
+  // What the backend does when you retire a fact (routes/graph.ts).
+  await db.query(
+    `UPDATE assertions SET status = 'retired', metadata = metadata || '{"user_feedback_note":"not true any more"}' WHERE id = $1`,
+    [id],
+  );
+
+  await writeFact({ ...p, metadata: { model: 'b' } }); // the forced re-read
+
+  const { rows: [row] } = await db.query<{ status: string; metadata: Record<string, unknown> }>(
+    `SELECT status, metadata FROM assertions WHERE id = $1`, [id]);
+  assert.equal(row!.status, 'retired');
+  assert.deepEqual(row!.metadata, { model: 'b', user_feedback_note: 'not true any more' });
+});
+
+test('127: a fact with no note is re-saved exactly as before', async () => {
+  const s = await factSetup();
+  const p = fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }], { metadata: { model: 'a' } });
+  const id = await writeFact(p);
+  await writeFact({ ...p, metadata: { model: 'b' } });
+  const { rows: [row] } = await db.query<{ metadata: Record<string, unknown> }>(
+    `SELECT metadata FROM assertions WHERE id = $1`, [id]);
+  assert.deepEqual(row!.metadata, { model: 'b' });
+});
