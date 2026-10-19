@@ -276,7 +276,20 @@ export async function supersedeContradicted(options: {
 }
 
 /** Minimal surface of the Supabase client that writeFact needs, so tests can inject a fake. */
-export type FactDb = Pick<typeof supabase, 'from'>;
+// rpc is optional so test doubles that only fake `from` keep exercising the
+// two-call path below.
+export type FactDb = Pick<typeof supabase, 'from'> & Partial<Pick<typeof supabase, 'rpc'>>;
+
+/**
+ * Set once the database reports write_fact (migration 119) is missing, so an
+ * un-migrated database costs one failed call per process, not one per fact.
+ */
+let writeFactRpcMissing = false;
+
+/** PostgREST and Postgres both have a code for "no such function". */
+function isMissingFunction(error: { code?: string } | null): boolean {
+  return error?.code === 'PGRST202' || error?.code === '42883';
+}
 
 export async function writeFact(
   options: WriteFactOptions,
@@ -302,6 +315,88 @@ export async function writeFact(
     }
   }
 
+  // Preferred path: one database call that saves the fact and its evidence in a
+  // single transaction (migration 119), so a failure can never leave a fact
+  // without evidence. The two-call path below remains as the fallback until
+  // the migration is applied everywhere, and for test doubles without rpc.
+  let assertion: { id: string } | null = null;
+  if (db.rpc && !writeFactRpcMissing) {
+    const { data, error } = await db.rpc('write_fact', { p: writeFactPayload(options) });
+    if (!error) {
+      assertion = { id: data as string };
+    } else if (isMissingFunction(error)) {
+      writeFactRpcMissing = true;
+      console.warn('[writeFact] write_fact function not deployed (migration 119); using the two-call path');
+    } else {
+      throw new Error(`Write fact failed: ${error.message}`);
+    }
+  }
+  if (!assertion) assertion = await writeFactTwoCalls(options, db);
+
+  // Time is applied here, in code. The model proposed a claim; what that
+  // claim does to what we already believed is not its decision.
+  if (options.applySupersession !== false && options.objectValue) {
+    try {
+      await supersedeContradicted({
+        userId: options.userId,
+        subjectEntityId: options.subjectEntityId,
+        newAssertionId: assertion.id,
+        incoming: {
+          predicate: options.predicate,
+          object: String((options.objectValue as Record<string, unknown>).normalized ?? ''),
+          eventTime: options.eventTime ?? null,
+        },
+        eventTime: options.eventTime ?? null,
+      }, db);
+    } catch (err) {
+      // A supersession failure must not lose the Fact. The row is written;
+      // lint check F3 will find the un-retired pair.
+      console.warn(`[writeFact] supersession failed: ${(err as Error).message}`);
+    }
+  }
+
+  return assertion.id;
+}
+
+/**
+ * The argument to write_fact. Optional columns are left out rather than sent as
+ * null, which the function reads as "keep what is there" -- the same rule the
+ * two-call path follows.
+ */
+export function writeFactPayload(options: WriteFactOptions): Record<string, unknown> {
+  return {
+    user_id: options.userId,
+    subject_entity_id: options.subjectEntityId,
+    predicate: options.predicate,
+    object_entity_id: options.objectEntityId ?? null,
+    object_value: options.objectValue ?? null,
+    assertion_kind: options.kind ?? 'observed',
+    confidence: options.confidence ?? 1,
+    event_time: options.eventTime ?? null,
+    normalizer_version: options.normalizerVersion ?? null,
+    origin_key: options.originKey,
+    metadata: options.metadata ?? {},
+    ...(options.modelVersion !== undefined ? { model_version: options.modelVersion } : {}),
+    ...(options.sourceRunId !== undefined ? { source_run_id: options.sourceRunId } : {}),
+    evidence: options.evidence.map((entry) => ({
+      analysis_unit_id: entry.analysisUnitId ?? null,
+      source_item_id: entry.sourceItemId ?? null,
+      raw_content_id: entry.rawContentId ?? null,
+      evidence_role: entry.role ?? 'supports',
+      weight: entry.weight ?? 1,
+      excerpt: entry.excerpt ?? null,
+      ...(entry.charStart !== undefined ? { char_start: entry.charStart } : {}),
+      ...(entry.charEnd !== undefined ? { char_end: entry.charEnd } : {}),
+    })),
+  };
+}
+
+/**
+ * The original path: two separate calls. Kept as the fallback for databases
+ * without migration 119. Not atomic -- if the second call fails the fact is
+ * left without evidence -- which is why it is no longer the first choice.
+ */
+async function writeFactTwoCalls(options: WriteFactOptions, db: FactDb): Promise<{ id: string }> {
   const { data: assertion, error } = await db.from(Tables.ASSERTIONS).upsert({
     user_id: options.userId,
     subject_entity_id: options.subjectEntityId,
@@ -342,9 +437,9 @@ export async function writeFact(
   // properly evidenced one. Good knowledge replaced by an unsupported claim.
   //
   // Now a failed evidence write throws here, before any other fact is touched.
-  // (The empty-evidence check above guarantees there is something to write.)
-  // The two writes are still separate calls; making them one transaction is a
-  // database-function change, done separately.
+  // (The empty-evidence check in writeFact guarantees there is something to
+  // write.) The two writes are still separate calls here; write_fact is the
+  // version that makes them one transaction.
   const evidence: AssertionEvidenceRow[] = options.evidence.map((entry) => ({
     user_id: options.userId,
     assertion_id: assertion.id,
@@ -360,30 +455,7 @@ export async function writeFact(
   const { error: evidenceError } = await db.from(Tables.ASSERTION_EVIDENCE)
     .upsert(evidence, { onConflict: 'assertion_id,analysis_unit_id,source_item_id,raw_content_id,evidence_role' });
   if (evidenceError) throw new Error(`Write assertion evidence failed: ${evidenceError.message}`);
-
-  // Time is applied here, in code. The model proposed a claim; what that
-  // claim does to what we already believed is not its decision.
-  if (options.applySupersession !== false && options.objectValue) {
-    try {
-      await supersedeContradicted({
-        userId: options.userId,
-        subjectEntityId: options.subjectEntityId,
-        newAssertionId: assertion.id,
-        incoming: {
-          predicate: options.predicate,
-          object: String((options.objectValue as Record<string, unknown>).normalized ?? ''),
-          eventTime: options.eventTime ?? null,
-        },
-        eventTime: options.eventTime ?? null,
-      }, db);
-    } catch (err) {
-      // A supersession failure must not lose the Fact. The row is written;
-      // lint check F3 will find the un-retired pair.
-      console.warn(`[writeFact] supersession failed: ${(err as Error).message}`);
-    }
-  }
-
-  return assertion.id;
+  return assertion;
 }
 
 /**

@@ -284,3 +284,54 @@ test('if the evidence cannot be saved, no older fact is retired', async () => {
 
   assert.equal(supersessionLookedAtOtherFacts, false, 'nothing was retired on the strength of an unevidenced fact');
 });
+
+// ── The atomic path (migration 119) ─────────────────────────────────────────
+// Ordered deliberately: the last test teaches writeFact the function is
+// missing, which it then remembers for the rest of the process.
+
+function rpcDb(rpcResult: { data: unknown; error: { code?: string; message: string } | null }) {
+  const base = fakeDb();
+  const rpcCalls: { fn: string; args: any }[] = [];
+  const db = Object.assign(base.db, {
+    rpc: async (fn: string, args: any) => { rpcCalls.push({ fn, args }); return rpcResult; },
+  }) as unknown as FactDb;
+  return { db, rpcCalls, calls: base.calls };
+}
+
+const atomicFact = {
+  userId: 'u1', subjectEntityId: 'self', predicate: 'p', objectValue: { v: 1 },
+  originKey: 'journal:raw-1:p:x', applySupersession: false,
+  evidence: [{ rawContentId: 'raw-1', excerpt: 'quote' }],
+};
+
+test('saves fact and evidence in one database call when it can', async () => {
+  const { db, rpcCalls, calls } = rpcDb({ data: 'fact-7', error: null });
+  const id = await writeFact(atomicFact, db);
+  assert.equal(id, 'fact-7');
+  assert.equal(rpcCalls.length, 1);
+  assert.equal(rpcCalls[0]!.fn, 'write_fact');
+  assert.equal(rpcCalls[0]!.args.p.evidence[0].raw_content_id, 'raw-1');
+  assert.equal(calls.length, 0, 'nothing written through the old two-call path');
+});
+
+test('leaves out model version and run when not given, so a re-save keeps them', async () => {
+  const { db, rpcCalls } = rpcDb({ data: 'fact-7', error: null });
+  await writeFact(atomicFact, db);
+  assert.equal('model_version' in rpcCalls[0]!.args.p, false);
+  assert.equal('source_run_id' in rpcCalls[0]!.args.p, false);
+});
+
+test('a real failure is reported, not retried the old way', async () => {
+  // Falling back on any error would hide the database refusing a bad fact
+  // (no evidence, someone else's data) by writing it another way.
+  const { db, calls } = rpcDb({ data: null, error: { code: '42501', message: 'evidence must come from the same user' } });
+  await assert.rejects(() => writeFact(atomicFact, db), /same user/);
+  assert.equal(calls.length, 0);
+});
+
+test('falls back to the two-call path only when the function is not deployed', async () => {
+  const { db, calls } = rpcDb({ data: null, error: { code: 'PGRST202', message: 'Could not find the function' } });
+  const id = await writeFact(atomicFact, db);
+  assert.equal(id, 'assertion-1');
+  assert.deepEqual(calls.map((c) => c.table), ['assertions', 'assertion_evidence']);
+});
