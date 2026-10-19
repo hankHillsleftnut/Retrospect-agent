@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 import { parseArgs, requireArg, optBool, optNum, optStr } from './_args';
 import { writeOutput } from './_io';
+import { formatCostLines } from '../src/pipelines/trace';
 import { runPodcast } from '../src/pipelines/podcast';
 import type { VoicePersona } from '../src/types';
 
@@ -33,6 +34,7 @@ async function main() {
   console.log(`  est duration:            ${result.durationSeconds}s`);
   console.log(`  audio:                   ${result.audioUrl ?? '(skipped)'}`);
   console.log(`  episode:                 ${result.episodeId ?? '(dry-run)'}`);
+  console.log(`\nCost:\n${formatCostLines(result.cost)}`);
   console.log(`  trace:                   ${result.traceId ?? '(dry-run)'}`);
   console.log(`  output saved:            ${out}`);
   if (result.traceId) {
