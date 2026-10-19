@@ -1,4 +1,5 @@
 import { runIngest } from '../pipelines/ingest';
+import { rebuildDailySummaries } from '../brain/daily-summaries';
 import { runResearch } from '../questions/run-research';
 import { checkDailySpend } from '../pipelines/spend-guard';
 import { claimFromDb, finishInDb, handleArrivals, type ArrivalDeps } from '../events/arrivals';
@@ -7,7 +8,10 @@ export const defaultArrivalDeps: ArrivalDeps = {
   claim: () => claimFromDb(),
   finish: (c, ok) => finishInDb(c, ok),
   mayRun: async (userId) => (await checkDailySpend(userId)).allowed,
-  read: async (userId) => { await runIngest({ userId, daysBack: 7, triggeredBy: 'event', notes: 'material arrived' }); },
+  read: async (userId) => {
+    await runIngest({ userId, daysBack: 7, triggeredBy: 'event', notes: 'material arrived' });
+    await rebuildDailySummaries(userId, 14);
+  },
   research: async (userId) => { await runResearch(userId); },
 };
 
