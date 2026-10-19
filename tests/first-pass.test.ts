@@ -167,3 +167,17 @@ test('the model is told not to assume pronouns or leak item handles into answers
     assert.match(prompt, /Never mention item handles/);
   }
 });
+
+test("a document someone else may have written is shown as a record, not as their words", async () => {
+  const { buildPool } = await import('../src/questions/run-first-pass.js');
+  const { db } = fakeDb({
+    raw_content: [{
+      id: 'doc-1', content_type: 'google_docs', authorship: 'unknown', created_at: '2026-05-22',
+      content: 'My name is Farza. I will spare you a cringe manifesto.', metadata: { document_id: 'd1', chunk_index: 0 },
+    }],
+  });
+  const pool = await buildPool('u1', db);
+  const item = pool.find((i) => 'raw_content_id' in i.ref && i.ref.raw_content_id === 'doc-1')!;
+  assert.equal(item.ownWords, false);
+  assert.match(item.label, /author not known to be them/);
+});
