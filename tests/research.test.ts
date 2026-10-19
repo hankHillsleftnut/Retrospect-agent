@@ -216,3 +216,15 @@ test('items that did not fit are not skipped: the look stops just before the ear
     '2026-10-19T21:15:59.999Z',
   );
 });
+
+test('two fitting sources take turns, so a burst of one cannot crowd out the other', () => {
+  const items = [
+    ...Array.from({ length: 5 }, (_, n) => routed(`mail${n}`, 'gmail', `2026-10-19T21:17:0${n}Z`)),
+    routed('cal1', 'calendar', '2026-10-19T21:16:00Z'),
+    routed('cal2', 'calendar', '2026-10-19T21:16:01Z'),
+  ];
+  assert.deepEqual(
+    rankNewItems(items, ['calendar', 'mail'], 4).map((i) => i.id),
+    ['cal2', 'mail4', 'cal1', 'mail3'],
+  );
+});

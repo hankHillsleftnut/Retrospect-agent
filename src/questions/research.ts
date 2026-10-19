@@ -78,7 +78,26 @@ export function rankNewItems<T extends { at?: string; contentType?: string; ownW
   const wantsWords = answerableFrom.includes('words');
   const fits = (i: T) => (i.contentType !== undefined && types.has(i.contentType)) || (wantsWords && i.ownWords);
   const newest = (a: T, b: T) => (b.at ?? '').localeCompare(a.at ?? '');
-  return [...items.filter(fits).sort(newest), ...items.filter((i) => !fits(i)).sort(newest)].slice(0, limit);
+
+  // Take turns between the fitting sources, newest first within each, so one
+  // source cannot crowd out another: 25 emails arriving seconds after a
+  // calendar once left "who you spend time with" mostly reading the inbox.
+  const groups = new Map<string, T[]>();
+  for (const i of items.filter(fits)) {
+    const key = i.contentType && types.has(i.contentType) ? i.contentType : 'words';
+    groups.set(key, [...(groups.get(key) ?? []), i]);
+  }
+  // Turn order follows the question's own list of sources.
+  const rank = (key: string) => {
+    const at = answerableFrom.findIndex((src) => (src === 'words' ? key === 'words' : (SOURCE_CONTENT_TYPES[src] ?? []).includes(key)));
+    return at === -1 ? answerableFrom.length : at;
+  };
+  const queues = [...groups.entries()].sort(([a], [b]) => rank(a) - rank(b)).map(([, g]) => g.sort(newest));
+  const interleaved: T[] = [];
+  for (let round = 0; queues.some((q) => q.length > round); round++) {
+    for (const q of queues) if (q[round]) interleaved.push(q[round]!);
+  }
+  return [...interleaved, ...items.filter((i) => !fits(i)).sort(newest)].slice(0, limit);
 }
 
 export const RESEARCH_BUDGET = 6;
