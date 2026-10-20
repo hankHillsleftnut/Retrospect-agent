@@ -30,6 +30,9 @@ interface MetricSpec { domain: DailySummary['domain']; metric: string; label: st
 export const METRICS: readonly MetricSpec[] = [
   { domain: 'calendar', metric: 'hours_booked', label: 'hours booked', zeroWhenAbsent: true },
   { domain: 'calendar', metric: 'with_others', label: 'meetings with other people', zeroWhenAbsent: true },
+  { domain: 'calendar', metric: 'hours_focus', label: 'hours of focused work booked', zeroWhenAbsent: true },
+  { domain: 'calendar', metric: 'hours_social', label: 'hours with friends booked', zeroWhenAbsent: true },
+  { domain: 'calendar', metric: 'hours_exercise', label: 'hours of exercise booked', zeroWhenAbsent: true },
   { domain: 'own_words', metric: 'entries', label: 'entries you wrote', zeroWhenAbsent: true },
   { domain: 'mail', metric: 'sent', label: 'emails sent', zeroWhenAbsent: true },
   { domain: 'health', metric: 'steps', label: 'steps', zeroWhenAbsent: false },

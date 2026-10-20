@@ -22,6 +22,7 @@
  */
 
 import { normalizeHealthSummary } from '../pipelines/health-summary';
+import { TIME_CATEGORIES, categoriseEvent } from './time-categories';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 
@@ -124,9 +125,13 @@ function metricsFor(domain: Domain, its: SummaryItem[], offset: number): DailySu
     const attended = timed.filter((i) => i.normalized_data?.my_response !== 'declined' && i.normalized_data?.busy !== false);
     let minutes = 0;
     const starts: number[] = [], ends: number[] = [];
+    const byCategory = new Map<string, number>();
     for (const i of attended) {
       const s = String(i.normalized_data!.start), e = typeof i.normalized_data?.end === 'string' ? String(i.normalized_data.end) : s;
-      minutes += Math.max(0, (new Date(e).getTime() - new Date(s).getTime()) / 60_000);
+      const m = Math.max(0, (new Date(e).getTime() - new Date(s).getTime()) / 60_000);
+      minutes += m;
+      const c = categoriseEvent({ title: i.normalized_data?.title as string | undefined, attendee_count: Number(i.normalized_data?.attendee_count ?? 0) });
+      byCategory.set(c, (byCategory.get(c) ?? 0) + m);
       starts.push(localTime(s, offsetMinutes(s) ?? offset).minute);
       ends.push(localTime(e, offsetMinutes(e) ?? offset).minute);
     }
@@ -138,6 +143,8 @@ function metricsFor(domain: Domain, its: SummaryItem[], offset: number): DailySu
       all_day: its.length - timed.length,
       first_start: starts.length ? hhmm(Math.min(...starts)) : null,
       last_end: ends.length ? hhmm(Math.max(...ends)) : null,
+      // Where the booked time went (W3.5); these add up to hours_booked.
+      ...Object.fromEntries(TIME_CATEGORIES.filter((c) => byCategory.has(c)).map((c) => [`hours_${c}`, Math.round((byCategory.get(c)! / 60) * 100) / 100])),
     };
   }
   if (domain === 'own_words') {

@@ -21,7 +21,7 @@ test('calendar: a day is booked hours, with others, declined and first/last, in 
   assert.equal(days.length, 1, 'the 11pm event stays on the 14th, though it is the 15th in UTC');
   assert.deepEqual(days[0], {
     day: '2026-10-14', domain: 'calendar', items: 4, source_ids: days[0]!.source_ids,
-    metrics: { events: 4, hours_booked: 2.3, with_others: 1, declined: 1, all_day: 1, first_start: '09:00', last_end: '23:45' },
+    metrics: { events: 4, hours_booked: 2.3, with_others: 1, declined: 1, all_day: 1, first_start: '09:00', last_end: '23:45', hours_meetings: 1.5, hours_other: 0.75 },
   });
 });
 
