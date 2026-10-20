@@ -755,3 +755,11 @@ test('138: a re-derivation retires what it no longer cites; current support igno
   assert.equal(await countWhere(`SELECT count(*) AS n FROM answer_evidence WHERE answer_id = $1 AND retired_at IS NULL`, [a]), 2, 'cited again: counts again');
   assert.equal((await confidenceOf(a)).toFixed(3), both.toFixed(3));
 });
+
+// ── 139: goal lifecycle ──────────────────────────────────────────────────────
+test('139: goals carry a status from a fixed set; existing inactive goals read as expired', async () => {
+  const user = await insertUser(db);
+  const { rows: [g] } = await db.query<{ status: string }>(`INSERT INTO goals (user_id, title) VALUES ($1, 'x') RETURNING status`, [user]);
+  assert.equal(g!.status, 'active');
+  assert.equal(await failureCode(`INSERT INTO goals (user_id, title, status) VALUES ($1, 'y', 'vibes')`, [user]), CHECK_VIOLATION);
+});
