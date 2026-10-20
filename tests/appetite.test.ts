@@ -2,6 +2,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { effective, inferLevel, readAppetite, refreshAppetite, setStatedAppetite, type Signal } from '../src/appetite/appetite';
+import { planEpisode } from '../src/planner/plan';
 import { freshDatabase, insertUser, type PGlite } from './support/fresh-database';
 import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
@@ -58,8 +59,7 @@ test('setting it is remembered, outranks inference, and clearing it hands back',
   assert.equal((await setStatedAppetite(user, null)).source, 'inferred');
 });
 
-test('at appetite 0 the episode asks nothing; with the switch off it behaves as before', async () => {
-  const { planEpisode } = await import('../src/planner/plan');
+test('at appetite 0 the episode asks nothing; with the switch off it behaves as before', () => {
   const contract = {
     userId: 'u', asOf: '2026-10-20', answers: [], silent: [], goals: [], shifts: [], time: { categories: [], otherShare: 0, weeksOfBaseline: 0 }, moves: { since: null, items: [] },
     patterns: [{ kind: 'pattern', id: 'p1', label: 'Says yes', confidence: 0.8, instances: 5, firstSeenAt: null, lastSeenAt: null, trajectory: null, trajectoryDetail: null, register: 'stated' }],
