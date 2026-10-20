@@ -1,0 +1,253 @@
+{
+ "gate": "F-C3 targeting (goal 20)",
+ "bar": ">= 90% right target; non-corrections never applied",
+ "declared": "2026-10-20, before code ran",
+ "claims": [
+  {
+   "i": 0,
+   "kind": "fact",
+   "a": "values",
+   "b": "hustle culture"
+  },
+  {
+   "i": 1,
+   "kind": "fact",
+   "a": "values",
+   "b": "family time"
+  },
+  {
+   "i": 2,
+   "kind": "fact",
+   "a": "attended",
+   "b": "woodworking class at Laney College"
+  },
+  {
+   "i": 3,
+   "kind": "fact",
+   "a": "felt",
+   "b": "relieved about dropping the half marathon"
+  },
+  {
+   "i": 4,
+   "kind": "fact",
+   "a": "works_at",
+   "b": "Figma"
+  },
+  {
+   "i": 5,
+   "kind": "fact",
+   "a": "lives_in",
+   "b": "Oakland"
+  },
+  {
+   "i": 6,
+   "kind": "fact",
+   "a": "communicated_with",
+   "b": "Priya"
+  },
+  {
+   "i": 7,
+   "kind": "fact",
+   "a": "stated_goal",
+   "b": "run the Oakland half marathon"
+  },
+  {
+   "i": 8,
+   "kind": "fact",
+   "a": "consumed_or_followed",
+   "b": "Pricing handmade furniture video"
+  },
+  {
+   "i": 9,
+   "kind": "fact",
+   "a": "felt",
+   "b": "anxious before pitches"
+  },
+  {
+   "i": 10,
+   "kind": "fact",
+   "a": "skipped_or_avoided",
+   "b": "Saturday long run"
+  },
+  {
+   "i": 11,
+   "kind": "fact",
+   "a": "believes",
+   "b": "money is the main reason not to go part-time"
+  },
+  {
+   "i": 12,
+   "kind": "fact",
+   "a": "sold",
+   "b": "walnut box for $180"
+  },
+  {
+   "i": 13,
+   "kind": "fact",
+   "a": "manager_is",
+   "b": "Dana"
+  },
+  {
+   "i": 14,
+   "kind": "fact",
+   "a": "dislikes",
+   "b": "cilantro"
+  },
+  {
+   "i": 15,
+   "kind": "answer",
+   "a": 3,
+   "b": "You're driven mainly by recognition at work."
+  },
+  {
+   "i": 16,
+   "kind": "answer",
+   "a": 7,
+   "b": "You want to go part-time to make furniture."
+  },
+  {
+   "i": 17,
+   "kind": "answer",
+   "a": 11,
+   "b": "Your closest friend is Priya."
+  },
+  {
+   "i": 18,
+   "kind": "answer",
+   "a": 19,
+   "b": "You avoid conflict with your manager."
+  },
+  {
+   "i": 19,
+   "kind": "answer",
+   "a": 24,
+   "b": "You recharge by being alone in the workshop."
+  },
+  {
+   "i": 20,
+   "kind": "pattern",
+   "a": "late-friday-skip",
+   "b": "Skips the Saturday long run after a late Friday"
+  },
+  {
+   "i": 21,
+   "kind": "pattern",
+   "a": "says-yes",
+   "b": "Says yes to extra work she doesn't want"
+  },
+  {
+   "i": 22,
+   "kind": "pattern",
+   "a": "night-videos",
+   "b": "Watches furniture-making videos late at night"
+  },
+  {
+   "i": 23,
+   "kind": "pattern",
+   "a": "workshop-flow",
+   "b": "Loses track of time in the workshop"
+  }
+ ],
+ "cases": [
+  {
+   "id": "fc3-01",
+   "text": "I don't value hustle culture at all, that's wrong",
+   "expect": 0
+  },
+  {
+   "id": "fc3-02",
+   "text": "Priya isn't my closest friend, it's actually Maya from college",
+   "expect": 17
+  },
+  {
+   "id": "fc3-03",
+   "text": "I never said I want to go part-time, I'm happy at work",
+   "expect": 16
+  },
+  {
+   "id": "fc3-04",
+   "text": "Dana isn't my manager anymore",
+   "expect": 13
+  },
+  {
+   "id": "fc3-05",
+   "text": "I don't live in Oakland, I moved to Berkeley",
+   "expect": 5
+  },
+  {
+   "id": "fc3-06",
+   "text": "I'm not motivated by recognition, I care about the craft",
+   "expect": 15
+  },
+  {
+   "id": "fc3-07",
+   "text": "That walnut box thing was a gift, I didn't sell it",
+   "expect": 12
+  },
+  {
+   "id": "fc3-08",
+   "text": "I wasn't relieved about the marathon, I was gutted",
+   "expect": 3
+  },
+  {
+   "id": "fc3-09",
+   "text": "I don't work at Figma, that was my old job",
+   "expect": 4
+  },
+  {
+   "id": "fc3-10",
+   "text": "I don't skip Saturday runs after late Fridays, that was one bad month",
+   "expect": 20
+  },
+  {
+   "id": "fc3-11",
+   "text": "I don't avoid conflict with my manager, we argue all the time",
+   "expect": 18
+  },
+  {
+   "id": "fc3-12",
+   "text": "The late night videos were my roommate's, not mine",
+   "expect": 22
+  },
+  {
+   "id": "fc3-13",
+   "text": "I actually love cilantro",
+   "expect": 14
+  },
+  {
+   "id": "fc3-14",
+   "text": "Running the half marathon isn't my goal anymore",
+   "expect": 7
+  },
+  {
+   "id": "fc3-15",
+   "text": "It's not money holding me back from part-time",
+   "expect": 11
+  },
+  {
+   "id": "fc3-16",
+   "text": "I don't get anxious before pitches",
+   "expect": 9
+  },
+  {
+   "id": "fc3-17",
+   "text": "Loved this episode, it was spot on",
+   "expect": null
+  },
+  {
+   "id": "fc3-18",
+   "text": "Can you make the next one shorter?",
+   "expect": null
+  },
+  {
+   "id": "fc3-19",
+   "text": "More about woodworking please",
+   "expect": null
+  },
+  {
+   "id": "fc3-20",
+   "text": "Thanks, that was really helpful today",
+   "expect": null
+  }
+ ]
+}

@@ -42,7 +42,8 @@
     "summaries:rebuild": "tsx scripts/rebuild-summaries.ts",
     "eval:guard": "tsx scripts/eval-guard.ts",
     "eval:search": "tsx scripts/eval-search.ts",
-    "trust:backfill": "tsx scripts/backfill-trust.ts"
+    "trust:backfill": "tsx scripts/backfill-trust.ts",
+    "eval:corrections": "tsx scripts/eval-corrections.ts"
   },
   "keywords": [
     "agent",
