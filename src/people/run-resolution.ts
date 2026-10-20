@@ -147,13 +147,40 @@ export async function applyWritingToContacts(userId: string, db: typeof supabase
     });
     if (cErr) throw new Error(`applyWritingToContacts record: ${cErr.message}`);
     if (o.decision === 'hold') { held++; continue; }
-    for (const [table, col] of [[Tables.ENTITY_ALIASES, 'entity_id'], [Tables.ASSERTIONS, 'subject_entity_id'], [Tables.ASSERTIONS, 'object_entity_id'], [Tables.BEHAVIOR_PATTERNS, 'subject_entity_id']] as const) {
-      const { error } = await db.from(table).update({ [col]: o.personId }).eq(col, writingId);
-      if (error) throw new Error(`applyWritingToContacts move ${table}.${col}: ${error.message}`);
-    }
-    const { error: mErr } = await db.from(Tables.ENTITIES).update({ merged_into_id: o.personId }).eq('id', writingId);
-    if (mErr) throw new Error(`applyWritingToContacts mark: ${mErr.message}`);
+    await linkPair(userId, writingId, o.personId, db);
     linked++;
   }
   return { linked, held, skipped };
+}
+
+/** Fold the written-about record into the contact: aliases, facts and patterns move; the old record stays, marked merged. */
+export async function linkPair(userId: string, writingId: string, personId: string, db: typeof supabase = supabase): Promise<void> {
+  for (const [table, col] of [[Tables.ENTITY_ALIASES, 'entity_id'], [Tables.ASSERTIONS, 'subject_entity_id'], [Tables.ASSERTIONS, 'object_entity_id'], [Tables.BEHAVIOR_PATTERNS, 'subject_entity_id']] as const) {
+    const { error } = await db.from(table).update({ [col]: personId }).eq(col, writingId).eq('user_id', userId);
+    if (error) throw new Error(`linkPair move ${table}.${col}: ${error.message}`);
+  }
+  const { error } = await db.from(Tables.ENTITIES).update({ merged_into_id: personId }).eq('id', writingId).eq('user_id', userId);
+  if (error) throw new Error(`linkPair mark: ${error.message}`);
+}
+
+/** The pairs held for the person (W2.6): "Is the Sam in your writing Sam Ortiz from your contacts?" */
+export async function heldPairs(userId: string, db: typeof supabase = supabase) {
+  const { data } = await db.from(Tables.ENTITY_RESOLUTION_CANDIDATES).select('id,left_entity_id,right_entity_id,signals,created_at').eq('user_id', userId).eq('status', 'pending').limit(100);
+  const rows = (data ?? []) as Array<{ id: string; left_entity_id: string; right_entity_id: string; signals: unknown; created_at: string }>;
+  const ids = [...new Set(rows.flatMap((r) => [r.left_entity_id, r.right_entity_id]))];
+  const { data: ents } = ids.length ? await db.from(Tables.ENTITIES).select('id,canonical_name').in('id', ids.slice(0, 200)) : { data: [] };
+  const name = new Map(((ents ?? []) as Array<{ id: string; canonical_name: string }>).map((e) => [e.id, e.canonical_name]));
+  return rows.map((r) => ({ id: r.id, inYourWriting: name.get(r.left_entity_id) ?? null, inYourContacts: name.get(r.right_entity_id) ?? null, question: `Is the ${name.get(r.left_entity_id) ?? 'person'} in your writing ${name.get(r.right_entity_id) ?? 'this contact'}?` }));
+}
+
+/** Their answer: "same" links them; "different" keeps them apart for good. */
+export async function answerHeldPair(userId: string, candidateId: string, verdict: 'same' | 'different', db: typeof supabase = supabase): Promise<{ status: string }> {
+  const { data } = await db.from(Tables.ENTITY_RESOLUTION_CANDIDATES).select('left_entity_id,right_entity_id,status').eq('id', candidateId).eq('user_id', userId).maybeSingle();
+  const c = data as { left_entity_id: string; right_entity_id: string; status: string } | null;
+  if (!c || c.status !== 'pending') throw new Error('no pending pair with that id for this person');
+  if (verdict === 'same') await linkPair(userId, c.left_entity_id, c.right_entity_id, db);
+  const status = verdict === 'same' ? 'accepted' : 'rejected';
+  const { error } = await db.from(Tables.ENTITY_RESOLUTION_CANDIDATES).update({ status, resolved_at: new Date().toISOString() }).eq('id', candidateId).eq('user_id', userId);
+  if (error) throw new Error(`answerHeldPair: ${error.message}`);
+  return { status };
 }

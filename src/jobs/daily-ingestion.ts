@@ -4,6 +4,7 @@ import { runIngest } from '../pipelines/ingest';
 import { embedMissing } from '../pipelines/batch-outputs';
 import { runLint, persistFindings } from '../brain/lint';
 import { refreshAppetite } from '../appetite/appetite';
+import { applyWritingToContacts } from '../people/run-resolution';
 import { refreshLearning } from '../learning/reception';
 import { isAmbientOn, pendingSentIds } from '../ambient/switch';
 import { captureReferences } from '../reference/capture';
@@ -57,6 +58,9 @@ export async function runDailyIngestion(): Promise<void> {
       // Appetite re-read from yesterday's behaviour (goal 22); the person's own setting is never touched.
       // Goal 19: its scorecard on its own questions; never a claim about the person.
       await refreshLearning(userId).catch((err) => console.warn(`[learning] user=${userId} ${(err as Error).message}`));
+      // W2 (founder, 20 Oct: go ahead): people you write about are matched to your contacts, strictly.
+      // Decisive links apply; anything ambiguous is held for you; nothing is guessed.
+      await applyWritingToContacts(userId).then((r) => console.log(`[people] user=${userId} linked=${r.linked} held=${r.held}`)).catch((err) => console.warn(`[people] user=${userId} ${(err as Error).message}`));
       await refreshAppetite(userId).catch((err) => console.warn(`[appetite] user=${userId} ${(err as Error).message}`));
       await runLint({ userId }).then(persistFindings).catch((err) => console.warn(`[lint] user=${userId} ${(err as Error).message}`));
       console.log(
