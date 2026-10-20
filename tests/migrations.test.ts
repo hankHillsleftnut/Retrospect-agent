@@ -699,3 +699,12 @@ test('134: one summary per person, day and domain; the app roles cannot read it'
     `SELECT has_table_privilege('anon', 'daily_summaries', 'SELECT') AS anon, has_table_privilege('authenticated', 'daily_summaries', 'SELECT') AS authed`);
   assert.deepEqual(rows[0], { anon: false, authed: false });
 });
+
+// ── 135: pattern trajectory (W3.3b) ──────────────────────────────────────────
+test('135: a pattern can only carry a known trajectory', async () => {
+  const user = await insertUser(db);
+  const { rows: [p] } = await db.query<{ id: string }>(
+    `INSERT INTO behavior_patterns (user_id, slug, label, grouping_key, status, trajectory) VALUES ($1, 'x', 'x', 'k:x', 'live', 'holding') RETURNING id`, [user]);
+  assert.ok(p);
+  assert.equal(await failureCode(`UPDATE behavior_patterns SET trajectory = 'vibes' WHERE id = $1`, [p!.id]), CHECK_VIOLATION);
+});
