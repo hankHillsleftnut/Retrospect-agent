@@ -40,6 +40,7 @@
     "eval:brain": "tsx scripts/eval-brain.ts",
     "events:report": "tsx scripts/events-report.ts",
     "summaries:rebuild": "tsx scripts/rebuild-summaries.ts",
+    "eval:guard": "tsx scripts/eval-guard.ts",
     "trust:backfill": "tsx scripts/backfill-trust.ts"
   },
   "keywords": [
