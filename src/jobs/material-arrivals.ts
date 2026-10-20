@@ -3,6 +3,7 @@ import { isAmbientOn, pendingSentIds } from '../ambient/switch';
 import { captureReferences } from '../reference/capture';
 import { enrichPending } from '../reference/enrich';
 import { relatePending } from '../reference/relevance';
+import { embedSaved } from '../reference/embed';
 import { SENT_TYPES } from '../planner/daily';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
 import { placeUnrecognisedEvents } from '../brain/place-events';
@@ -19,6 +20,7 @@ export const defaultArrivalDeps: ArrivalDeps = {
     await captureReferences(userId);
     await enrichPending(userId);
     await relatePending(userId);
+    await embedSaved(userId);
     // Ambient off (their switch or the master): read only what they sent.
     if (!(await isAmbientOn(userId))) {
       const ids = await pendingSentIds(userId, SENT_TYPES);
