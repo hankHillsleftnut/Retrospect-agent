@@ -2,6 +2,7 @@ import { runIngest } from '../pipelines/ingest';
 import { isAmbientOn, pendingSentIds } from '../ambient/switch';
 import { captureReferences } from '../reference/capture';
 import { enrichPending } from '../reference/enrich';
+import { relatePending } from '../reference/relevance';
 import { SENT_TYPES } from '../planner/daily';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
 import { placeUnrecognisedEvents } from '../brain/place-events';
@@ -17,6 +18,7 @@ export const defaultArrivalDeps: ArrivalDeps = {
     // Links they sent become reference items, ambient or not: they handed them over.
     await captureReferences(userId);
     await enrichPending(userId);
+    await relatePending(userId);
     // Ambient off (their switch or the master): read only what they sent.
     if (!(await isAmbientOn(userId))) {
       const ids = await pendingSentIds(userId, SENT_TYPES);
