@@ -44,7 +44,7 @@ export async function runDailyIngestion(): Promise<void> {
       await captureReferences(userId);
       await enrichPending(userId);
       await relatePending(userId);
-      await embedSaved(userId);
+      await embedSaved(userId).catch((err) => console.warn(`[embed-saved] user=${userId} ${(err as Error).message}`));
       if (!(await isAmbientOn(userId))) {
         // Ambient off: only what they sent is read; nothing else runs for them.
         const ids = await pendingSentIds(userId, SENT_TYPES);

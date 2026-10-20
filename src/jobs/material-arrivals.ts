@@ -20,7 +20,7 @@ export const defaultArrivalDeps: ArrivalDeps = {
     await captureReferences(userId);
     await enrichPending(userId);
     await relatePending(userId);
-    await embedSaved(userId);
+    await embedSaved(userId).catch((err) => console.warn(`[embed-saved] user=${userId} ${(err as Error).message}`));
     // Ambient off (their switch or the master): read only what they sent.
     if (!(await isAmbientOn(userId))) {
       const ids = await pendingSentIds(userId, SENT_TYPES);
