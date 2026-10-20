@@ -4,6 +4,7 @@ import { runIngest } from '../pipelines/ingest';
 import { embedMissing } from '../pipelines/batch-outputs';
 import { runLint, persistFindings } from '../brain/lint';
 import { refreshAppetite } from '../appetite/appetite';
+import { seedAppetite } from '../appetite/seed';
 import { applyWritingToContacts } from '../people/run-resolution';
 import { refreshLearning } from '../learning/reception';
 import { expireHypotheses, readHypothesisDial } from '../hypotheses/offer';
@@ -64,6 +65,8 @@ export async function runDailyIngestion(): Promise<void> {
       await applyWritingToContacts(userId).then((r) => console.log(`[people] user=${userId} linked=${r.linked} held=${r.held}`)).catch((err) => console.warn(`[people] user=${userId} ${(err as Error).message}`));
       // Goal 21: unconfirmed hypotheses past the dial's window are retired, never quietly kept.
       await readHypothesisDial().then((dial) => expireHypotheses(userId, dial)).catch((err) => console.warn(`[hypotheses] user=${userId} ${(err as Error).message}`));
+      // Goal 22: a first guess from their own words, once there are enough of them.
+      await seedAppetite(userId).catch((err) => console.warn(`[appetite-seed] user=${userId} ${(err as Error).message}`));
       await refreshAppetite(userId).catch((err) => console.warn(`[appetite] user=${userId} ${(err as Error).message}`));
       await runLint({ userId }).then(persistFindings).catch((err) => console.warn(`[lint] user=${userId} ${(err as Error).message}`));
       console.log(

@@ -47,7 +47,7 @@ export function effective(stored: { stated?: Level | null; inferred?: Level | nu
   return { level: (stored?.inferred ?? 0) as Level, source: 'inferred', reasons: stored?.reasons ?? ['the starting point: facts and patterns only'] };
 }
 
-type Stored = { stated?: Level | null; inferred?: Level; reasons?: string[]; readAt?: string; lastRaisedAt?: string };
+type Stored = { stated?: Level | null; inferred?: Level; reasons?: string[]; readAt?: string; lastRaisedAt?: string; suggested?: { level: Level; reasons: string[]; capped: string | null; at: string } };
 
 async function load(userId: string, db: typeof supabase): Promise<{ id: string | null; metadata: Record<string, unknown> }> {
   const { data } = await db.from(Tables.USER_PREFERENCES).select('id,metadata').eq('user_id', userId).maybeSingle();
@@ -64,8 +64,10 @@ async function save(userId: string, appetite: Stored, db: typeof supabase): Prom
   if (error) throw new Error(`appetite save: ${error.message}`);
 }
 
-export async function readAppetite(userId: string, db: typeof supabase = supabase): Promise<Reading> {
-  return effective((await load(userId, db)).metadata.appetite as Stored | undefined);
+export async function readAppetite(userId: string, db: typeof supabase = supabase): Promise<Reading & { suggested?: Stored['suggested'] }> {
+  const stored = (await load(userId, db)).metadata.appetite as Stored | undefined;
+  // suggested: the first guess from their words, for onboarding to show preselected (goal 22).
+  return { ...effective(stored), ...(stored?.suggested ? { suggested: stored.suggested } : {}) };
 }
 
 /** The person sets it (or clears it with null, handing back to inference). */
