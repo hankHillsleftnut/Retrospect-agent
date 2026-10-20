@@ -14,7 +14,11 @@
  *    lands inside a topic and nothing merges.
  *  - Average-linkage clustering, deterministic. A group needs >= 3 items;
  *    smaller ones are "scattered".
- *  - A group is tied to a stated goal only above the same similarity.
+ *  - Goal links are NOT made by similarity here. Measured 19 Oct: a goal
+ *    sentence and a video title are different kinds of text, so their
+ *    similarity is low across the board (max 0.45 over 24,495 pairs) and the
+ *    same-topic bar can never link them. Linking moves to W4.3, judged
+ *    directly ("is this group about this goal?") with "none" allowed.
  *  - Names describe the content ("woodworking", "fundraising"), never a feeling.
  */
 
@@ -126,8 +130,6 @@ export async function readContentGroups(userId: string, db: typeof supabase = su
     if (!vector) continue;
     items.push({ id: r.id, kind: rel, title: (r.content.split('\n')[0] ?? '').replace(/^(liked video|subscribed to):\s*/i, '').slice(0, 120), vector });
   }
-  const { data: goalRows } = await db.from(Tables.GOALS).select('id,embedding,is_active').eq('user_id', userId);
-  const goals = ((goalRows ?? []) as Array<{ id: string; embedding: unknown; is_active: boolean | null }>)
-    .filter((g) => g.is_active !== false).map((g) => ({ id: g.id, vector: parseVector(g.embedding) })).filter((g): g is { id: string; vector: number[] } => !!g.vector);
-  return { considered: items.length, ...contentGroups(items, goals) };
+  // No goal links by similarity: see the note at the top (cross-type text).
+  return { considered: items.length, ...contentGroups(items, []) };
 }
