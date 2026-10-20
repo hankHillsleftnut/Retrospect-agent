@@ -46,3 +46,16 @@ test('against the database: a good link is enriched; one pointing inside the net
   const { rows } = await db.query<{ url: string; status: string; title: string | null; topics: string[] }>(`SELECT url, status, title, topics FROM reference_items WHERE user_id = $1 ORDER BY url DESC`, [u]);
   assert.deepEqual(rows.map((x) => [x.status, x.title, x.topics]), [['enriched', 'Seed rounds', ['fundraising']], ['unsafe', null, []]]);
 });
+
+test('R1.2b: a long page is read in sections, then described as a whole', async () => {
+  const u = await insertUser(db);
+  const rc = (await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'text_entry', 'x') RETURNING id`, [u])).rows[0]!.id;
+  await db.query(`INSERT INTO reference_items (user_id, raw_content_id, url) VALUES ($1, $2, 'https://ok.example/long')`, [u, rc]);
+  const long = '<title>Long essay</title><p>' + 'word '.repeat(3000) + '</p>';
+  const calls: string[] = [];
+  const r = await enrichPending(u, { db: supabase, resolve: async () => ['93.184.216.34'],
+    fetcher: (async () => new Response(long, { headers: { 'content-type': 'text/html' } })) as unknown as typeof fetch,
+    model: async (system, prompt) => { calls.push(system.startsWith('You read one part') ? 'part' : 'whole'); return { data: { summary: prompt.startsWith('URL') ? 'An essay.' : 'a part', topics: ['writing'] }, usage: { inputTokens: 1, outputTokens: 1 } }; } });
+  assert.equal(r.enriched, 1);
+  assert.deepEqual([calls.filter((c) => c === 'part').length >= 2, calls[calls.length - 1]], [true, 'whole']);
+});

@@ -22,6 +22,9 @@ export const TOPICS = ['work', 'startups', 'fundraising', 'design', 'engineering
   'relationships', 'family', 'money', 'career', 'learning', 'writing', 'music', 'film', 'travel', 'home', 'mindset', 'productivity', 'news', 'other'] as const;
 
 const MAX_BYTES = 1_500_000;
+/** About a long essay. Longer pages are read up to here, in sections (R1.2b). */
+export const MAX_TEXT = 60_000;
+export const SECTION = 6_000;
 const TIMEOUT_MS = 8000;
 
 /** Is this an address we must never fetch from? Pure. */
@@ -50,7 +53,7 @@ export function readPage(html: string): { title: string | null; text: string } {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/\s+/g, ' ').trim() || null;
   const text = html.replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ').replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
-  return { title, text: text.slice(0, 6000) };
+  return { title, text: text.slice(0, MAX_TEXT) };
 }
 
 export async function safeFetch(raw: string, fetcher: typeof fetch = fetch, resolve?: (host: string) => Promise<string[]>): Promise<string> {
@@ -78,6 +81,8 @@ export const ENRICH_SYSTEM = `You describe a web page someone saved. Reply with 
 {"summary":"<one or two plain sentences on what the page is>","topics":["<1 to 3 from this list only: ${TOPICS.join(', ')}>"]}
 Describe the page, never the person who saved it.`;
 
+export const SECTION_SYSTEM = `You read one part of a longer web page. Reply with JSON only: {"summary":"<one sentence on what this part says>"}`;
+
 /** Keep only listed topics, at most three. Pure. */
 export function vetTopics(t: unknown): string[] {
   return Array.isArray(t) ? [...new Set(t.map(String).map((x) => x.toLowerCase().trim()).filter((x) => (TOPICS as readonly string[]).includes(x)))].slice(0, 3) : [];
@@ -93,7 +98,18 @@ export async function enrichPending(userId: string, options: { db?: typeof supab
     let update: Record<string, unknown>;
     try {
       const page = readPage(await safeFetch(item.url, options.fetcher, options.resolve));
-      const r = await model(ENRICH_SYSTEM, `URL: ${item.url}\nTITLE: ${page.title ?? '(none)'}\n\n${page.text}`);
+      // A long page is read in full: each section noted, then described as a whole.
+      let body = page.text;
+      if (page.text.length > SECTION) {
+        const notes: string[] = [];
+        for (let i = 0; i < page.text.length; i += SECTION) {
+          const part = await model(SECTION_SYSTEM, page.text.slice(i, i + SECTION));
+          tally.usage.inputTokens += part.usage.inputTokens; tally.usage.outputTokens += part.usage.outputTokens;
+          if (typeof part.data.summary === 'string') notes.push(part.data.summary);
+        }
+        body = `NOTES ON EACH PART OF THE PAGE, IN ORDER:\n${notes.map((n, k) => `${k + 1}. ${n}`).join('\n')}`;
+      }
+      const r = await model(ENRICH_SYSTEM, `URL: ${item.url}\nTITLE: ${page.title ?? '(none)'}\n\n${body}`);
       tally.usage.inputTokens += r.usage.inputTokens; tally.usage.outputTokens += r.usage.outputTokens;
       update = { status: 'enriched', title: page.title, summary: typeof r.data.summary === 'string' ? r.data.summary.slice(0, 500) : null, topics: vetTopics(r.data.topics), fetched_at: new Date().toISOString() };
       tally.enriched++;
