@@ -100,3 +100,30 @@ export async function embedSources(batch: DbRawContent[], trace: Trace): Promise
   }
   return embedded;
 }
+
+/**
+ * Embed whatever has no vector yet (S1.3). Reading embeds as it goes, but
+ * anything that never passed through reading stayed unsearchable by meaning:
+ * on the founder's account, 33 of 1,453 Docs sections. Small batches, the
+ * newest first; a failure only means fewer vectors this time.
+ */
+export async function embedMissing(userId: string, limit = 200): Promise<number> {
+  const { data } = await supabase.from(Tables.RAW_CONTENT).select('id,content').eq('user_id', userId).is('embedding', null)
+    .not('content', 'is', null).order('created_at', { ascending: false }).limit(limit);
+  const rows = ((data ?? []) as Array<{ id: string; content: string }>).filter((r) => r.content.trim());
+  let embedded = 0;
+  for (let i = 0; i < rows.length; i += 50) {
+    const part = rows.slice(i, i + 50);
+    try {
+      const vectors = await generateEmbeddings(part.map((r) => r.content.slice(0, 8000)));
+      for (let k = 0; k < part.length; k++) {
+        if (!vectors[k]) continue;
+        const { error } = await supabase.from(Tables.RAW_CONTENT).update({ embedding: vectors[k] }).eq('id', part[k]!.id);
+        if (!error) embedded++;
+      }
+    } catch (err) {
+      console.warn(`[embed-missing] ${(err as Error).message}`);
+    }
+  }
+  return embedded;
+}

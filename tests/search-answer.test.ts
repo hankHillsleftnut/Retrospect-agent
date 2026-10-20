@@ -32,3 +32,40 @@ test('nothing found, or nothing that answers it: it says so plainly', async () =
   const no = await searchAndAnswer('u', 'q', { search: async () => [hit('x', 0.1)], rewrite: async () => ({ data: {}, usage: u }), write: async () => ({ data: { abstain: true, why: 'Your notes mention it but never say.' }, usage: u }) });
   assert.deepEqual([no.abstained, no.summary, no.sources.length], [true, 'Your notes mention it but never say.', 1], 'sources still shown');
 });
+
+test('the guard sees each source with its date, as the writer did', async () => {
+  let guardSaw = '';
+  const dated = { ...hit('d', 0.5, 'Signed up for the half.'), happened_at: '2026-08-04T12:00:00Z' };
+  await searchAndAnswer('u', 'q', {
+    search: async () => [dated], rewrite: async () => ({ data: {}, usage: u }),
+    write: async () => ({ data: { sentences: ['On 2026-08-04 you signed up for the half. [1]'] }, usage: u }),
+    guard: async (_s, p) => { guardSaw = p; return { data: { sentences: [{ i: 0, claims: [], isQuestion: false }] }, usage: u }; },
+  });
+  assert.match(guardSaw, /2026-08-04\) Signed up for the half\./);
+});
+
+test('an answer that fails twice still returns the sources', async () => {
+  const r = await searchAndAnswer('u', 'q', { search: async () => [hit('x', 0.1)], rewrite: async () => ({ data: {}, usage: u }), write: async () => { throw new Error('No JSON object found'); } });
+  assert.equal(r.abstained, true);
+  assert.equal(r.sources.length, 1);
+});
+
+test('automated sources are labelled for the writer and the guard', async () => {
+  let wrote = '';
+  await searchAndAnswer('u', 'q', {
+    search: async () => [hit('m', 0.5, '5 signs you are burned out')], rewrite: async () => ({ data: {}, usage: u }),
+    trustOf: async () => new Map([['m', 'automated']]),
+    write: async (_s, p) => { wrote = p; return { data: { abstain: true, why: 'Only a newsletter mentions it.' }, usage: u }; },
+  });
+  assert.match(wrote, /\[1\] \(item, automated, 2026-10-01\) 5 signs/);
+});
+
+test('sources reach the writer oldest first, keeping their numbers', async () => {
+  let wrote = '';
+  const at = (id: string, d: string, sc: number) => ({ ...hit(id, sc, id), happened_at: `${d}T00:00:00Z` });
+  await searchAndAnswer('u', 'q', {
+    search: async () => [at('dropped', '2026-09-16', 0.9), at('signed', '2026-08-04', 0.5)], rewrite: async () => ({ data: {}, usage: u }), trustOf: async () => new Map(),
+    write: async (_s, p) => { wrote = p; return { data: { abstain: true, why: 'x' }, usage: u }; },
+  });
+  assert.ok(wrote.indexOf('[2] (item, 2026-08-04) signed') < wrote.indexOf('[1] (item, 2026-09-16) dropped'));
+});

@@ -1,6 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runIngest } from '../pipelines/ingest';
+import { embedMissing } from '../pipelines/batch-outputs';
 import { isAmbientOn, pendingSentIds } from '../ambient/switch';
 import { captureReferences } from '../reference/capture';
 import { enrichPending } from '../reference/enrich';
@@ -47,6 +48,8 @@ export async function runDailyIngestion(): Promise<void> {
       await refreshRecordBehaviour(userId, 14);
       // Goals merge and expire (goal 7); deterministic, no model cost.
       await applyGoalLifecycle(userId);
+      // Anything still without a meaning vector becomes searchable (S1.3).
+      await embedMissing(userId);
       console.log(
         `[daily-ingestion] user=${userId} obs=${result.observations_created} ins=${result.insights_created} cand=${result.goal_candidates_created}`
       );
