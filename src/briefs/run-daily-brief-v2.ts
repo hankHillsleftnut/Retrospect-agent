@@ -47,6 +47,7 @@ export async function runDailyBriefV2(userId: string, deps: { db?: typeof supaba
     spineQuestionId: null, spineMovement: null,
     items: [
       ...plan.inbox.map((i) => ({ planId: `inbox:${i.id}`, text: i.preview, why: null, quote: i.preview, sourceRef: { raw_content_id: i.id } })),
+      ...(plan.resurface ? [{ planId: `saved:${plan.resurface.id}`, text: plan.resurface.title ?? plan.resurface.url, why: plan.resurface.because, quote: plan.resurface.intent ?? '', sourceRef: { raw_content_id: '' } }] : []),
       ...plan.items.map((i) => ({ planId: i.id, text: i.kind, why: null, quote: '', sourceRef: { raw_content_id: i.evidence[0] ?? '' } })),
     ],
     dropped: written.cut.length,

@@ -15,7 +15,7 @@ import { guardSentences, type GuardModel } from './claim-guard';
 import { factLines } from './write-episode';
 import type { DailyPlan } from '../planner/daily';
 
-export interface BriefSection { id: string; kind: 'inbox' | 'today' | 'item'; facts: string[] }
+export interface BriefSection { id: string; kind: 'inbox' | 'saved' | 'today' | 'item'; facts: string[] }
 
 const time = (iso: string) => /T(\d{2}:\d{2})/.exec(iso)?.[1] ?? '';
 
@@ -24,6 +24,11 @@ export function briefSections(plan: DailyPlan, context: { goals: string[]; answe
   const about = [...context.goals.map((g) => `A goal they stated: ${g}.`), ...context.answers.map((a) => `Known about them: ${a}.`)];
   return [
     ...plan.inbox.map((i) => ({ id: `inbox:${i.id}`, kind: 'inbox' as const, facts: [`They sent this on ${i.at.slice(0, 10)}: "${i.preview}"${i.url ? ` (link: ${i.url})` : ''}`, ...about] })),
+    ...(plan.resurface ? [{ id: `saved:${plan.resurface.id}`, kind: 'saved' as const, facts: [
+      `They saved this on ${plan.resurface.savedAt.slice(0, 10)}: ${plan.resurface.title ?? plan.resurface.url}${plan.resurface.summary ? `: ${plan.resurface.summary}` : ''}.`,
+      plan.resurface.intent ? `Their reason when saving it: "${plan.resurface.intent}".` : 'They gave no reason when saving it.',
+      ...about,
+    ] }] : []),
     ...(plan.today.length ? [{ id: 'today', kind: 'today' as const, facts: plan.today.map((e) => `On their calendar today: "${e.title}" at ${time(e.start)}${e.end ? `-${time(e.end)}` : ''}${e.withOthers ? `, with ${e.withOthers} other(s)` : ''}.`) }] : []),
     ...plan.items.map((it) => ({ id: it.id, kind: 'item' as const, facts: factLines(it) })),
   ];
@@ -33,6 +38,7 @@ export const BRIEF_SYSTEM = `You write a short spoken morning brief for one pers
 Voice: second person, warm, quick, a little wry; it should be something they look forward to, not a report. Find one thread that ties the day together if there honestly is one.
 Sections:
 - INBOX: things they sent you to come back to. For each, say what it is in a sentence and why it might matter to them TODAY, using only their stated goals or what's known about them (given in FACTS). If nothing connects, say it's here for them without inventing a reason.
+- SAVED: something they saved earlier that bears on what's live now; remind them in a sentence or two why it's back, in their own reason's terms.
 - TODAY: their calendar for the day, briefly.
 - ITEM: something that changed; say it plainly with its numbers.
 Rules: say nothing about the person that isn't in that section's FACTS. Connecting lines that claim nothing about them get section "craft". If there are no sections, write one or two sentences saying it's a quiet day.
