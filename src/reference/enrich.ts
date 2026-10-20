@@ -11,6 +11,7 @@
  * fix is pinning the checked address. Low risk: only links the person sent.
  */
 
+import { fetchTranscript, youtubeVideoUrl } from './youtube-transcript';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { supabase } from '../db/supabase';
@@ -110,7 +111,7 @@ export function vetTopics(t: unknown): string[] {
   return Array.isArray(t) ? [...new Set(t.map(String).map((x) => x.toLowerCase().trim()).filter((x) => (TOPICS as readonly string[]).includes(x)))].slice(0, 3) : [];
 }
 
-export async function enrichPending(userId: string, options: { db?: typeof supabase; fetcher?: typeof fetch; resolve?: (h: string) => Promise<string[]>; limit?: number;
+export async function enrichPending(userId: string, options: { db?: typeof supabase; fetcher?: typeof fetch; resolve?: (h: string) => Promise<string[]>; limit?: number; transcript?: (videoUrl: string) => Promise<string | null>;
   model?: (s: string, p: string) => Promise<{ data: { summary?: unknown; topics?: unknown }; usage: ClaudeUsage }> } = {}) {
   const db = options.db ?? supabase;
   const model = options.model ?? ((s, p) => claudeJsonCompletion<{ summary?: unknown; topics?: unknown }>(s, p, { model: config.anthropic.timeCategoryModel, maxTokens: 300 }));
@@ -123,6 +124,10 @@ export async function enrichPending(userId: string, options: { db?: typeof supab
       const page = oembed
         ? readTweet(await safeFetch(oembed, options.fetcher, options.resolve, true))
         : readPage(await safeFetch(item.url, options.fetcher, options.resolve));
+      // A YouTube video is read by what is said in it, when a transcript service is set up.
+      const video = youtubeVideoUrl(item.url);
+      const transcript = video ? await (options.transcript ?? fetchTranscript)(video).catch(() => null) : null;
+      if (transcript) page.text = transcript;
       // A long page is read in full: each section noted, then described as a whole.
       let body = page.text;
       if (page.text.length > SECTION) {
