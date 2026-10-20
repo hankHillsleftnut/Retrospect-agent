@@ -90,7 +90,7 @@ export function recordFactPayload(userId: string, selfEntityId: string, i: Recor
     origin_key: `daily:${i.detector.id}:${i.day}`,
     event_time: `${i.day}T12:00:00Z`,
     assertion_kind: 'observed',
-    metadata: { raw_content_id: i.evidence[0]!.raw_content_id, content_type: 'daily_summary', detector: i.detector.id, day: i.day },
+    metadata: { raw_content_id: i.evidence[0]!.raw_content_id, content_type: 'daily_summary', source_content_type: i.detector.domain === 'calendar' ? 'calendar' : 'healthkit', detector: i.detector.id, day: i.day },
     evidence: i.evidence,
   };
 }
