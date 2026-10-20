@@ -777,3 +777,13 @@ test('140: re-citing retired evidence updates last_moved_at', async () => {
   const { rows } = await db.query<{ moved: boolean }>(`SELECT last_moved_at > '2000-01-02' AS moved FROM question_answers WHERE id = $1`, [a]);
   assert.equal(rows[0]!.moved, true);
 });
+
+// ── 142: reference items (R1.1) ──────────────────────────────────────────────
+test('142: a link is stored once per message; app roles are shut out', async () => {
+  const user = await insertUser(db);
+  const rc = (await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'text_entry', 'x') RETURNING id`, [user])).rows[0]!.id;
+  await db.query(`INSERT INTO reference_items (user_id, raw_content_id, url) VALUES ($1, $2, 'https://a.com')`, [user, rc]);
+  assert.equal(await failureCode(`INSERT INTO reference_items (user_id, raw_content_id, url) VALUES ($1, $2, 'https://a.com')`, [user, rc]), UNIQUE_VIOLATION);
+  const { rows } = await db.query<{ anon: boolean }>(`SELECT has_table_privilege('anon', 'reference_items', 'SELECT') AS anon`);
+  assert.equal(rows[0]!.anon, false);
+});
