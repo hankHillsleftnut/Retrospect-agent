@@ -763,3 +763,17 @@ test('139: goals carry a status from a fixed set; existing inactive goals read a
   assert.equal(g!.status, 'active');
   assert.equal(await failureCode(`INSERT INTO goals (user_id, title, status) VALUES ($1, 'y', 'vibes')`, [user]), CHECK_VIOLATION);
 });
+
+// ── 140: citing retired evidence again moves the answer (review finding 10) ──
+test('140: re-citing retired evidence updates last_moved_at', async () => {
+  const p = await person();
+  const e1 = await p.item('journal_entry', 'I want to build a company');
+  const e2 = await p.item('journal_entry', 'Still want to build');
+  const key = `d-${Math.random()}`;
+  const a = await record(answer(p.user, 6, [{ raw_content_id: e1 }, { raw_content_id: e2 }], { derivation_key: key }));
+  await record(answer(p.user, 6, [{ raw_content_id: e1 }], { derivation_key: key }));
+  await db.query(`UPDATE question_answers SET last_moved_at = '2000-01-01' WHERE id = $1`, [a]);
+  await record(answer(p.user, 6, [{ raw_content_id: e1 }, { raw_content_id: e2 }], { derivation_key: key }));
+  const { rows } = await db.query<{ moved: boolean }>(`SELECT last_moved_at > '2000-01-02' AS moved FROM question_answers WHERE id = $1`, [a]);
+  assert.equal(rows[0]!.moved, true);
+});
