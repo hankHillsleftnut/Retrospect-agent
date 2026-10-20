@@ -23,6 +23,7 @@ import { baselineShifts, type Shift } from '../brain/baseline-shifts';
 import { weekTime, type WeekTime } from '../brain/time-categories';
 import type { DailySummary } from '../brain/daily-summaries';
 import type { TrajectoryResult } from '../brain/trajectory';
+import { readAnswerMoves, type AnswerMove } from './answer-moves';
 
 export type Register = 'stated' | 'asked';
 
@@ -41,6 +42,8 @@ export interface UnderstandingContract {
   goals: GoalItem[];
   shifts: Shift[];
   time: { categories: WeekTime[]; otherShare: number; weeksOfBaseline: number };
+  /** What moved in the answers since the last episode (W4.2). */
+  moves: { since: string | null; items: AnswerMove[] };
 }
 
 export interface ContractRows {
@@ -56,7 +59,7 @@ export interface ContractRows {
 }
 
 /** Pure: the contract from its rows. */
-export function assembleContract(userId: string, rows: ContractRows, today: string): UnderstandingContract {
+export function assembleContract(userId: string, rows: ContractRows, today: string, moves: UnderstandingContract['moves'] = { since: null, items: [] }): UnderstandingContract {
   const floor = new Map(rows.domains.map((d) => [d.id, Number(d.confidence_floor)]));
   const speaks = new Map(rows.coverage.map((c) => [c.domain_id, c.may_speak]));
   const question = new Map(rows.questions.map((q) => [q.id, q]));
@@ -95,6 +98,7 @@ export function assembleContract(userId: string, rows: ContractRows, today: stri
     })),
     shifts: baselineShifts(rows.summaries, today),
     time: weekTime(rows.summaries, today),
+    moves,
   };
 }
 
@@ -117,5 +121,6 @@ export async function readUnderstanding(userId: string, db: typeof supabase = su
     q<ContractRows['goals']>(db.from(Tables.GOALS).select('id,title,description,created_at,is_active').eq('user_id', userId), 'goals'),
     q<DailySummary[]>(db.from(Tables.DAILY_SUMMARIES).select('day,domain,metrics,items,source_ids').eq('user_id', userId).gte('day', since), 'summaries'),
   ]);
-  return assembleContract(userId, { coverage, domains, questions, answers, scores, patterns, whys, goals, summaries }, today);
+  const m = await readAnswerMoves(userId, db, now);
+  return assembleContract(userId, { coverage, domains, questions, answers, scores, patterns, whys, goals, summaries }, today, { since: m.since, items: m.moves });
 }
