@@ -24,3 +24,11 @@ test('the spine is the most worth saying; a goal tie lifts an item', () => {
   const plan = selectItems([{ id: 'a', topic: 'x', strength: 0.6 }, { id: 'b', topic: 'y', strength: 0.55, goalLinked: true }]);
   assert.equal(plan.spine, 'b');
 });
+
+test('D1: something said recently loses to a fresh item of equal strength, unless it moved', () => {
+  const fresh = { id: 'fresh', topic: 'a', strength: 0.6 };
+  const repeat = { id: 'repeat', topic: 'b', strength: 0.6, saidRecently: true };
+  assert.equal(selectItems([repeat, fresh], 1).selected[0], 'fresh');
+  assert.equal(selectItems([{ ...repeat, moved: true }, fresh], 1).selected[0], 'repeat', 'a repeated item that changed is news again');
+  assert.deepEqual(selectItems([{ id: 'r', topic: 'c', strength: 0.5, saidRecently: true }]).selected, [], 'a weak repeat drops under the bar');
+});

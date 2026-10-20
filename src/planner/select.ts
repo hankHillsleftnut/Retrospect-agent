@@ -28,6 +28,8 @@ export interface PlanCandidate {
   /** Behaviour, content, time, goals...: the same lens overlaps a little, so an
    *  episode isn't six patterns and nothing else (founder: the three lenses). */
   lens?: string;
+  /** Said in a recent brief or episode: novelty decays, so repetition costs (D1). */
+  saidRecently?: boolean;
 }
 
 export const BAR = 0.3;
@@ -41,9 +43,20 @@ export const SAME_LENS_OVERLAP = 0.35;
 
 export interface Plan { spine: string | null; selected: string[]; excluded: Record<string, string> }
 
+/** What a recent repetition is worth, relative to saying it fresh. Declared 20 Oct
+ *  from the novelty-decay finding (approach-calibration.md, D1). */
+export const REPEAT_DISCOUNT = 0.5;
+
 export function quality(c: PlanCandidate): number {
-  return Math.min(1, c.strength + (c.moved ? MOVED_BONUS : 0) + (c.goalLinked ? GOAL_BONUS : 0));
+  const q = Math.min(1, c.strength + (c.moved ? MOVED_BONUS : 0) + (c.goalLinked ? GOAL_BONUS : 0));
+  return c.saidRecently && !c.moved ? q * REPEAT_DISCOUNT : q;
 }
+
+/** The weekly episode and the daily brief share the selection, not the policy. */
+export const POLICIES = {
+  weekly: { maxItems: 6 },
+  daily: { maxItems: 4 },
+} as const;
 
 function similarity(a: PlanCandidate, b: PlanCandidate): number {
   if (a.duplicateOf === b.id || b.duplicateOf === a.id) return 1;
