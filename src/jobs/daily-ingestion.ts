@@ -3,6 +3,7 @@ import { Tables } from '../db/tables';
 import { runIngest } from '../pipelines/ingest';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
 import { placeUnrecognisedEvents } from '../brain/place-events';
+import { applyGoalLifecycle } from '../goals/lifecycle';
 
 /**
  * Daily cron job — runs the ingestion pipeline for every active user
@@ -30,6 +31,8 @@ export async function runDailyIngestion(): Promise<void> {
       const result = await runIngest({ userId, daysBack: 7, triggeredBy: 'cron' });
       await placeUnrecognisedEvents(userId);
       await refreshRecordBehaviour(userId, 14);
+      // Goals merge and expire (goal 7); deterministic, no model cost.
+      await applyGoalLifecycle(userId);
       console.log(
         `[daily-ingestion] user=${userId} obs=${result.observations_created} ins=${result.insights_created} cand=${result.goal_candidates_created}`
       );
