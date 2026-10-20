@@ -22,6 +22,10 @@ const ident = (name: string) => {
   return `"${name}"`;
 };
 
+/** Production's limits, so code that only works below them fails here too (findings 40, F-L1). */
+export const MAX_ROWS = 1000;
+export const MAX_IN_LIST = 300;
+
 class Query implements PromiseLike<Result> {
   private where: string[] = [];
   private params: unknown[] = [];
@@ -70,6 +74,8 @@ class Query implements PromiseLike<Result> {
   }
   in(c: string, values: unknown[]) {
     if (values.length === 0) { this.where.push('FALSE'); return this; }
+    // Like production: filters travel in the URL, and a long id list fails (a 400-id lookup did, finding 40).
+    if (values.length > MAX_IN_LIST) this.tooLong = values.length;
     this.where.push(`${ident(c)} IN (${values.map((v) => this.bind(v)).join(', ')})`);
     return this;
   }
@@ -116,14 +122,18 @@ class Query implements PromiseLike<Result> {
 
   private whereSql() { return this.where.length ? ` WHERE ${this.where.join(' AND ')}` : ''; }
 
+  private tooLong = 0;
+
   private async sql(): Promise<string> {
+    if (this.tooLong) throw Object.assign(new Error(`URI too long: in() with ${this.tooLong} values (production rejects lists this long)`), { code: '414' });
     const t = ident(this.table);
     const ret = this.returning || this.mode === 'select' ? ` RETURNING ${this.columns}` : '';
     switch (this.mode) {
       case 'select': {
         if (this.countMode) return `SELECT count(*)::int AS count FROM ${t}${this.whereSql()}`;
         const order = this.orderBy.length ? ` ORDER BY ${this.orderBy.join(', ')}` : '';
-        const limit = (this.limitN !== null ? ` LIMIT ${Number(this.limitN)}` : '') + (this.offsetN ? ` OFFSET ${Number(this.offsetN)}` : '');
+        // Like production: PostgREST returns at most MAX_ROWS rows, silently.
+        const limit = ` LIMIT ${Math.min(this.limitN ?? MAX_ROWS, MAX_ROWS)}` + (this.offsetN ? ` OFFSET ${Number(this.offsetN)}` : '');
         return `SELECT ${this.columns} FROM ${t}${this.whereSql()}${order}${limit}`;
       }
       case 'update': {
