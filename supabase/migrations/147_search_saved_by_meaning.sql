@@ -1,6 +1,8 @@
 -- 147: saved links are found by meaning too (gate R1.5). They had no vector,
 -- so "ice bath routine" never found "Cold exposure protocol": 18 of 28
 -- paraphrased searches found their link, against 22 of 22 sharing a word.
+-- Also: facts written as "contradicted" markers by the app's old contradict
+-- button are never search results (finding 51).
 ALTER TABLE reference_items ADD COLUMN IF NOT EXISTS embedding vector(3072);
 
 CREATE OR REPLACE FUNCTION search_person(p_user UUID, p_query TEXT, p_embedding vector DEFAULT NULL, p_limit INTEGER DEFAULT 20)
@@ -19,6 +21,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   others AS (
     SELECT 'fact'::TEXT AS kind, a.id, replace(a.predicate, '_', ' ') || ': ' || coalesce(a.object_value->>'raw', a.object_value->>'normalized', '') AS body, coalesce(a.event_time, a.observed_at) AS happened_at
       FROM assertions a WHERE a.user_id = p_user AND a.status = 'active' AND a.valid_to IS NULL
+       AND a.assertion_kind IS DISTINCT FROM 'contradicted'
     UNION ALL
     SELECT 'answer', qa.id, cq.text || ' ' || qa.answer, qa.last_moved_at
       FROM question_answers qa JOIN canonical_questions cq ON cq.id = qa.question_id

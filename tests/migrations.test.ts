@@ -828,3 +828,10 @@ test('147: a saved link is found by meaning when no word is shared', async () =>
   const { rows } = await db.query<{ kind: string; snippet: string }>(`SELECT kind, snippet FROM search_person($1, 'ice bath routine', $2::vector)`, [s.user, v(7)]);
   assert.ok(rows.some((r) => r.kind === 'saved' && r.snippet.includes('Cold exposure')));
 });
+
+test('147: a "contradicted" marker copy of a fact is never a search result', async () => {
+  const s = await factSetup();
+  await db.query(`INSERT INTO assertions (user_id, subject_entity_id, predicate, object_value, assertion_kind, status, origin_key, confidence) VALUES ($1, $2, 'values', '{"normalized":"hustle culture"}', 'contradicted', 'active', 'user_feedback:x', 1)`, [s.user, s.self]);
+  const { rows } = await db.query<{ kind: string }>(`SELECT kind FROM search_person($1, 'hustle culture')`, [s.user]);
+  assert.equal(rows.filter((r) => r.kind === 'fact').length, 0);
+});
