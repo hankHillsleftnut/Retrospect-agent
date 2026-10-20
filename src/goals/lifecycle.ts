@@ -20,7 +20,7 @@ export const DUPLICATE = 0.9;
 export const EXPIRE_DAYS = 90;
 const STOP = new Set(['the', 'and', 'for', 'with', 'more', 'get', 'be', 'to', 'a', 'an', 'my', 'of', 'in', 'on', 'at', 'by', 'every', 'each', 'week', 'day', 'make', 'start', 'stop', 'keep', 'build', 'better', 'want', 'goal', 'into', 'from', 'that', 'this', 'your', 'have', 'less', 'than']);
 
-export interface GoalRow { id: string; title: string; description: string | null; created_at: string; updated_at: string | null; vector: number[] | null }
+export interface GoalRow { id: string; title: string; description: string | null; created_at: string; updated_at: string | null; vector: number[] | null; /** Set when the goal was revived ('stated again'): the 90 days restart from it. */ status_at?: string | null }
 
 export function distinctiveWords(g: Pick<GoalRow, 'title'>): string[] {
   return [...new Set(g.title.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 3 && !STOP.has(w)))];
@@ -56,7 +56,10 @@ export function planLifecycle(goals: GoalRow[], ownWords: Array<{ at: string; te
     const family = [g, ...sorted.filter((h) => mergedInto.get(h.id) === g.id)];
     const mention = recent.filter((w) => family.some((f) => isMentioned(f, w.text))).map((w) => w.at).sort().pop();
     if (mention) lastMentioned.set(g.id, mention);
-    if (!mention && new Date(g.created_at).getTime() < cutoff) expire.push(g.id);
+    // Stated = first stated, or stated again (a revival sets status_at). Without
+    // this, a goal the backend revives would expire again the next day (review, 19 Oct).
+    const stated = Math.max(new Date(g.created_at).getTime(), g.status_at ? new Date(g.status_at).getTime() : 0);
+    if (!mention && stated < cutoff) expire.push(g.id);
   }
   return { mergedInto, expire, lastMentioned };
 }
@@ -65,7 +68,7 @@ const OWN_WORDS = ['journal_entry', 'voice_recording', 'voice_journal', 'text_en
 
 export async function applyGoalLifecycle(userId: string, options: { dryRun?: boolean; now?: Date; db?: typeof supabase } = {}) {
   const db = options.db ?? supabase, now = options.now ?? new Date();
-  const { data: rows, error } = await db.from(Tables.GOALS).select('id,title,description,created_at,updated_at,embedding,status').eq('user_id', userId).eq('status', 'active');
+  const { data: rows, error } = await db.from(Tables.GOALS).select('id,title,description,created_at,updated_at,embedding,status,status_at').eq('user_id', userId).eq('status', 'active');
   if (error) throw new Error(`applyGoalLifecycle goals: ${error.message}`);
   const goals: GoalRow[] = ((rows ?? []) as unknown as Array<Omit<GoalRow, "vector"> & { embedding: unknown }>).map((r) => ({
     ...r, vector: Array.isArray(r.embedding) ? (r.embedding as number[]) : typeof r.embedding === 'string' ? JSON.parse(r.embedding) as number[] : null,

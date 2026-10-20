@@ -50,7 +50,7 @@ test('whys are always asked; only live, promotable patterns are read', () => {
     whys: [{ id: 'w1', pattern_id: 'p1', mechanism: 'avoidance', confidence: '0.6', status: 'live' }, { id: 'w2', pattern_id: 'p1', mechanism: 'capacity', confidence: '0.3', status: 'provisional' }],
   }), '2026-10-19');
   assert.deepEqual(c.patterns.map((p) => p.id), ['p1']);
-  assert.deepEqual(c.whys.map((w) => [w.id, w.register]), [['w1', 'asked']]);
+  assert.deepEqual(c.whys.map((w) => [w.id, w.register, w.provisional]), [['w1', 'asked', false], ['w2', 'asked', true]], 'a provisional why behind a live pattern may be asked (founder, 19 Oct)');
 });
 
 let db: PGlite;

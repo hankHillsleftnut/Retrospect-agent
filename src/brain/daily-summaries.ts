@@ -250,11 +250,22 @@ export async function rebuildDailySummariesWithDetail(userId: string, days = 120
 
   const firstDay = since.toISOString().slice(0, 10);
   const summaries = summariseDays(items, usualOffset(items), categories).filter((d) => d.day >= firstDay);
-  const { error: delError } = await db.from(Tables.DAILY_SUMMARIES).delete().eq('user_id', userId).gte('day', firstDay);
-  if (delError) throw new Error(`rebuildDailySummaries clear: ${delError.message}`);
+  // Write the new rows first (upsert), then remove only days that no longer
+  // have anything. Two rebuilds at once (arrivals worker + daily cron) can't
+  // collide on the primary key, and a reader never sees an emptied week
+  // (review, 19 Oct: delete-then-insert could do both).
   for (let i = 0; i < summaries.length; i += CHUNK) {
-    const { error } = await db.from(Tables.DAILY_SUMMARIES).insert(summaries.slice(i, i + CHUNK).map((d) => ({ user_id: userId, ...d, built_at: now.toISOString() })));
+    const { error } = await db.from(Tables.DAILY_SUMMARIES)
+      .upsert(summaries.slice(i, i + CHUNK).map((d) => ({ user_id: userId, ...d, built_at: now.toISOString() })), { onConflict: 'user_id,day,domain' });
     if (error) throw new Error(`rebuildDailySummaries write: ${error.message}`);
+  }
+  const keep = new Set(summaries.map((d) => `${d.day}|${d.domain}`));
+  const { data: existing, error: exError } = await db.from(Tables.DAILY_SUMMARIES).select('day,domain').eq('user_id', userId).gte('day', firstDay);
+  if (exError) throw new Error(`rebuildDailySummaries read: ${exError.message}`);
+  for (const r of (existing ?? []) as Array<{ day: string; domain: string }>) {
+    if (keep.has(`${String(r.day).slice(0, 10)}|${r.domain}`)) continue;
+    const { error } = await db.from(Tables.DAILY_SUMMARIES).delete().eq('user_id', userId).eq('day', r.day).eq('domain', r.domain);
+    if (error) throw new Error(`rebuildDailySummaries clear: ${error.message}`);
   }
   const textById = new Map(rows.map((r) => [r.id, r.content ?? '']));
   return { days: new Set(summaries.map((d) => d.day)).size, rows: summaries.length, summaries, textById };

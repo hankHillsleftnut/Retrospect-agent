@@ -29,7 +29,7 @@ export type Register = 'stated' | 'asked';
 
 export interface AnswerItem { kind: 'answer'; id: string; questionId: number; question: string; domainId: string; answer: string; confidence: number; sources: number; confirmed: boolean; register: Register; lastMovedAt: string | null }
 export interface PatternItem { kind: 'pattern'; id: string; label: string; instances: number; firstSeenAt: string | null; lastSeenAt: string | null; trajectory: TrajectoryResult['trajectory'] | null; trajectoryDetail: Partial<TrajectoryResult> | null; register: 'stated' }
-export interface WhyItem { kind: 'why'; id: string; patternId: string; mechanism: string; confidence: number; register: 'asked' }
+export interface WhyItem { kind: 'why'; id: string; patternId: string; mechanism: string; confidence: number; register: 'asked'; /** Not past its gate: the founder allowed at most one per episode, asked (19 Oct). */ provisional: boolean }
 export interface GoalItem { kind: 'goal'; id: string; title: string; description: string | null; statedAt: string | null; register: 'stated' }
 
 export interface UnderstandingContract {
@@ -90,9 +90,13 @@ export function assembleContract(userId: string, rows: ContractRows, today: stri
       kind: 'pattern' as const, id: p.id, label: p.label, instances: p.instance_count, firstSeenAt: p.first_seen_at, lastSeenAt: p.last_seen_at,
       trajectory: (p.trajectory as PatternItem['trajectory']) ?? null, trajectoryDetail: p.trajectory_detail, register: 'stated' as const,
     })),
-    whys: rows.whys.filter((w) => w.status === 'live').map((w) => ({
-      kind: 'why' as const, id: w.id, patternId: w.pattern_id, mechanism: w.mechanism, confidence: Number(w.confidence), register: 'asked' as const,
-    })),
+    // Live whys, and provisional ones behind a live pattern: the founder allowed
+    // one provisional why per episode, always asked (19 Oct). The planner caps it.
+    whys: rows.whys.filter((w) => w.status === 'live' || (w.status === 'provisional' && rows.patterns.some((p) => p.id === w.pattern_id && p.status === 'live')))
+      .map((w) => ({
+        kind: 'why' as const, id: w.id, patternId: w.pattern_id, mechanism: w.mechanism, confidence: Number(w.confidence), register: 'asked' as const,
+        provisional: w.status === 'provisional',
+      })),
     goals: rows.goals.filter((g) => g.is_active !== false).map((g) => ({
       kind: 'goal' as const, id: g.id, title: g.title, description: g.description, statedAt: g.created_at, register: 'stated' as const,
     })),

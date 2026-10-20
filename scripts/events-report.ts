@@ -8,18 +8,18 @@ import 'dotenv/config';
 import { parseArgs } from './_args';
 import { supabase } from '../src/db/supabase';
 import { Tables } from '../src/db/tables';
+import { selectAll } from '../src/db/paged';
 import { summariseLatency } from '../src/events/arrivals';
 
 async function main() {
   const args = parseArgs();
   const days = Number(typeof args.days === 'string' ? args.days : 7);
   const since = new Date(Date.now() - days * 864e5).toISOString();
-  const { data: rows, error } = await supabase.from(Tables.RAW_CONTENT)
-    .select('created_at,processed_at').gte('created_at', since).limit(20000);
-  if (error) throw new Error(error.message);
-  const { data: runs } = await supabase.from(Tables.PIPELINE_RUN_TRACES)
-    .select('triggered_by').eq('kind', 'ingest').gte('started_at', since).limit(20000);
-  const s = summariseLatency(rows ?? [], runs ?? []);
+  const rows = await selectAll<{ created_at: string; processed_at: string | null }>((from, to) => supabase.from(Tables.RAW_CONTENT)
+    .select('created_at,processed_at').gte('created_at', since).order('id').range(from, to));
+  const runs = await selectAll<{ triggered_by: string }>((from, to) => supabase.from(Tables.PIPELINE_RUN_TRACES)
+    .select('triggered_by').eq('kind', 'ingest').gte('started_at', since).order('id').range(from, to));
+  const s = summariseLatency(rows, runs);
   console.log(`Last ${days} days: ${s.read} items read, ${s.pending} still waiting`);
   console.log(`Time to read: median ${s.p50Minutes ?? '–'} min, 90th percentile ${s.p90Minutes ?? '–'} min`);
   console.log(`Read within 10 minutes: ${Math.round(s.within10Min * 100)}%  (F3 gate: new material read within 10 min)`);
