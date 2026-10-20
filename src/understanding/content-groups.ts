@@ -115,7 +115,7 @@ export async function readContentGroups(userId: string, db: typeof supabase = su
   // Rows first without embeddings (paged), dates checked, then embeddings for
   // the kept rows only: 3,072 numbers each is too much to fetch for everything.
   const rows = await selectAll<{ id: string; content: string; metadata: Record<string, unknown> | null; source_item_id: string | null }>((from, to) =>
-    db.from(Tables.RAW_CONTENT).select('id,content,metadata,source_item_id').eq('user_id', userId).eq('content_type', 'youtube').order('id').range(from, to));
+    db.from(Tables.RAW_CONTENT).select('id,content,metadata,source_item_id,created_at').eq('user_id', userId).eq('content_type', 'youtube').order('id').range(from, to));
   const ids = rows.map((r) => r.source_item_id).filter(Boolean) as string[];
   const when = new Map<string, string | null>();
   for (let i = 0; i < ids.length; i += 100) {
@@ -124,8 +124,9 @@ export async function readContentGroups(userId: string, db: typeof supabase = su
   }
   const kept = rows.filter((r) => {
     const rel = String(r.metadata?.relationship ?? '');
-    const at = r.source_item_id ? when.get(r.source_item_id) : null;
-    return (rel === 'subscribed_to' || rel === 'liked_video') && !!at && at >= since;
+    // A watch from the Takeout import is dated by when it was watched (created_at); likes and subscriptions by their source item.
+    const at = rel === 'watched' ? (r as { created_at?: string }).created_at ?? null : r.source_item_id ? when.get(r.source_item_id) : null;
+    return (rel === 'subscribed_to' || rel === 'liked_video' || rel === 'watched') && !!at && at >= since;
   });
   const vectors = new Map<string, number[]>();
   for (const part of chunks(kept.map((r) => r.id), 50)) {
@@ -137,7 +138,7 @@ export async function readContentGroups(userId: string, db: typeof supabase = su
     const rel = String(r.metadata?.relationship ?? '');
     const vector = vectors.get(r.id);
     if (!vector) continue;
-    items.push({ id: r.id, kind: rel, title: (r.content.split('\n')[0] ?? '').replace(/^(liked video|subscribed to):\s*/i, '').slice(0, 120), vector });
+    items.push({ id: r.id, kind: rel, title: (r.content.split('\n')[0] ?? '').replace(/^(liked video|subscribed to|watched):\s*/i, '').slice(0, 120), vector });
   }
   // No goal links by similarity: see the note at the top (cross-type text).
   return { considered: items.length, ...contentGroups(items, []) };

@@ -88,7 +88,8 @@ function domainOf(i: SummaryItem): Domain | null {
   if (i.content_type === 'calendar') return 'calendar';
   if (OWN_WORDS.has(i.content_type) && i.trust_class !== 'automated') return 'own_words';
   if (i.content_type === 'gmail') return 'mail';
-  if (i.content_type === 'youtube' && i.metadata?.relationship === 'subscribed_to') return 'content';
+  // Watches (Takeout) are dated attention: what you actually watched, by day.
+  if (i.content_type === 'youtube' && (i.metadata?.relationship === 'subscribed_to' || i.metadata?.relationship === 'watched')) return 'content';
   if (i.content_type === 'healthkit') return 'health';
   if (i.content_type === 'screen_time') return 'screen_time';
   return null;
