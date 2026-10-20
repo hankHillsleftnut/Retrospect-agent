@@ -22,7 +22,9 @@
  */
 
 import { normalizeHealthSummary } from '../pipelines/health-summary';
-import { TIME_CATEGORIES, categoriseEvent } from './time-categories';
+import { TIME_CATEGORIES, categoriseEvent, type TimeCategory } from './time-categories';
+
+export type CategoryCache = Map<string, { category: TimeCategory; decided_by: string }>;
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 
@@ -92,7 +94,7 @@ function domainOf(i: SummaryItem): Domain | null {
   return null;
 }
 
-export function summariseDays(items: SummaryItem[], offset = usualOffset(items)): DailySummary[] {
+export function summariseDays(items: SummaryItem[], offset = usualOffset(items), categories?: CategoryCache): DailySummary[] {
   const groups = new Map<string, { day: string; domain: Domain; items: SummaryItem[] }>();
   for (const i of items) {
     const domain = domainOf(i);
@@ -115,11 +117,11 @@ export function summariseDays(items: SummaryItem[], offset = usualOffset(items))
 
   return [...groups.values()].map(({ day, domain, items: its }) => ({
     day, domain, items: its.length, source_ids: its.map((i) => i.id).sort(),
-    metrics: metricsFor(domain, its, offset),
+    metrics: metricsFor(domain, its, offset, categories),
   })).sort((a, b) => a.day.localeCompare(b.day) || a.domain.localeCompare(b.domain));
 }
 
-function metricsFor(domain: Domain, its: SummaryItem[], offset: number): DailySummary['metrics'] {
+function metricsFor(domain: Domain, its: SummaryItem[], offset: number, categories?: CategoryCache): DailySummary['metrics'] {
   if (domain === 'calendar') {
     const timed = its.filter((i) => !i.normalized_data?.all_day && typeof i.normalized_data?.start === 'string');
     const attended = timed.filter((i) => i.normalized_data?.my_response !== 'declined' && i.normalized_data?.busy !== false);
@@ -130,7 +132,7 @@ function metricsFor(domain: Domain, its: SummaryItem[], offset: number): DailySu
       const s = String(i.normalized_data!.start), e = typeof i.normalized_data?.end === 'string' ? String(i.normalized_data.end) : s;
       const m = Math.max(0, (new Date(e).getTime() - new Date(s).getTime()) / 60_000);
       minutes += m;
-      const c = categoriseEvent({ title: i.normalized_data?.title as string | undefined, attendee_count: Number(i.normalized_data?.attendee_count ?? 0) });
+      const c = categoriseEvent({ title: i.normalized_data?.title as string | undefined, attendee_count: Number(i.normalized_data?.attendee_count ?? 0) }, categories);
       byCategory.set(c, (byCategory.get(c) ?? 0) + m);
       starts.push(localTime(s, offsetMinutes(s) ?? offset).minute);
       ends.push(localTime(e, offsetMinutes(e) ?? offset).minute);
@@ -238,8 +240,12 @@ export async function rebuildDailySummariesWithDetail(userId: string, days = 120
     };
   });
 
+  const { data: cachedRows } = await db.from(Tables.EVENT_CATEGORIES).select('title_key,category,decided_by').eq('user_id', userId);
+  const categories: CategoryCache = new Map(((cachedRows ?? []) as Array<{ title_key: string; category: TimeCategory; decided_by: string }>)
+    .map((r) => [r.title_key, { category: r.category, decided_by: r.decided_by }]));
+
   const firstDay = since.toISOString().slice(0, 10);
-  const summaries = summariseDays(items).filter((d) => d.day >= firstDay);
+  const summaries = summariseDays(items, usualOffset(items), categories).filter((d) => d.day >= firstDay);
   const { error: delError } = await db.from(Tables.DAILY_SUMMARIES).delete().eq('user_id', userId).gte('day', firstDay);
   if (delError) throw new Error(`rebuildDailySummaries clear: ${delError.message}`);
   for (let i = 0; i < summaries.length; i += CHUNK) {

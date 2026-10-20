@@ -40,6 +40,9 @@ export const config = {
     // Sonnet 5.5 chosen 18 October 2026 (decision-record.md #19): ~9% cheaper
     // than 4.6 on this task, comparable quality.
     questionsModel: optional('ANTHROPIC_QUESTIONS_MODEL', 'claude-sonnet-5-5'),
+    // Places calendar events the declared rules couldn't (W3.5b): a short,
+    // closed-choice label per title, so the smallest model is enough.
+    timeCategoryModel: optional('ANTHROPIC_TIME_CATEGORY_MODEL', 'claude-haiku-5-5'),
   },
   extraction: {
     // 'facts' (default): the facts-only extractor (agents/fact-extractor.ts).

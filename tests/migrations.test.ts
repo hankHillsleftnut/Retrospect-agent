@@ -708,3 +708,13 @@ test('135: a pattern can only carry a known trajectory', async () => {
   assert.ok(p);
   assert.equal(await failureCode(`UPDATE behavior_patterns SET trajectory = 'vibes' WHERE id = $1`, [p!.id]), CHECK_VIOLATION);
 });
+
+// ── 136: event categories (W3.5b) ────────────────────────────────────────────
+test('136: one decision per title; only known categories; app roles shut out', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO event_categories (user_id, title_key, category, decided_by) VALUES ($1, 'atelier', 'learning', 'model')`, [user]);
+  assert.equal(await failureCode(`INSERT INTO event_categories (user_id, title_key, category, decided_by) VALUES ($1, 'atelier', 'social', 'model')`, [user]), UNIQUE_VIOLATION);
+  assert.equal(await failureCode(`INSERT INTO event_categories (user_id, title_key, category, decided_by) VALUES ($1, 'x', 'vibes', 'model')`, [user]), CHECK_VIOLATION);
+  const { rows } = await db.query<{ anon: boolean }>(`SELECT has_table_privilege('anon', 'event_categories', 'SELECT') AS anon`);
+  assert.equal(rows[0]!.anon, false);
+});
