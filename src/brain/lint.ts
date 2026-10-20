@@ -12,6 +12,7 @@
  */
 
 import { supabase } from '../db/supabase';
+import { selectAll, chunks } from '../db/paged';
 import { Tables } from '../db/tables';
 import { CHECKS_BY_ID, fingerprint, isSafety, type Severity } from './lint-catalog';
 import { LEASE_TTL_MS } from './lease';
@@ -62,13 +63,14 @@ export async function runLint(options: {
   const findings: Finding[] = [];
 
   // ── Sources ───────────────────────────────────────────────────────────────
-  const { data: completed } = await supabase.from(Tables.RAW_CONTENT)
-    .select('id').eq('user_id', userId).eq('processing_status', 'completed').limit(1000);
-  const completedIds = (completed ?? []).map((r: any) => r.id);
+  // Every read pages past the 1,000-row cap and avoids long id lists (F-L1): a
+  // capped read here doesn't just miss things, it reports false findings.
+  const completedIds = (await selectAll<{ id: string }>((f, t) => supabase.from(Tables.RAW_CONTENT)
+    .select('id').eq('user_id', userId).eq('processing_status', 'completed').order('id').range(f, t))).map((r) => r.id);
+  const userEvidence = await selectAll<{ assertion_id: string; raw_content_id: string | null; excerpt: string | null }>((f, t) => supabase.from(Tables.ASSERTION_EVIDENCE)
+    .select('assertion_id,raw_content_id,excerpt').eq('user_id', userId).order('id').range(f, t));
   if (completedIds.length > 0) {
-    const { data: withFacts } = await supabase.from(Tables.ASSERTION_EVIDENCE)
-      .select('raw_content_id').in('raw_content_id', completedIds);
-    const have = new Set((withFacts ?? []).map((r: any) => r.raw_content_id));
+    const have = new Set(userEvidence.map((r) => r.raw_content_id));
     const barren = completedIds.filter((id: string) => !have.has(id));
     if (barren.length > 0) {
       findings.push(make('S1', 'raw_content', barren.slice(0, 50),
@@ -95,15 +97,13 @@ export async function runLint(options: {
   }
 
   // ── Facts ─────────────────────────────────────────────────────────────────
-  const { data: facts } = await supabase.from(Tables.ASSERTIONS)
+  const allFacts = await selectAll<any>((f, t) => supabase.from(Tables.ASSERTIONS)
     .select('id,predicate,object_value,status,valid_to,supersedes_id,subject_entity_id,origin_key')
-    .eq('user_id', userId).limit(2000);
-  const allFacts = (facts ?? []) as any[];
+    .eq('user_id', userId).order('id').range(f, t));
 
   const factIds = allFacts.map((f) => f.id);
   if (factIds.length > 0) {
-    const { data: evidence } = await supabase.from(Tables.ASSERTION_EVIDENCE)
-      .select('assertion_id,raw_content_id,excerpt').in('assertion_id', factIds);
+    const evidence = userEvidence;
     const evByFact = new Map<string, any[]>();
     for (const e of (evidence ?? []) as any[]) {
       evByFact.set(e.assertion_id, [...(evByFact.get(e.assertion_id) ?? []), e]);
@@ -118,9 +118,11 @@ export async function runLint(options: {
     // F1: does the quote still exist in the source it cites?
     const rawIds = [...new Set((evidence ?? []).map((e: any) => e.raw_content_id).filter(Boolean))];
     if (rawIds.length > 0) {
-      const { data: sources } = await supabase.from(Tables.RAW_CONTENT)
-        .select('id,content').in('id', rawIds as string[]);
-      const contentById = new Map((sources ?? []).map((s: any) => [s.id, s.content as string]));
+      const contentById = new Map<string, string>();
+      for (const part of chunks(rawIds as string[])) {
+        const { data: sources } = await supabase.from(Tables.RAW_CONTENT).select('id,content').in('id', part);
+        for (const src of (sources ?? []) as Array<{ id: string; content: string }>) contentById.set(src.id, src.content);
+      }
       const broken: string[] = [];
       for (const e of (evidence ?? []) as any[]) {
         if (!e.raw_content_id || !e.excerpt) continue;
@@ -175,9 +177,9 @@ export async function runLint(options: {
   }
 
   // ── Entities ──────────────────────────────────────────────────────────────
-  const { data: people } = await supabase.from(Tables.ENTITIES)
-    .select('id,canonical_name,attributes').eq('user_id', userId).eq('entity_type', 'person').limit(500);
-  for (const p of (people ?? []) as any[]) {
+  const people = await selectAll<any>((f, t) => supabase.from(Tables.ENTITIES)
+    .select('id,canonical_name,attributes').eq('user_id', userId).eq('entity_type', 'person').order('id').range(f, t));
+  for (const p of people) {
     const updated = p.attributes?.significance_updated_at;
     const sig = Number(p.attributes?.significance ?? 0);
     if (sig > 0.3 && updated && now - new Date(updated).getTime() > staleMs) {
@@ -186,9 +188,9 @@ export async function runLint(options: {
     }
   }
 
-  const { data: candidates } = await supabase.from(Tables.ENTITY_RESOLUTION_CANDIDATES)
-    .select('id,created_at').eq('user_id', userId).eq('status', 'pending').limit(200);
-  const oldCandidates = (candidates ?? []).filter(
+  const candidates = await selectAll<any>((f, t) => supabase.from(Tables.ENTITY_RESOLUTION_CANDIDATES)
+    .select('id,created_at').eq('user_id', userId).eq('status', 'pending').order('id').range(f, t));
+  const oldCandidates = candidates.filter(
     (c: any) => now - new Date(c.created_at).getTime() > 14 * 864e5
   );
   if (oldCandidates.length > 0) {
@@ -197,9 +199,8 @@ export async function runLint(options: {
   }
 
   // ── Patterns ──────────────────────────────────────────────────────────────
-  const { data: patterns } = await supabase.from(Tables.BEHAVIOR_PATTERNS)
-    .select('*').eq('user_id', userId).limit(500);
-  const allPatterns = (patterns ?? []) as any[];
+  const allPatterns = await selectAll<any>((f, t) => supabase.from(Tables.BEHAVIOR_PATTERNS)
+    .select('*').eq('user_id', userId).order('id').range(f, t));
 
   for (const p of allPatterns) {
     if (p.severity === 'extreme' && p.episode_promotable) {
@@ -225,8 +226,9 @@ export async function runLint(options: {
   // P2 / P4 need the fact links
   const livePatternIds = allPatterns.filter((p) => p.status === 'live').map((p) => p.id);
   if (livePatternIds.length > 0) {
-    const { data: links } = await supabase.from(Tables.BEHAVIOR_PATTERN_FACTS)
-      .select('pattern_id,assertion_id').in('pattern_id', livePatternIds);
+    const live = new Set(livePatternIds);
+    const links = (await selectAll<{ pattern_id: string; assertion_id: string }>((f, t) => supabase.from(Tables.BEHAVIOR_PATTERN_FACTS)
+      .select('pattern_id,assertion_id').eq('user_id', userId).order('pattern_id').order('assertion_id').range(f, t))).filter((l) => live.has(l.pattern_id));
     const byPattern = new Map<string, string[]>();
     for (const l of (links ?? []) as any[]) {
       byPattern.set(l.pattern_id, [...(byPattern.get(l.pattern_id) ?? []), l.assertion_id]);
@@ -257,8 +259,8 @@ export async function runLint(options: {
   }
 
   // ── Whys ──────────────────────────────────────────────────────────────────
-  const { data: whys } = await supabase.from(Tables.BEHAVIOR_PATTERN_WHYS)
-    .select('*').eq('user_id', userId).is('retired_at', null).limit(500);
+  const whys = await selectAll<any>((f, t) => supabase.from(Tables.BEHAVIOR_PATTERN_WHYS)
+    .select('*').eq('user_id', userId).is('retired_at', null).order('id').range(f, t));
   const patternById = new Map(allPatterns.map((p) => [p.id, p]));
   const activeIds = new Set(active.map((f) => f.id));
 
@@ -326,22 +328,32 @@ export async function runLint(options: {
   };
 }
 
-/** Upsert findings so a nightly run updates rather than piles up. */
-export async function persistFindings(report: LintReport): Promise<void> {
+/**
+ * Upsert findings so a nightly run updates rather than piles up. A finding that
+ * stops occurring is marked resolved ("no longer detected"), and reopens if it
+ * comes back, unless a person called it a false positive. Without this, an
+ * open finding would block a claim forever once it was fixed (F-L1).
+ */
+export async function persistFindings(report: LintReport): Promise<{ opened: number; resolved: number }> {
   const all = [...report.safety, ...report.findings];
-  if (all.length === 0) return;
+  const seenNow = new Set(all.map((f) => `${f.checkId}|${f.fingerprint}`));
+  let opened = 0;
 
   for (const f of all) {
     const { data: existing } = await supabase.from(Tables.LINT_FINDINGS)
-      .select('id,run_count').eq('user_id', report.userId)
+      .select('id,run_count,resolution').eq('user_id', report.userId)
       .eq('check_id', f.checkId).eq('fingerprint', f.fingerprint).maybeSingle();
 
     if (existing) {
+      const reopen = existing.resolution === 'resolved';
       await supabase.from(Tables.LINT_FINDINGS).update({
         last_seen_at: report.ranAt,
         run_count: (existing.run_count ?? 1) + 1,
         detail: f.detail ?? null,
+        subject_ids: f.subjectIds,
+        ...(reopen ? { resolution: 'open', resolved_at: null, resolution_note: null } : {}),
       }).eq('id', existing.id);
+      if (reopen) opened++;
     } else {
       await supabase.from(Tables.LINT_FINDINGS).insert({
         user_id: report.userId,
@@ -356,6 +368,15 @@ export async function persistFindings(report: LintReport): Promise<void> {
         first_seen_at: report.ranAt,
         last_seen_at: report.ranAt,
       });
+      opened++;
     }
   }
+
+  const open = await selectAll<{ id: string; check_id: string; fingerprint: string }>((f, t) => supabase.from(Tables.LINT_FINDINGS)
+    .select('id,check_id,fingerprint').eq('user_id', report.userId).eq('resolution', 'open').order('id').range(f, t));
+  const gone = open.filter((o) => !seenNow.has(`${o.check_id}|${o.fingerprint}`)).map((o) => o.id);
+  for (const part of chunks(gone)) {
+    await supabase.from(Tables.LINT_FINDINGS).update({ resolution: 'resolved', resolved_at: report.ranAt, resolution_note: 'no longer detected' }).in('id', part);
+  }
+  return { opened, resolved: gone.length };
 }
