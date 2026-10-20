@@ -819,3 +819,19 @@ test('146: keyword search matches any word, so a rewritten query still finds wha
   const { rows } = await db.query<{ snippet: string }>(`SELECT snippet FROM search_person($1, 'marathon registration race')`, [s.user]);
   assert.ok(rows.some((r) => r.snippet.includes('half marathon')));
 });
+
+test('147: a saved link is found by meaning when no word is shared', async () => {
+  const s = await factSetup();
+  const v = (hot: number) => `[${Array.from({ length: 3072 }, (_, i) => (i === hot ? 1 : 0)).join(',')}]`;
+  const { rows: [raw] } = await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content, trust_class) VALUES ($1, 'shared_link', 'https://x.test/cold', 'reference') RETURNING id`, [s.user]);
+  await db.query(`INSERT INTO reference_items (user_id, raw_content_id, url, title, status, embedding) VALUES ($1, $2, 'https://x.test/cold', 'Cold exposure protocol', 'enriched', $3)`, [s.user, raw!.id, v(7)]);
+  const { rows } = await db.query<{ kind: string; snippet: string }>(`SELECT kind, snippet FROM search_person($1, 'ice bath routine', $2::vector)`, [s.user, v(7)]);
+  assert.ok(rows.some((r) => r.kind === 'saved' && r.snippet.includes('Cold exposure')));
+});
+
+test('147: a "contradicted" marker copy of a fact is never a search result', async () => {
+  const s = await factSetup();
+  await db.query(`INSERT INTO assertions (user_id, subject_entity_id, predicate, object_value, assertion_kind, status, origin_key, confidence) VALUES ($1, $2, 'values', '{"normalized":"hustle culture"}', 'contradicted', 'active', 'user_feedback:x', 1)`, [s.user, s.self]);
+  const { rows } = await db.query<{ kind: string }>(`SELECT kind FROM search_person($1, 'hustle culture')`, [s.user]);
+  assert.equal(rows.filter((r) => r.kind === 'fact').length, 0);
+});

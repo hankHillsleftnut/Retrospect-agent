@@ -45,7 +45,8 @@
     "trust:backfill": "tsx scripts/backfill-trust.ts",
     "eval:corrections": "tsx scripts/eval-corrections.ts",
     "eval:conversation": "tsx scripts/eval-conversation.ts",
-    "import:youtube": "tsx scripts/import-youtube-takeout.ts"
+    "import:youtube": "tsx scripts/import-youtube-takeout.ts",
+    "eval:links": "tsx scripts/eval-links.ts"
   },
   "keywords": [
     "agent",

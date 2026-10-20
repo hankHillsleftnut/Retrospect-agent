@@ -1,0 +1,508 @@
+{
+ "bar": {
+  "found_top5_rate": 0.9,
+  "note": "Declared before the first run (20 Oct 2026). Half the queries are paraphrases sharing no key word with title or reason."
+ },
+ "cases": [
+  {
+   "id": "r1-01",
+   "url": "https://a16z.com/seed-pitch",
+   "title": "How to pitch a seed round",
+   "summary": "A partner explains what seed investors look for in a first meeting.",
+   "intent": "for when I start fundraising",
+   "query": "what should I say to investors in a first meeting",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-02",
+   "url": "https://paulgraham.com/startupideas",
+   "title": "How to Get Startup Ideas",
+   "summary": "Essay arguing the best ideas come from noticing problems in your own life.",
+   "intent": "re-read before picking the next feature",
+   "query": "essay on where good ideas come from",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-03",
+   "url": "https://youtube.com/watch?v=sleep1",
+   "title": "The science of sleep pressure",
+   "summary": "A neuroscientist explains adenosine and why naps make nights worse.",
+   "intent": "because I keep napping at 4pm",
+   "query": "why afternoon naps wreck my night",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-04",
+   "url": "https://nngroup.com/onboarding",
+   "title": "Onboarding UX patterns",
+   "summary": "Research on progressive disclosure in first-run experiences.",
+   "intent": "for the Retrospect onboarding redesign",
+   "query": "first-run experience research for the app",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-05",
+   "url": "https://x.com/levelsio/status/1",
+   "title": "Shipping fast as a solo founder",
+   "summary": "Thread on launching 12 products in 12 months.",
+   "intent": "motivation when I'm stuck polishing",
+   "query": "thread about launching lots of products quickly",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-06",
+   "url": "https://stripe.com/atlas/guide-pricing",
+   "title": "Pricing your SaaS",
+   "summary": "Guide to value-based pricing and tiering.",
+   "intent": "to figure out what to charge",
+   "query": "how much to charge subscribers",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-07",
+   "url": "https://hbr.org/feedback",
+   "title": "Giving feedback that lands",
+   "summary": "How to deliver criticism without defensiveness.",
+   "intent": "before my 1:1 with the contractor",
+   "query": "talking to someone about their work not being good enough",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-08",
+   "url": "https://youtube.com/watch?v=woodjoin",
+   "title": "Japanese joinery basics",
+   "summary": "Hand-cut joints without screws or glue.",
+   "intent": "want to try this with dad",
+   "query": "wood joints without nails",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-09",
+   "url": "https://www.ycombinator.com/library/fundraising",
+   "title": "YC fundraising guide",
+   "summary": "Step by step on running a fundraise process.",
+   "intent": "the investor process checklist",
+   "query": "checklist for running a raise",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-10",
+   "url": "https://typography.com/pairing",
+   "title": "Font pairing principles",
+   "summary": "How to pair a serif with a sans for editorial layouts.",
+   "intent": "for the app's type system",
+   "query": "combining two typefaces",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-11",
+   "url": "https://medium.com/voice-ux",
+   "title": "Designing for voice",
+   "summary": "Patterns for audio-first interfaces and listening experiences.",
+   "intent": "the podcast should feel like this",
+   "query": "audio-first interface design",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-12",
+   "url": "https://hubermanlab.com/morning-light",
+   "title": "Morning sunlight and mood",
+   "summary": "Why light exposure in the first hour sets your circadian clock.",
+   "intent": "try this for a week",
+   "query": "getting sun early in the day",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-13",
+   "url": "https://ribbonfarm.com/narrative",
+   "title": "Narrative and meaning",
+   "summary": "Essay on how people make sense of their lives through story.",
+   "intent": "the brain should tell stories like this",
+   "query": "how people make sense of their lives",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-14",
+   "url": "https://figma.com/blog/design-systems",
+   "title": "Building a design system",
+   "summary": "Figma's guide to tokens, components and governance.",
+   "intent": "for the iOS design tokens",
+   "query": "tokens and components guide",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-15",
+   "url": "https://youtube.com/watch?v=runform",
+   "title": "Running form for beginners",
+   "summary": "Cadence and posture tips to avoid knee pain.",
+   "intent": "my knee hurts after runs",
+   "query": "stop my knee aching when jogging",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-16",
+   "url": "https://lennysnewsletter.com/retention",
+   "title": "What good retention looks like",
+   "summary": "Benchmarks for consumer app retention by category.",
+   "intent": "to know if our numbers are good",
+   "query": "are our day-30 numbers any good",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-17",
+   "url": "https://notion.so/templates/journal",
+   "title": "Journaling templates",
+   "summary": "A set of prompts for daily reflection.",
+   "intent": "ideas for Retrospect prompts",
+   "query": "daily reflection prompts",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-18",
+   "url": "https://theatlantic.com/loneliness",
+   "title": "The loneliness epidemic",
+   "summary": "Long read on social isolation among young adults.",
+   "intent": "send to Arjun",
+   "query": "the long article about isolation I wanted to share",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-19",
+   "url": "https://apple.com/healthkit-docs",
+   "title": "HealthKit sleep analysis",
+   "summary": "Apple docs on sleep stage samples.",
+   "intent": "for the health integration",
+   "query": "sleep stages api",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-20",
+   "url": "https://anthropic.com/research/persona",
+   "title": "Model personality research",
+   "summary": "Research on character and consistency in assistants.",
+   "intent": "for the podcast host's voice",
+   "query": "research on assistant character",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-21",
+   "url": "https://youtube.com/watch?v=breadstarter",
+   "title": "Sourdough starter from scratch",
+   "summary": "Seven days to a live starter.",
+   "intent": "weekend project",
+   "query": "making bread yeast at home",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-22",
+   "url": "https://sequoiacap.com/arc/pmf",
+   "title": "Product-market fit framework",
+   "summary": "Sequoia's three archetypes of PMF.",
+   "intent": "to frame the pitch deck",
+   "query": "how to describe fit in the deck",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-23",
+   "url": "https://calnewport.com/deep-work",
+   "title": "Deep work routines",
+   "summary": "Scheduling long uninterrupted blocks.",
+   "intent": "I keep getting interrupted",
+   "query": "focus without interruptions",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-24",
+   "url": "https://elevenlabs.io/blog/v4",
+   "title": "Eleven v4 announcement",
+   "summary": "New expressive voice model with audio tags.",
+   "intent": "for the podcast voice upgrade",
+   "query": "new expressive text to speech model",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-25",
+   "url": "https://wired.com/attention",
+   "title": "Your attention is being harvested",
+   "summary": "How feeds are engineered to keep you scrolling.",
+   "intent": "why I can't stop scrolling at night",
+   "query": "late night phone doomscrolling",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-26",
+   "url": "https://stratechery.com/aggregation",
+   "title": "Aggregation theory",
+   "summary": "How platforms win by owning demand.",
+   "intent": "strategy reading",
+   "query": "platforms owning demand",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-27",
+   "url": "https://youtube.com/watch?v=pitchdeck",
+   "title": "Teardown of a Series A deck",
+   "summary": "A VC reviews a real deck slide by slide.",
+   "intent": "before I make ours",
+   "query": "someone critiquing slides from a real raise",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-28",
+   "url": "https://psychologytoday.com/goals",
+   "title": "Why we abandon goals",
+   "summary": "Research on implementation intentions.",
+   "intent": "I keep dropping my goals",
+   "query": "sticking with resolutions",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-29",
+   "url": "https://mobbin.com/onboarding-flows",
+   "title": "Onboarding flow library",
+   "summary": "Screenshots of 200 onboarding flows.",
+   "intent": "reference for the app",
+   "query": "gallery of signup screens",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-30",
+   "url": "https://substack.com/founder-mental-health",
+   "title": "Founder burnout",
+   "summary": "Essay on the emotional cost of building a company.",
+   "intent": "felt this hard",
+   "query": "exhaustion from starting a company",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-31",
+   "url": "https://youtube.com/watch?v=coldplunge",
+   "title": "Cold exposure protocol",
+   "summary": "Dose and timing of cold plunges.",
+   "intent": "maybe try it",
+   "query": "ice bath routine",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-32",
+   "url": "https://firstround.com/hiring-first-engineer",
+   "title": "Hiring your first engineer",
+   "summary": "How to evaluate and close your first technical hire.",
+   "intent": "when I hire an engineer",
+   "query": "bringing on a technical cofounder or first developer",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-33",
+   "url": "https://acoup.blog/history",
+   "title": "How historians read sources",
+   "summary": "On primary sources and their biases.",
+   "intent": "the brain should weigh sources like this",
+   "query": "weighing evidence like a historian",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-34",
+   "url": "https://nytimes.com/cooking/dal",
+   "title": "Weeknight dal",
+   "summary": "A 30-minute lentil recipe.",
+   "intent": "cook this week",
+   "query": "lentil recipe",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-35",
+   "url": "https://arxiv.org/longmemeval",
+   "title": "LongMemEval benchmark",
+   "summary": "Benchmark for long-term memory in chat assistants.",
+   "intent": "how to test the brain",
+   "query": "benchmark for assistant memory",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-36",
+   "url": "https://youtube.com/watch?v=storytelling",
+   "title": "Pixar's story spine",
+   "summary": "Once upon a time, every day, until one day.",
+   "intent": "the episodes need a spine",
+   "query": "structure for telling a story",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-37",
+   "url": "https://perell.com/writing",
+   "title": "Writing online",
+   "summary": "Why writing in public compounds.",
+   "intent": "start a blog",
+   "query": "publishing my thinking publicly",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-38",
+   "url": "https://apple.com/design/hig-audio",
+   "title": "HIG: Playing audio",
+   "summary": "Apple guidance on audio playback UI.",
+   "intent": "for the player screen",
+   "query": "player screen guidelines",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-39",
+   "url": "https://growth.design/case-studies",
+   "title": "Psychology in product",
+   "summary": "Case studies of behavioural design in apps.",
+   "intent": "for engagement ideas",
+   "query": "behavioural design examples",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-40",
+   "url": "https://youtube.com/watch?v=meditation10",
+   "title": "Ten minute breathing",
+   "summary": "A guided session for anxiety.",
+   "intent": "when I'm anxious before pitches",
+   "query": "calming down before a meeting",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-41",
+   "url": "https://investors.example.com/list",
+   "title": "Pre-seed consumer investors list",
+   "summary": "A spreadsheet of angels who back consumer apps.",
+   "intent": "people to reach out to",
+   "query": "angels to contact for the raise",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-42",
+   "url": "https://ux.stackexchange.com/empty-states",
+   "title": "Empty states that teach",
+   "summary": "Examples of helpful empty screens.",
+   "intent": "the app looks dead on day one",
+   "query": "what to show when there's no data yet",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-43",
+   "url": "https://youtube.com/watch?v=coffeeshop",
+   "title": "Running a coffee shop",
+   "summary": "A day in the life of an owner.",
+   "intent": "fun",
+   "query": "day in the life of a cafe owner",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-44",
+   "url": "https://aeon.co/self-knowledge",
+   "title": "The limits of self-knowledge",
+   "summary": "Essay on why we misjudge our own motives.",
+   "intent": "core to what Retrospect is",
+   "query": "we don't know ourselves",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-45",
+   "url": "https://supabase.com/docs/pgvector",
+   "title": "pgvector guide",
+   "summary": "Indexing and querying embeddings in Postgres.",
+   "intent": "for search",
+   "query": "vector search in postgres",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-46",
+   "url": "https://youtube.com/watch?v=posture",
+   "title": "Desk posture fixes",
+   "summary": "Three stretches for neck pain.",
+   "intent": "my neck hurts from the laptop",
+   "query": "neck pain from sitting",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-47",
+   "url": "https://bloomberg.com/ai-companions",
+   "title": "AI companions market",
+   "summary": "Report on growth of companion apps.",
+   "intent": "competitive landscape",
+   "query": "market for companion apps",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-48",
+   "url": "https://jamesclear.com/habit-stacking",
+   "title": "Habit stacking",
+   "summary": "Attach a new habit to an existing one.",
+   "intent": "for building a journaling habit",
+   "query": "attaching new routines to old ones",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-49",
+   "url": "https://youtube.com/watch?v=interview-design",
+   "title": "Design interview portfolio review",
+   "summary": "A design lead reviews portfolios.",
+   "intent": "for hiring a designer",
+   "query": "reviewing designer portfolios",
+   "paraphrase": false,
+   "expect": "found in top 5"
+  },
+  {
+   "id": "r1-50",
+   "url": "https://worksinprogress.co/progress",
+   "title": "The progress studies case",
+   "summary": "Why some eras innovate faster.",
+   "intent": "just interesting",
+   "query": "why innovation speeds up in some periods",
+   "paraphrase": true,
+   "expect": "found in top 5"
+  }
+ ]
+}
