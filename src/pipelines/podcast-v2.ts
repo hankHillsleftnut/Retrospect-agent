@@ -1,3 +1,4 @@
+import { readAppetite } from '../appetite/appetite';
 /**
  * The weekly episode from the new brain (W6.4): read contract (W4) -> plan
  * (W5) -> script (W6.2, writer style from W6.3) -> sentence-by-sentence fact
@@ -34,7 +35,9 @@ export async function runPodcastV2(options: PodcastOptions): Promise<PodcastResu
     const named = await nameGroups(cg.groups);
     trace.addCost({ anthropic_tokens_input: svd.usage.inputTokens + named.usage.inputTokens, anthropic_tokens_output: svd.usage.outputTokens + named.usage.outputTokens }, config.anthropic.timeCategoryModel);
 
-    const plan = planEpisode(contract, { saidVsDid: svd.goals, content: named.groups });
+    // Goal 22: how boldly to speak, only when the founder's switch is on (ENABLE_APPETITE).
+    const appetite = process.env.ENABLE_APPETITE === 'true' ? (await readAppetite(options.userId)).level : undefined;
+    const plan = planEpisode(contract, { saidVsDid: svd.goals, content: named.groups }, 6, appetite);
     if (plan.items.length === 0) throw new Error('Nothing this week clears the bar to be said: a quiet week (planner v2 never pads).');
 
     const style = (process.env.EPISODE_WRITER_STYLE as WriterStyle | undefined) ?? 'heavy';

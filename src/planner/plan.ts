@@ -78,7 +78,7 @@ export function buildCandidates(c: UnderstandingContract, extras: { saidVsDid?: 
   return out;
 }
 
-export function planEpisode(c: UnderstandingContract, extras: Parameters<typeof buildCandidates>[1] = {}, maxItems = 6): EpisodePlan {
+export function planEpisode(c: UnderstandingContract, extras: Parameters<typeof buildCandidates>[1] = {}, maxItems = 6, appetite?: number): EpisodePlan {
   const built = buildCandidates(c, extras);
   const byId = new Map(built.map((b) => [b.candidate.id, b.item]));
   const sel = selectItems(built.map((b) => b.candidate), maxItems);
@@ -91,7 +91,8 @@ export function planEpisode(c: UnderstandingContract, extras: Parameters<typeof 
   const spinePattern = spine?.kind === 'pattern' ? spine.id.slice('pattern:'.length) : null;
   // An 'unclear' mechanism isn't a question worth asking (found 20 Oct).
   const whys = c.whys.filter((w) => selectedPatterns.has(w.patternId) && w.mechanism !== 'unclear').sort((a, b) => Number(b.patternId === spinePattern) - Number(a.patternId === spinePattern) || b.confidence - a.confidence);
-  const w = whys[0];
+  // Goal 22: at appetite 0 (facts and patterns only) nothing is asked. Undefined = the switch is off.
+  const w = appetite === undefined || appetite >= 1 ? whys[0] : undefined;
 
   return {
     spine, items,
