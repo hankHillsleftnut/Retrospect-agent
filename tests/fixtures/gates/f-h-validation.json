@@ -1,0 +1,277 @@
+{
+ "gate": "F-H validation (goal 21)",
+ "bar": "100%: 0 clinical through; every invalid rejected; valid ones pass",
+ "declared": "2026-10-20, before code ran",
+ "cases": [
+  {
+   "id": "fh-c01",
+   "framework": "sdt",
+   "question": "Could you be dealing with depression?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c02",
+   "framework": "sdt",
+   "question": "Is this a sign of an anxiety disorder?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c03",
+   "framework": "sdt",
+   "question": "Might you have ADHD?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c04",
+   "framework": "sdt",
+   "question": "Could this be trauma from your childhood?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c05",
+   "framework": "sdt",
+   "question": "Is it possible you're bipolar?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c06",
+   "framework": "sdt",
+   "question": "Do you think you might be a narcissist?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c07",
+   "framework": "sdt",
+   "question": "Could this be OCD showing up?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c08",
+   "framework": "sdt",
+   "question": "Is this an addiction to your phone?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c09",
+   "framework": "sdt",
+   "question": "Could you be experiencing burnout syndrome?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c10",
+   "framework": "sdt",
+   "question": "Might this be PTSD from the accident?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c11",
+   "framework": "sdt",
+   "question": "Are you possibly on the autism spectrum?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c12",
+   "framework": "sdt",
+   "question": "Is this a panic disorder?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c13",
+   "framework": "sdt",
+   "question": "Could this be codependency in your relationship?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c14",
+   "framework": "sdt",
+   "question": "Is your eating disordered?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c15",
+   "framework": "sdt",
+   "question": "Could you be suffering from insomnia disorder?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c16",
+   "framework": "sdt",
+   "question": "Might this be a symptom of something deeper, like a mood disorder?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c17",
+   "framework": "sdt",
+   "question": "Are you self-medicating with work?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c18",
+   "framework": "sdt",
+   "question": "Is this dissociation?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c19",
+   "framework": "sdt",
+   "question": "Could you have attachment issues from your parents?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-c20",
+   "framework": "sdt",
+   "question": "Is this a manic episode?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: clinical"
+  },
+  {
+   "id": "fh-ok1",
+   "framework": "sdt",
+   "question": "Is it the being-your-own-boss part of woodworking that pulls you most?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "valid"
+  },
+  {
+   "id": "fh-ok2",
+   "framework": "flow",
+   "question": "Is the workshop where you're most absorbed: four hours gone without noticing?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "valid"
+  },
+  {
+   "id": "fh-ok3",
+   "framework": "intention_gap",
+   "question": "Could the Saturday long run be missing a set time, rather than missing motivation?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "valid"
+  },
+  {
+   "id": "fh-ok4",
+   "framework": "habit_cue",
+   "question": "Is the late Friday the cue, more than the run itself?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "valid"
+  },
+  {
+   "id": "fh-ok5",
+   "framework": "approach_avoid",
+   "question": "Is part-time something you're moving toward, or a job you're moving away from?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "valid"
+  },
+  {
+   "id": "fh-i1",
+   "framework": "astrology",
+   "question": "Is it your rising sign?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: unknown framework"
+  },
+  {
+   "id": "fh-i2",
+   "framework": "sdt",
+   "question": "Is it the autonomy that pulls you?",
+   "supports": 1,
+   "sources": 1,
+   "domainMaySpeak": true,
+   "expect": "rejected: too little evidence"
+  },
+  {
+   "id": "fh-i3",
+   "framework": "sdt",
+   "question": "Is it the autonomy that pulls you?",
+   "supports": 3,
+   "sources": 1,
+   "domainMaySpeak": true,
+   "expect": "rejected: too little evidence"
+  },
+  {
+   "id": "fh-i4",
+   "framework": "flow",
+   "question": "You are most yourself in the workshop.",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": true,
+   "expect": "rejected: not a question"
+  },
+  {
+   "id": "fh-i5",
+   "framework": "flow",
+   "question": "Is the workshop where you're most absorbed?",
+   "supports": 2,
+   "sources": 2,
+   "domainMaySpeak": false,
+   "expect": "rejected: domain not ready"
+  }
+ ]
+}
