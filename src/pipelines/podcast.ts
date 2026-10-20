@@ -13,6 +13,7 @@ import {
   EPISODE_TITLE_DESC_SYSTEM_PROMPT,
 } from '../prompts/episode-summary';
 import { runPodcastAgent } from '../agents/podcast-agent';
+import { runPodcastV2 } from './podcast-v2';
 import { Trace, TraceTrigger, costLines, type CostLine } from './trace';
 import { formatUnderstanding, loadUnderstanding } from '../questions/understanding';
 import type {
@@ -51,8 +52,11 @@ export interface PodcastOptions {
 export interface PodcastResult {
   traceId: string | null;
   episodeId: string | null;
-  outlineV1: OutlineV1;
-  outlineV2: OutlineV2;
+  /** The old path's outlines; absent when the episode came from the planner (v2). */
+  outlineV1?: OutlineV1;
+  outlineV2?: OutlineV2;
+  /** The new path (W6.4): what was planned and what the fact check cut. */
+  v2?: { plan: unknown; guard: { sentences: number; kept: number; cut: number } };
   script: string;
   audioUrl: string | null;
   summary: string;
@@ -62,6 +66,12 @@ export interface PodcastResult {
   durationSeconds: number;
   /** Where the money went: provider, model, calls, tokens, price. */
   cost: CostLine[];
+}
+
+/** EPISODE_PLANNER=v2 for everyone, or EPISODE_PLANNER_V2_USERS=<id,id> for a few. */
+export function plannerV2For(userId: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.EPISODE_PLANNER === 'v2') return true;
+  return (env.EPISODE_PLANNER_V2_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean).includes(userId);
 }
 
 // ============================================
@@ -346,6 +356,10 @@ ${onboardingProfile.content.slice(0, 8000)}`;
 // Main pipeline
 // ============================================
 export async function runPodcast(options: PodcastOptions): Promise<PodcastResult> {
+  // W6.4: the planner + writer + fact check, per person, off by default.
+  if (plannerV2For(options.userId)) {
+    return runPodcastV2(options);
+  }
   const daysBack = options.daysBack ?? 14;
   const trace = options.dryRun
     ? Trace.memoryOnly()
