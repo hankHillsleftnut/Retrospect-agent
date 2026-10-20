@@ -36,3 +36,21 @@ test('static patterns stay out of the daily brief; a shift said yesterday loses 
 test('passive syncs are not "sent"', () => {
   for (const t of ['calendar', 'healthkit', 'gmail', 'youtube', 'google_docs']) assert.equal(SENT_TYPES.has(t), false, t);
 });
+
+import { pickResurface } from '../src/planner/daily';
+
+test('R1.4: one saved link comes back: old enough, tied to something live, not brought back lately, oldest first', () => {
+  const now = new Date('2026-10-20T08:00:00Z');
+  const s = (id: string, created: string, goals: string[] = [], questions: number[] = []) =>
+    ({ id, url: `https://${id}.com`, title: id, summary: null, intent: null, created_at: created, goal_ids: goals, question_ids: questions });
+  const saved = [
+    s('fresh', '2026-10-18T00:00:00Z', ['g']),          // saved 2 days ago: too soon
+    s('unrelated', '2026-09-01T00:00:00Z'),             // ties to nothing live
+    s('recent-reminder', '2026-09-02T00:00:00Z', ['g']), // brought back last week
+    s('older', '2026-09-10T00:00:00Z', [], [7]),         // a question that moved
+    s('oldest', '2026-09-05T00:00:00Z', ['g']),          // an active goal
+  ];
+  const r = pickResurface(saved, { goalIds: new Set(['g']), movedQuestions: new Set([7]), recentlyResurfaced: new Set(['recent-reminder']) }, now);
+  assert.deepEqual([r?.id, r?.because], ['oldest', 'goal:g']);
+  assert.equal(pickResurface(saved, { goalIds: new Set(), movedQuestions: new Set(), recentlyResurfaced: new Set() }, now), null, 'nothing live, nothing back');
+});

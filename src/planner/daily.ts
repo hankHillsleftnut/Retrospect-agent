@@ -24,8 +24,13 @@ export const SENT_TYPES = new Set(['text_entry', 'journal_entry', 'voice_recordi
 export interface InboxItem { id: string; contentType: string; at: string; preview: string; url: string | null }
 export interface TodayEvent { id: string; title: string; start: string; end: string | null; withOthers: number }
 
+/** A link saved earlier, brought back because it bears on something live (R1.4). */
+export interface Resurfaced { id: string; url: string; title: string | null; summary: string | null; intent: string | null; savedAt: string; because: string }
+
 export interface DailyPlan {
   inbox: InboxItem[];
+  /** At most one, never in the last 14 days, saved at least a week ago. */
+  resurface?: Resurfaced | null;
   today: TodayEvent[];
   items: PlanItem[];
   withheld: Array<{ id: string; why: string }>;
@@ -40,7 +45,30 @@ export function toInbox(r: { id: string; content_type: string; created_at: strin
   return { id: r.id, contentType: r.content_type, at: r.created_at, preview: text.slice(0, 280), url: URL_RE.exec(text)?.[0] ?? null };
 }
 
-export function planDaily(c: UnderstandingContract, input: { inbox: InboxItem[]; today: TodayEvent[]; saidRecently: Set<string> }): DailyPlan {
+/**
+ * Pick at most one saved link to bring back (R1.4). Calibrated: re-finding
+ * happens through reminding, not browsing (approach-calibration.md, R1).
+ * Eligible: saved >= 7 days ago, tied to an active goal or to a question that
+ * moved since the last brief, and not brought back in the last 14 days.
+ * The oldest eligible one wins. Pure.
+ */
+export function pickResurface(saved: Array<{ id: string; url: string; title: string | null; summary: string | null; intent: string | null; created_at: string; goal_ids: string[]; question_ids: number[] }>,
+  live: { goalIds: Set<string>; movedQuestions: Set<number>; recentlyResurfaced: Set<string> }, now: Date): Resurfaced | null {
+  const weekAgo = now.getTime() - 7 * 864e5;
+  const eligible = saved
+    .filter((r) => new Date(r.created_at).getTime() <= weekAgo && !live.recentlyResurfaced.has(r.id))
+    .map((r) => {
+      const goal = r.goal_ids.find((g) => live.goalIds.has(g));
+      const q = r.question_ids.find((x) => live.movedQuestions.has(x));
+      return goal || q ? { r, because: goal ? `goal:${goal}` : `question:${q}` } : null;
+    })
+    .filter((x): x is { r: (typeof saved)[number]; because: string } => !!x)
+    .sort((a, b) => a.r.created_at.localeCompare(b.r.created_at));
+  const pick = eligible[0];
+  return pick ? { id: pick.r.id, url: pick.r.url, title: pick.r.title, summary: pick.r.summary, intent: pick.r.intent, savedAt: pick.r.created_at, because: pick.because } : null;
+}
+
+export function planDaily(c: UnderstandingContract, input: { inbox: InboxItem[]; today: TodayEvent[]; saidRecently: Set<string>; resurface?: Resurfaced | null }): DailyPlan {
   const built = buildCandidates(c).filter((b) => b.item.kind !== 'pattern' || b.candidate.moved);
   for (const b of built) if (input.saidRecently.has(b.candidate.id)) b.candidate.saidRecently = true;
   const sel = selectItems(built.map((b) => b.candidate), POLICIES.daily.maxItems);
@@ -48,10 +76,11 @@ export function planDaily(c: UnderstandingContract, input: { inbox: InboxItem[];
   const items = sel.selected.map((id) => byId.get(id)!);
   return {
     inbox: [...input.inbox].sort((a, b) => a.at.localeCompare(b.at)),
+    resurface: input.resurface ?? null,
     today: [...input.today].sort((a, b) => a.start.localeCompare(b.start)),
     items,
     withheld: Object.entries(sel.excluded).map(([id, why]) => ({ id, why })),
-    quiet: input.inbox.length === 0 && items.length === 0,
+    quiet: input.inbox.length === 0 && items.length === 0 && !input.resurface,
   };
 }
 
@@ -80,5 +109,18 @@ export async function readDailyInputs(userId: string, db: typeof supabase = supa
       events.push({ id: s.id, title: n.title ?? '(no title)', start: n.start, end: n.end ?? null, withOthers: n.attendee_count ?? 0 });
     }
   }
-  return { since, inbox: sent.map(toInbox), today: events, saidRecently };
+  // R1.4: one saved link back, if one bears on something live.
+  const { data: recentBriefs } = await db.from(Tables.DAILY_BRIEFS).select('items').eq('user_id', userId).gte('brief_date', new Date(now.getTime() - 14 * 864e5).toISOString().slice(0, 10));
+  const recentlyResurfaced = new Set(((recentBriefs ?? []) as Array<{ items: Array<{ planId?: string }> | null }>).flatMap((b) => (b.items ?? []).map((i) => i.planId ?? '')).filter((p) => p.startsWith('saved:')).map((p) => p.slice(6)));
+  const [{ data: savedRows }, { data: goalRows }, { data: moveRows }] = await Promise.all([
+    db.from(Tables.REFERENCE_ITEMS).select('id,url,title,summary,intent,created_at,goal_ids,question_ids').eq('user_id', userId).eq('status', 'enriched').not('related_at', 'is', null).limit(500),
+    db.from(Tables.GOALS).select('id').eq('user_id', userId).eq('status', 'active'),
+    db.from(Tables.QUESTION_ANSWERS).select('question_id,last_moved_at').eq('user_id', userId).eq('status', 'active').gt('last_moved_at', since),
+  ]);
+  const resurface = pickResurface((savedRows ?? []) as never, {
+    goalIds: new Set(((goalRows ?? []) as Array<{ id: string }>).map((g) => g.id)),
+    movedQuestions: new Set(((moveRows ?? []) as Array<{ question_id: number }>).map((m) => m.question_id)),
+    recentlyResurfaced,
+  }, now);
+  return { since, inbox: sent.map(toInbox), today: events, saidRecently, resurface };
 }
