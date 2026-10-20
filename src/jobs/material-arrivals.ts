@@ -1,4 +1,6 @@
 import { runIngest } from '../pipelines/ingest';
+import { isAmbientOn, pendingSentIds } from '../ambient/switch';
+import { SENT_TYPES } from '../planner/daily';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
 import { placeUnrecognisedEvents } from '../brain/place-events';
 import { runResearch } from '../questions/run-research';
@@ -10,11 +12,17 @@ export const defaultArrivalDeps: ArrivalDeps = {
   finish: (c, ok) => finishInDb(c, ok),
   mayRun: async (userId) => (await checkDailySpend(userId)).allowed,
   read: async (userId) => {
+    // Ambient off (their switch or the master): read only what they sent.
+    if (!(await isAmbientOn(userId))) {
+      const ids = await pendingSentIds(userId, SENT_TYPES);
+      if (ids.length) await runIngest({ userId, rawContentIds: ids, triggeredBy: 'event', notes: 'material arrived (ambient off: sent only)' });
+      return;
+    }
     await runIngest({ userId, daysBack: 7, triggeredBy: 'event', notes: 'material arrived' });
     await placeUnrecognisedEvents(userId);
     await refreshRecordBehaviour(userId, 14);
   },
-  research: async (userId) => { await runResearch(userId); },
+  research: async (userId) => { if (await isAmbientOn(userId)) await runResearch(userId); },
 };
 
 let running = false;

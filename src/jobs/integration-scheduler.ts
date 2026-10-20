@@ -1,3 +1,4 @@
+import { ambientOffAmong } from '../ambient/switch';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { captureException } from '../services/telemetry';
@@ -27,7 +28,10 @@ export async function scheduleDueConnections(): Promise<void> {
     .eq('status', 'connected');
   if (error) throw new Error(`Load due integration connections failed: ${error.message}`);
 
+  // Ambient off (their switch or the master): their connected sources aren't synced.
+  const off = await ambientOffAmong((data ?? []).map((c) => c.user_id));
   for (const connection of data ?? []) {
+    if (off.has(connection.user_id)) continue;
     const state = Array.isArray(connection.integration_sync_states)
       ? connection.integration_sync_states[0]
       : connection.integration_sync_states;
