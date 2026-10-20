@@ -1,0 +1,433 @@
+{
+ "gate": "F-C retraction (goal 20)",
+ "bar": "100%: every unsupported dependent retires, every independently supported one survives",
+ "declared": "2026-10-20, before code ran",
+ "cases": [
+  {
+   "id": "fc-01",
+   "what": "a chain resting on one fact retires whole",
+   "target": "fact:f1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "evidence": {
+      "kind": "raw_content",
+      "id": "r1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a1"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1",
+     "pattern:p1",
+     "answer:a1"
+    ],
+    "survive": []
+   }
+  },
+  {
+   "id": "fc-02",
+   "what": "a pattern with a second fact survives, minus the rejected one",
+   "target": "fact:f1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p2"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p2"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f2"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1"
+    ],
+    "survive": [
+     "pattern:p2"
+    ]
+   }
+  },
+  {
+   "id": "fc-03",
+   "what": "contradicting evidence is not support",
+   "target": "pattern:p1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a2"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a2"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f3"
+     },
+     "role": "contradicts"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "pattern:p1",
+     "answer:a2"
+    ],
+    "survive": []
+   }
+  },
+  {
+   "id": "fc-04",
+   "what": "a why with its own fact survives its pattern's rejection",
+   "target": "pattern:p1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "why",
+      "id": "w1"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "role": "explains"
+    },
+    {
+     "claim": {
+      "kind": "why",
+      "id": "w1"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f4"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "pattern:p1"
+    ],
+    "survive": [
+     "why:w1"
+    ]
+   }
+  },
+  {
+   "id": "fc-05",
+   "what": "a diamond resting on one fact retires whole",
+   "target": "fact:f1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p3"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a3"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a3"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p3"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1",
+     "pattern:p1",
+     "pattern:p3",
+     "answer:a3"
+    ],
+    "survive": []
+   }
+  },
+  {
+   "id": "fc-06",
+   "what": "support that was already retired doesn't save a claim",
+   "target": "fact:f1",
+   "inactive": [
+    "pattern:p5"
+   ],
+   "edges": [
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a4"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p5"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a4"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1",
+     "answer:a4"
+    ],
+    "survive": []
+   }
+  },
+  {
+   "id": "fc-07",
+   "what": "rejecting a top-level answer touches nothing beneath it",
+   "target": "answer:a5",
+   "edges": [
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a5"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "answer:a5"
+    ],
+    "survive": []
+   }
+  },
+  {
+   "id": "fc-08",
+   "what": "one fact, two answers: only the one with no other support retires",
+   "target": "fact:f1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a6"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a7"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a7"
+     },
+     "evidence": {
+      "kind": "raw_content",
+      "id": "r9"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1",
+     "answer:a6"
+    ],
+    "survive": [
+     "answer:a7"
+    ]
+   }
+  },
+  {
+   "id": "fc-09",
+   "what": "support lost two levels down still retires the top",
+   "target": "fact:f1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "why",
+      "id": "w2"
+     },
+     "evidence": {
+      "kind": "pattern",
+      "id": "p1"
+     },
+     "role": "explains"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a8"
+     },
+     "evidence": {
+      "kind": "why",
+      "id": "w2"
+     },
+     "role": "supports"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1",
+     "pattern:p1",
+     "why:w2",
+     "answer:a8"
+    ],
+    "survive": []
+   }
+  },
+  {
+   "id": "fc-10",
+   "what": "an answer with only contradicting evidence left retires",
+   "target": "fact:f1",
+   "edges": [
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a9"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f1"
+     },
+     "role": "supports"
+    },
+    {
+     "claim": {
+      "kind": "answer",
+      "id": "a9"
+     },
+     "evidence": {
+      "kind": "fact",
+      "id": "f8"
+     },
+     "role": "contradicts"
+    }
+   ],
+   "expect": {
+    "retire": [
+     "fact:f1",
+     "answer:a9"
+    ],
+    "survive": []
+   }
+  }
+ ]
+}
