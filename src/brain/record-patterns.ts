@@ -48,10 +48,18 @@ export const DETECTORS: readonly Detector[] = [
     meaning: '5 or more hours booked in the calendar', fires: (m) => (num(m.hours_booked) ?? 0) >= 5, evidenceLine: /^Calendar event:.*$/m },
   { id: 'late_finish', domain: 'calendar', predicate: 'scheduled', object: 'late_finish',
     meaning: 'something booked until 9pm or later', fires: (m) => typeof m.last_end === 'string' && m.last_end >= '21:00', evidenceLine: /^Calendar event:.*$/m },
+  // Thresholds calibrated against the literature (19 Oct), not picked:
+  //  short sleep  < 7 h  CDC / AASM: adults need 7+ hours; under 7 is "short sleep".
+  //  sedentary    < 5,000 steps  Tudor-Locke's step-defined sedentary index
+  //               (2004, reaffirmed 2008 and 2013).
+  //  very active  >= 10,000 steps  Tudor-Locke's "active" zone; Paluch et al.
+  //               2022 (Lancet Public Health) find the mortality benefit
+  //               plateaus at 8-10k under 60, so it is "active", not "ideal".
+  //  exercised    >= 30 min  WHO: 150+ minutes of moderate activity a week.
   { id: 'short_sleep', domain: 'health', predicate: 'health_metric', object: 'short_sleep',
-    meaning: 'under 6 hours of recorded sleep', fires: (m) => { const s = num(m.sleep_hours); return s !== null && s < 6; }, evidenceLine: /^\s*Sleep:.*$/m },
+    meaning: 'under 7 hours of recorded sleep', fires: (m) => { const s = num(m.sleep_hours); return s !== null && s < 7; }, evidenceLine: /^\s*Sleep:.*$/m },
   { id: 'sedentary', domain: 'health', predicate: 'health_metric', object: 'sedentary',
-    meaning: 'under 3,000 steps', fires: (m) => { const s = num(m.steps); return s !== null && s < 3000; }, evidenceLine: /^\s*Steps:.*$/m },
+    meaning: 'under 5,000 steps', fires: (m) => { const s = num(m.steps); return s !== null && s < 5000; }, evidenceLine: /^\s*Steps:.*$/m },
   { id: 'very_active', domain: 'health', predicate: 'health_metric', object: 'very_active',
     meaning: '10,000 steps or more', fires: (m) => (num(m.steps) ?? 0) >= 10000, evidenceLine: /^\s*Steps:.*$/m },
   { id: 'exercised', domain: 'health', predicate: 'health_metric', object: 'exercised',
