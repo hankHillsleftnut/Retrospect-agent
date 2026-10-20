@@ -285,6 +285,35 @@ export async function runLint(options: {
     }
   }
 
+  // ── Hypothesis hardening (goal 5) ─────────────────────────────────────────
+  // H1: a guess said twice or more without the person confirming it. H2: a
+  // provisional why that nothing has supported for 60 days.
+  const said = new Map<string, number>();
+  const bump = (k: string | undefined | null) => { if (k) said.set(k, (said.get(k) ?? 0) + 1); };
+  const episodes = await selectAll<{ outline: any }>((f, t) => supabase.from(Tables.PODCAST_EPISODES)
+    .select('outline').eq('user_id', userId).eq('status', 'ready').order('id').range(f, t));
+  for (const e of episodes) {
+    if (e.outline?.planner !== 'v2') continue;
+    bump(e.outline.plan?.reflection?.whyId ? `why:${e.outline.plan.reflection.whyId}` : null);
+    for (const i of (e.outline.plan?.items ?? []) as Array<{ id?: string; register?: string }>) if (i.register === 'asked') bump(i.id);
+  }
+  const briefs = await selectAll<{ items: any }>((f, t) => supabase.from(Tables.DAILY_BRIEFS)
+    .select('items').eq('user_id', userId).order('id').range(f, t));
+  for (const b of briefs) for (const i of (b.items ?? []) as Array<{ planId?: string; register?: string }>) if (i.register === 'asked') bump(i.planId);
+
+  for (const w of whys) {
+    if (w.status !== 'provisional') continue;
+    const n = said.get(`why:${w.id}`) ?? 0;
+    if (n >= 2) findings.push(make('H1', 'behavior_pattern_why', [w.id], `asked ${n} times, never confirmed`));
+    const since = w.updated_at ?? w.created_at;
+    if (since && now - new Date(since).getTime() > 60 * 864e5) findings.push(make('H2', 'behavior_pattern_why', [w.id], `no new support since ${String(since).slice(0, 10)}`));
+  }
+  const askedAnswers = [...said.entries()].filter(([k, n]) => k.startsWith('answer:') && n >= 2).map(([k]) => k.slice('answer:'.length));
+  for (const part of chunks(askedAnswers)) {
+    const { data: open } = await supabase.from(Tables.QUESTION_ANSWERS).select('id').eq('user_id', userId).eq('status', 'active').is('user_verdict', null).in('id', part);
+    for (const a of (open ?? []) as Array<{ id: string }>) findings.push(make('H1', 'question_answer', [a.id], `asked ${said.get(`answer:${a.id}`)} times, never confirmed`));
+  }
+
   // ── Portrait ──────────────────────────────────────────────────────────────
   const { data: uu } = await supabase.from(Tables.USER_UNDERSTANDING)
     .select('document,updated_at').eq('user_id', userId)

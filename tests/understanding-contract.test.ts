@@ -81,3 +81,18 @@ test('gate, against the database: every answer, pattern and why it returns walks
     assert.deepEqual(lineage.sources.map((s) => s.id), [entry], `${item.kind} ${item.id}`);
   }
 });
+
+test('goal 5: a pattern or why lint has flagged is not spoken until the finding is resolved', () => {
+  const pattern = (id: string) => ({ id, label: id, status: 'live', episode_promotable: true, confidence: 0.8, instance_count: 4, first_seen_at: null, last_seen_at: null, trajectory: null, trajectory_detail: null });
+  const c = assembleContract('u', rows({
+    patterns: [pattern('p-ok'), pattern('p-stale')],
+    whys: [
+      { id: 'w-on-stale', pattern_id: 'p-stale', mechanism: 'm', confidence: 0.6, status: 'live' },
+      { id: 'w-flagged', pattern_id: 'p-ok', mechanism: 'm', confidence: 0.6, status: 'live' },
+      { id: 'w-ok', pattern_id: 'p-ok', mechanism: 'm', confidence: 0.6, status: 'live' },
+    ],
+    flags: [{ subject_kind: 'behavior_pattern', subject_ids: ['p-stale'], check_id: 'P1' }, { subject_kind: 'behavior_pattern_why', subject_ids: ['w-flagged'], check_id: 'W2' }],
+  }), '2026-10-20');
+  assert.deepEqual(c.patterns.map((p) => p.id), ['p-ok']);
+  assert.deepEqual(c.whys.map((w) => w.id), ['w-ok']);
+});
