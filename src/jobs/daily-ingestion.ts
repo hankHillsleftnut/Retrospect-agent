@@ -4,6 +4,7 @@ import { runIngest } from '../pipelines/ingest';
 import { embedMissing } from '../pipelines/batch-outputs';
 import { runLint, persistFindings } from '../brain/lint';
 import { refreshAppetite } from '../appetite/appetite';
+import { refreshLearning } from '../learning/reception';
 import { isAmbientOn, pendingSentIds } from '../ambient/switch';
 import { captureReferences } from '../reference/capture';
 import { enrichPending } from '../reference/enrich';
@@ -54,6 +55,8 @@ export async function runDailyIngestion(): Promise<void> {
       await embedMissing(userId);
       // Lint on a schedule (goal 5): finds rot and records it; never repairs. A failure here never stops ingestion.
       // Appetite re-read from yesterday's behaviour (goal 22); the person's own setting is never touched.
+      // Goal 19: its scorecard on its own questions; never a claim about the person.
+      await refreshLearning(userId).catch((err) => console.warn(`[learning] user=${userId} ${(err as Error).message}`));
       await refreshAppetite(userId).catch((err) => console.warn(`[appetite] user=${userId} ${(err as Error).message}`));
       await runLint({ userId }).then(persistFindings).catch((err) => console.warn(`[lint] user=${userId} ${(err as Error).message}`));
       console.log(
