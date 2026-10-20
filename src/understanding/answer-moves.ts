@@ -6,8 +6,8 @@
  * to be snapshotted and a replay gives the same answer. A move is reported
  * only when NEW evidence arrived; confidence fading with time is not news.
  *
- * Known limit: re-deriving an answer deletes evidence it no longer cites
- * (F1.4b, waiting on the founder), so "then" can miss evidence since dropped.
+ * Retired evidence (migration 138) counts for the time it was cited, so "then"
+ * is what the brain believed then. Evidence deleted before 138 is gone.
  */
 
 import { supabase } from '../db/supabase';
@@ -17,13 +17,15 @@ import { Tables } from '../db/tables';
 export const MIN_MOVE = 0.15;
 const DAY = 864e5;
 
-export interface EvidenceRow { id: string; answer_id: string; stance: 'supports' | 'contradicts'; source_key: string; observed_at: string; created_at: string; weight: number }
+export interface EvidenceRow { id: string; answer_id: string; stance: 'supports' | 'contradicts'; source_key: string; observed_at: string; created_at: string; weight: number; /** When a re-derivation stopped citing it (migration 138). */ retired_at?: string | null }
 
 /** The view's arithmetic, at time t, over evidence known at t. Pure. */
 export function confidenceAt(evidence: EvidenceRow[], t: Date, halfLifeDays: number): number {
   const best = new Map<string, number>();
   for (const e of evidence) {
     if (new Date(e.created_at).getTime() > t.getTime()) continue;
+    // Evidence counts from when it was recorded until it was retired.
+    if (e.retired_at && new Date(e.retired_at).getTime() <= t.getTime()) continue;
     const ageDays = (t.getTime() - new Date(e.observed_at).getTime()) / DAY;
     const vote = e.weight * Math.pow(0.5, ageDays / halfLifeDays);
     const k = `${e.stance}|${e.source_key}`;
@@ -79,7 +81,7 @@ export async function readAnswerMoves(userId: string, db: typeof supabase = supa
     db.from(Tables.CANONICAL_QUESTIONS).select('id,domain_id,half_life_days'),
     db.from(Tables.QUESTION_DOMAINS).select('id,half_life_days'),
     db.from(Tables.EVIDENCE_KINDS).select('id,weight'),
-    db.from(Tables.ANSWER_EVIDENCE).select('id,answer_id,stance,source_key,observed_at,created_at,kind_id').eq('user_id', userId),
+    db.from(Tables.ANSWER_EVIDENCE).select('id,answer_id,stance,source_key,observed_at,created_at,kind_id,retired_at').eq('user_id', userId),
   ]);
   for (const r of [answers, questions, domains, kinds, evidence]) if (r.error) throw new Error(`readAnswerMoves: ${r.error.message}`);
   const domainHalf = new Map(((domains.data ?? []) as Array<{ id: string; half_life_days: number }>).map((d) => [d.id, d.half_life_days]));

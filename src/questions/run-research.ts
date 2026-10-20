@@ -223,7 +223,9 @@ async function loadCurrentAnswers(db: typeof supabase, rows: any[]): Promise<Map
   const [{ data: meta }, { data: evidence }, { data: kinds }] = await Promise.all([
     db.from(Tables.QUESTION_ANSWERS).select('id,derivation_key,derived_by').in('id', ids),
     db.from(Tables.ANSWER_EVIDENCE)
-      .select('answer_id,stance,assertion_id,pattern_id,raw_content_id,kind_id,excerpt,observed_at').in('answer_id', ids),
+      .select('answer_id,stance,assertion_id,pattern_id,raw_content_id,kind_id,excerpt,observed_at').in('answer_id', ids)
+      // Retired evidence (migration 138) is history, not current support.
+      .is('retired_at', null),
     db.from(Tables.EVIDENCE_KINDS).select('id,label,own_words'),
   ]);
   const kindOf = new Map((kinds ?? []).map((k: any) => [k.id, k]));
