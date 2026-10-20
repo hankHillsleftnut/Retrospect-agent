@@ -83,3 +83,13 @@ test('health: the day\'s latest sync, labelled readings with units; zeros are "n
     [['2026-10-12', 'health', 2, { steps: 8412, resting_heart_rate_bpm: 58 }]]);
   assert.deepEqual(labelledReadings('Mindful minutes: 12 min\nNotes: felt fine'), { mindful_minutes_min: 12 });
 });
+
+test('an event marked "free" is still time spent; a declined one is not', () => {
+  const e = (title: string, busy: boolean, response = 'accepted'): SummaryItem => ({
+    id: title, content_type: 'calendar', created_at: '2026-10-14T00:00:00Z',
+    normalized_data: { title, start: '2026-10-14T10:00:00-07:00', end: '2026-10-14T12:00:00-07:00', all_day: false, attendee_count: 0, my_response: response, busy },
+  });
+  const [d] = summariseDays([e('Haircut', false), e('Gym', true), e('Party', true, 'declined')]);
+  assert.equal(d!.metrics.hours_booked, 4);
+  assert.deepEqual([d!.metrics.hours_personal, d!.metrics.hours_exercise, d!.metrics.hours_social], [2, 2, undefined]);
+});

@@ -124,7 +124,11 @@ export function summariseDays(items: SummaryItem[], offset = usualOffset(items),
 function metricsFor(domain: Domain, its: SummaryItem[], offset: number, categories?: CategoryCache): DailySummary['metrics'] {
   if (domain === 'calendar') {
     const timed = its.filter((i) => !i.normalized_data?.all_day && typeof i.normalized_data?.start === 'string');
-    const attended = timed.filter((i) => i.normalized_data?.my_response !== 'declined' && i.normalized_data?.busy !== false);
+    // Every event not declined. "Free" vs "busy" is about availability, not
+    // activity: people mark errands, travel and gym as free so others can still
+    // book them, and that is still where the time went (found 19 Oct: all 7
+    // events the model placed were marked free, so none showed up).
+    const attended = timed.filter((i) => i.normalized_data?.my_response !== 'declined');
     let minutes = 0;
     const starts: number[] = [], ends: number[] = [];
     const byCategory = new Map<string, number>();
