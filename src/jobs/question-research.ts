@@ -1,6 +1,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runResearch } from '../questions/run-research';
+import { ambientOffAmong } from '../ambient/switch';
 
 /**
  * Daily: research the canonical questions for everyone with new material.
@@ -19,7 +20,9 @@ export async function runQuestionResearch(): Promise<void> {
 
   const userIds = Array.from(new Set((rows ?? []).map((r) => r.user_id)));
   console.log(`[question-research] ${userIds.length} users with new material`);
+  const off = await ambientOffAmong(userIds);
   for (const userId of userIds) {
+    if (off.has(userId)) continue; // ambient off: no research
     try {
       const { researched, costUsd } = await runResearch(userId);
       const tally = researched.reduce<Record<string, number>>((t, r) => ({ ...t, [r.outcome]: (t[r.outcome] ?? 0) + 1 }), {});

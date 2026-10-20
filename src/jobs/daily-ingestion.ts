@@ -1,6 +1,8 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runIngest } from '../pipelines/ingest';
+import { isAmbientOn, pendingSentIds } from '../ambient/switch';
+import { SENT_TYPES } from '../planner/daily';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
 import { placeUnrecognisedEvents } from '../brain/place-events';
 import { applyGoalLifecycle } from '../goals/lifecycle';
@@ -28,6 +30,12 @@ export async function runDailyIngestion(): Promise<void> {
 
   for (const userId of userIds) {
     try {
+      if (!(await isAmbientOn(userId))) {
+        // Ambient off: only what they sent is read; nothing else runs for them.
+        const ids = await pendingSentIds(userId, SENT_TYPES);
+        if (ids.length) await runIngest({ userId, rawContentIds: ids, triggeredBy: 'cron', notes: 'ambient off: sent only' });
+        continue;
+      }
       const result = await runIngest({ userId, daysBack: 7, triggeredBy: 'cron' });
       await placeUnrecognisedEvents(userId);
       await refreshRecordBehaviour(userId, 14);
