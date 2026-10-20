@@ -43,6 +43,9 @@ export const config = {
     // Places calendar events the declared rules couldn't (W3.5b): a short,
     // closed-choice label per title, so the smallest model is enough.
     timeCategoryModel: optional('ANTHROPIC_TIME_CATEGORY_MODEL', 'claude-haiku-5-5'),
+    // The claim guard (W6.1): judgement about whether evidence supports a
+    // sentence about a person. Chosen by the gate run (eval:guard), not assumed.
+    guardModel: optional('ANTHROPIC_GUARD_MODEL', 'claude-haiku-5-5'),
   },
   extraction: {
     // 'facts' (default): the facts-only extractor (agents/fact-extractor.ts).
