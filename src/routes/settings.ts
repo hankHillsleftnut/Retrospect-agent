@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { masterOff } from '../ambient/switch';
+import { LEVELS, readAppetite, setStatedAppetite, type Level } from '../appetite/appetite';
 
 /** Per-person settings the app changes. */
 export const settingsRouter = Router();
@@ -20,4 +21,18 @@ settingsRouter.get('/:userId/ambient', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   const enabled = (data as { ambient_enabled?: boolean } | null)?.ambient_enabled !== false;
   return res.json({ enabled, effective: enabled && !masterOff() });
+});
+
+/** GET /settings/:userId/appetite -- how boldly it thinks it may speak, why, and the choices (goal 22: visible). */
+settingsRouter.get('/:userId/appetite', async (req, res) => {
+  try { return res.json({ ...(await readAppetite(req.params.userId)), levels: LEVELS }); }
+  catch (err) { return res.status(500).json({ error: err instanceof Error ? err.message : String(err) }); }
+});
+
+/** PUT /settings/:userId/appetite { level: 0-3 | null } -- their choice outranks inference; null hands back to it. */
+settingsRouter.put('/:userId/appetite', async (req, res) => {
+  const level = req.body?.level;
+  if (!(level === null || [0, 1, 2, 3].includes(level))) return res.status(400).json({ error: 'level 0-3, or null' });
+  try { return res.json({ ...(await setStatedAppetite(req.params.userId, level as Level | null)), levels: LEVELS }); }
+  catch (err) { return res.status(500).json({ error: err instanceof Error ? err.message : String(err) }); }
 });

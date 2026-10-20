@@ -3,6 +3,7 @@ import { Tables } from '../db/tables';
 import { runIngest } from '../pipelines/ingest';
 import { embedMissing } from '../pipelines/batch-outputs';
 import { runLint, persistFindings } from '../brain/lint';
+import { refreshAppetite } from '../appetite/appetite';
 import { isAmbientOn, pendingSentIds } from '../ambient/switch';
 import { captureReferences } from '../reference/capture';
 import { enrichPending } from '../reference/enrich';
@@ -52,6 +53,8 @@ export async function runDailyIngestion(): Promise<void> {
       // Anything still without a meaning vector becomes searchable (S1.3).
       await embedMissing(userId);
       // Lint on a schedule (goal 5): finds rot and records it; never repairs. A failure here never stops ingestion.
+      // Appetite re-read from yesterday's behaviour (goal 22); the person's own setting is never touched.
+      await refreshAppetite(userId).catch((err) => console.warn(`[appetite] user=${userId} ${(err as Error).message}`));
       await runLint({ userId }).then(persistFindings).catch((err) => console.warn(`[lint] user=${userId} ${(err as Error).message}`));
       console.log(
         `[daily-ingestion] user=${userId} obs=${result.observations_created} ins=${result.insights_created} cand=${result.goal_candidates_created}`
