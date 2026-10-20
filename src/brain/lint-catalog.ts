@@ -167,6 +167,22 @@ export const CHECKS: CheckDefinition[] = [
     remediationIsNew: true,
   },
 
+  // ── Hypothesis hardening (goal 5) ─────────────────────────────────────────
+  // Repetition makes a claim feel truer (the illusory truth effect: Hasher 1977;
+  // Dechêne et al. 2010), to the person and to the system alike.
+  {
+    id: 'H1', layer: 'whys', severity: 'rot',
+    prevents: '"Is it that you say yes so you don\'t let Dana down?" -- asked for the third week running, never answered, and by now it sounds like something we know.',
+    remediation: 'Stop asking it. Test it against new evidence, or retire it.',
+    remediationIsNew: false,
+  },
+  {
+    id: 'H2', layer: 'whys', severity: 'rot',
+    prevents: '"The reason you do this is..." -- a guess from two months ago that nothing has supported since.',
+    remediation: 'Test it against what has happened since, or retire it.',
+    remediationIsNew: false,
+  },
+
   // ── Portrait ──────────────────────────────────────────────────────────────
   {
     id: 'Po1', layer: 'portrait', severity: 'rot',

@@ -75,8 +75,8 @@ test('all six layers are checked', () => {
     ['entities', 'facts', 'patterns', 'portrait', 'sources', 'whys']);
 });
 
-test('the catalog is the 26 checks the design specifies', () => {
-  assert.equal(CHECKS.length, 26);
+test('the catalog is the 26 checks the design specifies, plus H1-H2 for hypothesis hardening (goal 5)', () => {
+  assert.equal(CHECKS.length, 28);
 });
 
 // ── Findings must be stable across runs ─────────────────────────────────────

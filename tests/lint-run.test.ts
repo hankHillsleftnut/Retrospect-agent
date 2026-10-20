@@ -45,3 +45,22 @@ test('a finding that stops occurring is resolved, comes back open, and a false p
   await persistFindings(report([f]));
   assert.equal(await state(), 'false_positive', 'a person said it was wrong; lint does not overrule them');
 });
+
+test('H1 and H2: a guess asked twice without an answer, and one nothing has supported for 60 days, are flagged', async () => {
+  const user = await insertUser(db);
+  const one = async (sql: string, p: unknown[]) => (await db.query<{ id: string }>(sql, p)).rows[0]!.id;
+  const pat = await one(`INSERT INTO behavior_patterns (user_id, slug, label, grouping_key, status, instance_count) VALUES ($1, 'says-yes', 'Says yes', 'g', 'live', 4) RETURNING id`, [user]);
+  const asked = await one(`INSERT INTO behavior_pattern_whys (user_id, pattern_id, mechanism, confidence, status) VALUES ($1, $2, 'avoidance', 0.4, 'provisional') RETURNING id`, [user, pat]);
+  const old = await one(`INSERT INTO behavior_pattern_whys (user_id, pattern_id, mechanism, confidence, status) VALUES ($1, $2, 'ambivalence', 0.4, 'provisional') RETURNING id`, [user, pat]);
+  await db.query(`ALTER TABLE behavior_pattern_whys DISABLE TRIGGER USER`);
+  await db.query(`UPDATE behavior_pattern_whys SET updated_at = now() - interval '70 days', created_at = now() - interval '70 days' WHERE id = $1`, [old]);
+  await db.query(`ALTER TABLE behavior_pattern_whys ENABLE TRIGGER USER`);
+  for (let i = 0; i < 2; i++) {
+    await db.query(`INSERT INTO podcast_episodes (user_id, title, status, outline, script) VALUES ($1, 'e', 'ready', $2, 's')`, [user, JSON.stringify({ planner: 'v2', plan: { items: [], reflection: { whyId: asked } } })]);
+  }
+  const report = await runLint({ userId: user });
+  const all = [...report.findings, ...report.safety];
+  assert.ok(all.some((f) => f.checkId === 'H1' && f.subjectIds.includes(asked)), 'asked twice, never answered');
+  assert.ok(all.some((f) => f.checkId === 'H2' && f.subjectIds.includes(old)), 'no support for 60 days');
+  assert.ok(!all.some((f) => f.checkId === 'H1' && f.subjectIds.includes(old)), 'never asked, so not H1');
+});

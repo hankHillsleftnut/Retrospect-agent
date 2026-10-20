@@ -56,6 +56,8 @@ export interface ContractRows {
   whys: Array<{ id: string; pattern_id: string; mechanism: string; confidence: number | string; status: string }>;
   goals: Array<{ id: string; title: string; description: string | null; created_at: string | null; is_active: boolean | null }>;
   summaries: DailySummary[];
+  /** Open lint findings (goal 5): what they name can't be spoken until resolved. */
+  flags?: Array<{ subject_kind: string; subject_ids: string[]; check_id: string }>;
 }
 
 /** Pure: the contract from its rows. */
@@ -64,11 +66,13 @@ export function assembleContract(userId: string, rows: ContractRows, today: stri
   const speaks = new Map(rows.coverage.map((c) => [c.domain_id, c.may_speak]));
   const question = new Map(rows.questions.map((q) => [q.id, q]));
   const score = new Map(rows.scores.map((s) => [s.answer_id, s]));
+  // Anything lint has flagged (and not yet resolved) stays out of every output (goal 5).
+  const flagged = new Set((rows.flags ?? []).flatMap((f) => f.subject_ids.map((id) => `${f.subject_kind}:${id}`)));
 
   // The standing answer per question: confirmed first, then most confident.
   const best = new Map<number, AnswerItem>();
   for (const a of rows.answers) {
-    if (a.user_verdict === 'rejected') continue;
+    if (a.user_verdict === 'rejected' || flagged.has(`question_answer:${a.id}`)) continue;
     const q = question.get(a.question_id);
     if (!q || !speaks.get(q.domain_id)) continue;
     const s = score.get(a.id);
@@ -86,13 +90,13 @@ export function assembleContract(userId: string, rows: ContractRows, today: stri
     userId, asOf: today,
     answers: [...best.values()].sort((a, b) => a.questionId - b.questionId),
     silent: rows.coverage.filter((c) => !c.may_speak).map((c) => ({ domainId: c.domain_id, label: c.label })),
-    patterns: rows.patterns.filter((p) => p.status === 'live' && p.episode_promotable).map((p) => ({
+    patterns: rows.patterns.filter((p) => p.status === 'live' && p.episode_promotable && !flagged.has(`behavior_pattern:${p.id}`)).map((p) => ({
       kind: 'pattern' as const, id: p.id, label: p.label, confidence: Number(p.confidence ?? 0.5), instances: p.instance_count, firstSeenAt: p.first_seen_at, lastSeenAt: p.last_seen_at,
       trajectory: (p.trajectory as PatternItem['trajectory']) ?? null, trajectoryDetail: p.trajectory_detail, register: 'stated' as const,
     })),
     // Live whys, and provisional ones behind a live pattern: the founder allowed
     // one provisional why per episode, always asked (19 Oct). The planner caps it.
-    whys: rows.whys.filter((w) => w.status === 'live' || (w.status === 'provisional' && rows.patterns.some((p) => p.id === w.pattern_id && p.status === 'live')))
+    whys: rows.whys.filter((w) => !flagged.has(`behavior_pattern_why:${w.id}`) && !flagged.has(`behavior_pattern:${w.pattern_id}`)).filter((w) => w.status === 'live' || (w.status === 'provisional' && rows.patterns.some((p) => p.id === w.pattern_id && p.status === 'live')))
       .map((w) => ({
         kind: 'why' as const, id: w.id, patternId: w.pattern_id, mechanism: w.mechanism, confidence: Number(w.confidence), register: 'asked' as const,
         provisional: w.status === 'provisional',
@@ -114,7 +118,7 @@ export async function readUnderstanding(userId: string, db: typeof supabase = su
     if (error) throw new Error(`readUnderstanding ${what}: ${error.message}`);
     return (data ?? []) as T;
   };
-  const [coverage, domains, questions, answers, scores, patterns, whys, goals, summaries] = await Promise.all([
+  const [coverage, domains, questions, answers, scores, patterns, whys, goals, summaries, flags] = await Promise.all([
     q<ContractRows['coverage']>(db.from(Tables.DOMAIN_COVERAGE).select('domain_id,label,may_speak').eq('user_id', userId), 'coverage'),
     q<ContractRows['domains']>(db.from(Tables.QUESTION_DOMAINS).select('id,confidence_floor'), 'domains'),
     q<ContractRows['questions']>(db.from(Tables.CANONICAL_QUESTIONS).select('id,domain_id,text'), 'questions'),
@@ -124,7 +128,8 @@ export async function readUnderstanding(userId: string, db: typeof supabase = su
     q<ContractRows['whys']>(db.from(Tables.BEHAVIOR_PATTERN_WHYS).select('id,pattern_id,mechanism,confidence,status').eq('user_id', userId), 'whys'),
     q<ContractRows['goals']>(db.from(Tables.GOALS).select('id,title,description,created_at,is_active').eq('user_id', userId), 'goals'),
     q<DailySummary[]>(db.from(Tables.DAILY_SUMMARIES).select('day,domain,metrics,items,source_ids').eq('user_id', userId).gte('day', since), 'summaries'),
+    q<NonNullable<ContractRows['flags']>>(db.from(Tables.LINT_FINDINGS).select('subject_kind,subject_ids,check_id').eq('user_id', userId).eq('resolution', 'open').neq('severity', 'info'), 'lint'),
   ]);
   const m = await readAnswerMoves(userId, db, now);
-  return assembleContract(userId, { coverage, domains, questions, answers, scores, patterns, whys, goals, summaries }, today, { since: m.since, items: m.moves });
+  return assembleContract(userId, { coverage, domains, questions, answers, scores, patterns, whys, goals, summaries, flags }, today, { since: m.since, items: m.moves });
 }
