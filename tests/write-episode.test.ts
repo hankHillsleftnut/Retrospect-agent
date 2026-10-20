@@ -34,7 +34,24 @@ test('sentences the guard rejects are cut and counted; the rest make the script'
       i, claims: chunk.includes('proud') ? [{ claim: 'feels proud', supported: false }] : [], isQuestion: chunk.includes('wonder'),
     })) }, usage: { inputTokens: 5, outputTokens: 5 } }),
   });
-  assert.deepEqual(e.stats, { sentences: 4, kept: 3, cut: 1, sectionsWithEvidence: 3, sections: 3 });
+  assert.deepEqual({ ...e.stats, words: undefined }, { sentences: 4, kept: 3, cut: 1, sectionsWithEvidence: 3, sections: 3, words: undefined });
   assert.equal(e.sections[0]!.cut[0]!.reason, 'not in the evidence: feels proud');
   assert.ok(!scriptText(e).includes('proud'));
+});
+
+test('W6.3: a woven script keeps spoken order; a "craft" line that claims something about the listener is cut', async () => {
+  const e = await writeEpisode(plan, {
+    asOf: '2026-10-20', style: 'medium',
+    writer: async () => ({ data: { title: 't', sentences: [
+      { section: 'craft', text: 'Let me start somewhere small.' },
+      { section: 'pattern:gym', text: 'Six times last month, once this month.' },
+      { section: 'craft', text: 'You have clearly found your discipline.' },
+      { section: 'nonsense', text: 'And your steps doubled.' },
+    ] }, usage: { inputTokens: 1, outputTokens: 1 } }) as never,
+    guard: async (_s, prompt) => ({ data: { sentences: prompt.split('SENTENCE ').slice(1).map((chunk, i) => ({
+      i, claims: /discipline|steps/.test(chunk) && !/EVIDENCE \d+:\n- A recurring/.test(chunk) ? [{ claim: 'x', supported: false }] : [], isQuestion: false,
+    })) }, usage: { inputTokens: 1, outputTokens: 1 } }),
+  });
+  assert.deepEqual(e.sections.map((s) => s.id), ['craft', 'pattern:gym', 'craft']);
+  assert.equal(e.stats.cut, 2, 'the unsupported craft line and the unknown-section line');
 });

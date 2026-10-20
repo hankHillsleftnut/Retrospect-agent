@@ -64,6 +64,28 @@ You get a typed outline. For each section, write 2-5 sentences, in order. Rules:
 - If the last section is a question, end the episode on it, and leave space for it.
 Reply with JSON only: {"title":"<short episode title>","sections":[{"id":"<section id>","sentences":["...","..."]}]}`;
 
+/**
+ * W6.3: how much the writing is steered is an experiment, not a decision
+ * (founder, 19 Oct). Three writers on the same outline; every sentence still
+ * names the section it rests on, so the same guard judges all three.
+ */
+export type WriterStyle = 'heavy' | 'medium' | 'light';
+
+const SHAPE: Record<WriterStyle, string> = {
+  heavy: `Write each section in order, 2-5 sentences each.`,
+  medium: `Weave the sections into ONE narrative thread: open on the spine, let each section lead into the next with a real transition, and build toward the end. Aim for 600-900 words in all. You may add short connecting sentences that make no claim about the listener; give them the section id "craft".`,
+  light: `Here is everything you may say about the listener. Shape the episode however you think will be most worth listening to: order, length and structure are yours. Every sentence must still name the section whose facts it rests on, or "craft" if it makes no claim about the listener.`,
+};
+
+export function writerSystem(style: WriterStyle): string {
+  return WRITER_SYSTEM
+    .replace('For each section, write 2-5 sentences, in order. Rules:', `${SHAPE[style]} Rules:`)
+    .replace('Reply with JSON only: {"title":"<short episode title>","sections":[{"id":"<section id>","sentences":["...","..."]}]}',
+      style === 'heavy'
+        ? 'Reply with JSON only: {"title":"<short episode title>","sections":[{"id":"<section id>","sentences":["...","..."]}]}'
+        : 'Reply with JSON only: {"title":"<short episode title>","sentences":[{"section":"<section id or craft>","text":"..."}]} in the order they are spoken.');
+}
+
 export function writerPrompt(outline: OutlineSection[], listener: { name?: string | null; tone?: string | null } = {}): string {
   return [
     listener.name ? `LISTENER: ${listener.name}` : null,
@@ -76,27 +98,40 @@ export function writerPrompt(outline: OutlineSection[], listener: { name?: strin
 export interface WrittenEpisode {
   title: string;
   sections: Array<{ id: string; register: 'stated' | 'asked'; kept: string[]; cut: Array<{ sentence: string; reason: string }> }>;
-  stats: { sentences: number; kept: number; cut: number; sectionsWithEvidence: number; sections: number };
+  stats: { sentences: number; kept: number; cut: number; sectionsWithEvidence: number; sections: number; words: number };
   usage: { writer: ClaudeUsage; guard: ClaudeUsage };
 }
 
 export type WriterModel = (system: string, prompt: string) => Promise<{ data: { title?: unknown; sections?: Array<{ id?: unknown; sentences?: unknown }> }; usage: ClaudeUsage }>;
 
-export async function writeEpisode(plan: EpisodePlan, options: { asOf: string; listener?: { name?: string | null; tone?: string | null }; writer?: WriterModel; guard?: GuardModel } = { asOf: new Date().toISOString().slice(0, 10) }): Promise<WrittenEpisode> {
+export async function writeEpisode(plan: EpisodePlan, options: { asOf: string; style?: WriterStyle; listener?: { name?: string | null; tone?: string | null }; writer?: WriterModel; guard?: GuardModel } = { asOf: new Date().toISOString().slice(0, 10) }): Promise<WrittenEpisode> {
   const outline = outlineFromPlan(plan);
   const writer: WriterModel = options.writer ?? ((s, p) => claudeJsonCompletion(s, p, { model: config.anthropic.writerModel, maxTokens: 4000 }));
-  const { data, usage: writerUsage } = await writer(WRITER_SYSTEM, writerPrompt(outline, options.listener));
-  const written = new Map((data.sections ?? []).map((s) => [String(s.id), Array.isArray(s.sentences) ? (s.sentences as unknown[]).map(String).filter(Boolean) : []]));
+  const style = options.style ?? 'heavy';
+  const { data, usage: writerUsage } = await writer(writerSystem(style), writerPrompt(outline, options.listener));
+  const craft: OutlineSection = { id: 'craft', role: 'item', register: 'stated', facts: [] };
+  const byId = new Map(outline.map((s) => [s.id, s]));
+  let flat: Array<{ sec: OutlineSection; text: string }>;
+  if (style === 'heavy') {
+    const written = new Map((data.sections ?? []).map((s) => [String(s.id), Array.isArray(s.sentences) ? (s.sentences as unknown[]).map(String).filter(Boolean) : []]));
+    flat = outline.flatMap((sec) => (written.get(sec.id) ?? []).map((text) => ({ sec, text })));
+  } else {
+    // Spoken order as written; an unknown section id is treated as craft (no
+    // facts), so any claim it makes about the listener is cut.
+    const list = Array.isArray((data as { sentences?: unknown }).sentences) ? ((data as { sentences: Array<{ section?: unknown; text?: unknown }> }).sentences) : [];
+    flat = list.filter((x) => typeof x.text === 'string' && x.text).map((x) => ({ sec: byId.get(String(x.section)) ?? craft, text: String(x.text) }));
+  }
 
   // Every sentence is checked against its own section's facts, in one batch.
-  const flat = outline.flatMap((sec) => (written.get(sec.id) ?? []).map((text) => ({ sec, text })));
   const { results, usage: guardUsage } = flat.length
     ? await guardSentences(flat.map((f) => ({ text: f.text, register: f.sec.register, evidence: f.sec.facts })), options.guard, options.asOf)
     : { results: [], usage: { inputTokens: 0, outputTokens: 0 } };
 
-  const sections = outline.map((sec) => ({ id: sec.id, register: sec.register, kept: [] as string[], cut: [] as Array<{ sentence: string; reason: string }> }));
+  // Kept in spoken order: consecutive sentences from one section form a block.
+  const sections: WrittenEpisode['sections'] = [];
   flat.forEach((f, i) => {
-    const target = sections.find((s) => s.id === f.sec.id)!;
+    let target = sections[sections.length - 1];
+    if (!target || target.id !== f.sec.id) { target = { id: f.sec.id, register: f.sec.register, kept: [], cut: [] }; sections.push(target); }
     if (results[i]!.verdict === 'supported') target.kept.push(f.text);
     else target.cut.push({ sentence: f.text, reason: results[i]!.reason });
   });
@@ -104,7 +139,8 @@ export async function writeEpisode(plan: EpisodePlan, options: { asOf: string; l
   return {
     title: typeof data.title === 'string' ? data.title : 'This week',
     sections,
-    stats: { sentences: flat.length, kept, cut: flat.length - kept, sectionsWithEvidence: outline.filter((s) => s.facts.length > 0).length, sections: outline.length },
+    stats: { sentences: flat.length, kept, cut: flat.length - kept, sectionsWithEvidence: outline.filter((s) => s.facts.length > 0).length, sections: outline.length,
+      words: sections.reduce((n, s) => n + s.kept.join(' ').split(/\s+/).filter(Boolean).length, 0) },
     usage: { writer: writerUsage, guard: guardUsage },
   };
 }
