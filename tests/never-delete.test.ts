@@ -20,9 +20,7 @@ const ALLOWED: Array<{ where: string; table: string; why: string }> = [
 ];
 
 /** Deletes that break the rule and are scheduled to become retirements. */
-const KNOWN_VIOLATIONS: Array<{ where: string; table: string; fix: string }> = [
-  { where: 'record_answer', table: 'answer_evidence', fix: 'F1.4b: retire uncited evidence (retired_at) instead of deleting it — replaces record_answer, waits for the founder\'s yes' },
-];
+const KNOWN_VIOLATIONS: Array<{ where: string; table: string; fix: string }> = [];
 
 function files(dir: string, ext: string): string[] {
   return readdirSync(dir).flatMap((f) => {

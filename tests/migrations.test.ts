@@ -736,3 +736,22 @@ test('137: evidence recorded before 130 is reclassified by trust; untouched rows
   assert.equal(rows.find((r) => r.raw_content_id === mail)!.kind_id, 'automated');
   assert.equal(rows.find((r) => r.raw_content_id === journal)!.kind_id, 'journal', 'an item without a trust class keeps its kind');
 });
+
+// ── 138: evidence is retired, never deleted (F1.4b) ──────────────────────────
+test('138: a re-derivation retires what it no longer cites; current support ignores it; citing it again revives it', async () => {
+  const p = await person();
+  const e1 = await p.item('journal_entry', 'I want to build something');
+  const e2 = await p.item('journal_entry', 'Still thinking about starting a company');
+  const key = `d-${Math.random()}`;
+  const a = await record(answer(p.user, 6, [{ raw_content_id: e1 }, { raw_content_id: e2 }], { derivation_key: key }));
+  const both = (await confidenceOf(a));
+  await record(answer(p.user, 6, [{ raw_content_id: e1 }], { derivation_key: key }));
+  const rows = (await db.query<{ raw_content_id: string; retired: boolean }>(`SELECT raw_content_id, retired_at IS NOT NULL AS retired FROM answer_evidence WHERE answer_id = $1`, [a])).rows;
+  assert.equal(rows.length, 2, 'nothing deleted');
+  assert.equal(rows.find((r) => r.raw_content_id === e2)!.retired, true);
+  assert.ok((await confidenceOf(a)) < both, 'confidence counts only current support');
+  assert.equal(await countWhere(`SELECT count(*) AS n FROM claim_edges WHERE claim_id = $1`, [a]), 1, 'lineage shows current support only');
+  await record(answer(p.user, 6, [{ raw_content_id: e1 }, { raw_content_id: e2 }], { derivation_key: key }));
+  assert.equal(await countWhere(`SELECT count(*) AS n FROM answer_evidence WHERE answer_id = $1 AND retired_at IS NULL`, [a]), 2, 'cited again: counts again');
+  assert.equal((await confidenceOf(a)).toFixed(3), both.toFixed(3));
+});
