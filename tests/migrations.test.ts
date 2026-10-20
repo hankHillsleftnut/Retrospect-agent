@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { before, test } from 'node:test';
 import { freshDatabase, insertUser, type MigrationResult, type PGlite } from './support/fresh-database';
@@ -717,4 +718,21 @@ test('136: one decision per title; only known categories; app roles shut out', a
   assert.equal(await failureCode(`INSERT INTO event_categories (user_id, title_key, category, decided_by) VALUES ($1, 'x', 'vibes', 'model')`, [user]), CHECK_VIOLATION);
   const { rows } = await db.query<{ anon: boolean }>(`SELECT has_table_privilege('anon', 'event_categories', 'SELECT') AS anon`);
   assert.equal(rows[0]!.anon, false);
+});
+
+// ── 137: existing evidence takes its trust-based kind (W1.5) ─────────────────
+test('137: evidence recorded before 130 is reclassified by trust; untouched rows keep their kind', async () => {
+  const user = await insertUser(db);
+  const mail = (await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content, authorship, trust_class) VALUES ($1, 'gmail', 'Your brief', 'other', 'automated') RETURNING id`, [user])).rows[0]!.id;
+  const journal = (await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'I want to build') RETURNING id`, [user])).rows[0]!.id;
+  const a = await record(answer(user, 6, [{ raw_content_id: mail }, { raw_content_id: journal }]));
+  // As if recorded before 130: the mail counted as ordinary mail.
+  await db.query(`UPDATE answer_evidence SET kind_id = 'mail' WHERE answer_id = $1 AND raw_content_id = $2`, [a, mail]);
+  const before = await countWhere(`SELECT count(*) AS n FROM answer_evidence WHERE answer_id = $1 AND kind_id = 'mail'`, [a]);
+  const sql = readFileSync('supabase/migrations/137_reclassify_answer_evidence.sql', 'utf8');
+  await db.exec(sql);
+  const { rows } = await db.query<{ raw_content_id: string; kind_id: string }>(`SELECT raw_content_id, kind_id FROM answer_evidence WHERE answer_id = $1 ORDER BY kind_id`, [a]);
+  assert.equal(before, 1);
+  assert.equal(rows.find((r) => r.raw_content_id === mail)!.kind_id, 'automated');
+  assert.equal(rows.find((r) => r.raw_content_id === journal)!.kind_id, 'journal', 'an item without a trust class keeps its kind');
 });
