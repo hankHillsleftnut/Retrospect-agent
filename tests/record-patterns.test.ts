@@ -6,6 +6,7 @@ import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
 import { DETECTORS, detectRecordInstances, refreshRecordBehaviour } from '../src/brain/record-patterns';
 import { objectTokens } from '../src/brain/promoter';
+import { refreshTrajectories } from '../src/brain/run-trajectory';
 import type { DailySummary } from '../src/brain/daily-summaries';
 
 const day = (d: string, domain: DailySummary['domain'], metrics: DailySummary['metrics'], ids = [`${d}-${domain}`]): DailySummary =>
@@ -72,4 +73,23 @@ test('gate: four low days and four active days become two separate patterns; twi
   assert.deepEqual(await patterns(), once);
   const facts = await db.query(`SELECT 1 FROM assertions WHERE user_id = $1`, [user]);
   assert.equal(facts.rows.length, 8, 'no duplicate facts');
+});
+
+test('W3.3b: patterns carry their trajectory and the counts behind it', async () => {
+  const user = await insertUser(db);
+  const now = new Date('2026-10-19T12:00:00Z');
+  const health = (d: string) => db.query(
+    `INSERT INTO raw_content (user_id, content_type, content, created_at, metadata) VALUES ($1, 'healthkit', $2, $3, $4)`,
+    [user, `Apple Health summary for ${d}:\nSteps: 1,200`, `${d}T08:00:00Z`, JSON.stringify({ sync_day: d })]);
+  // One low day four-to-eight weeks ago, ten in the last four weeks (p = 0.012).
+  // (2 then 9 would be p = 0.065: "not enough to say", by the declared rule.)
+  await health('2026-09-12');
+  for (let i = 1; i <= 10; i++) await health(`2026-10-${String(i + 8).padStart(2, '0')}`);
+  await refreshRecordBehaviour(user, 60, supabase, now, { writeFacts: true });
+  await refreshTrajectories(user, supabase, now);
+  const { rows } = await db.query<{ trajectory: string; trajectory_detail: { prior: number; recent: number } }>(
+    `SELECT trajectory, trajectory_detail FROM behavior_patterns WHERE user_id = $1`, [user]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]!.trajectory, 'strengthening');
+  assert.deepEqual([rows[0]!.trajectory_detail.prior, rows[0]!.trajectory_detail.recent], [1, 10]);
 });

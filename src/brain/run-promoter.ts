@@ -6,6 +6,7 @@
  * judgment separate from the plumbing so the risky part stays testable.
  */
 
+import { refreshTrajectories } from './run-trajectory';
 import { createHash } from 'node:crypto';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
@@ -27,6 +28,8 @@ export interface PromoterRunResult {
   updated: number;
   whysCreated: number;
   whysRetired: number;
+  /** Patterns by trajectory after this pass (W3.3). */
+  trajectories?: Record<string, number>;
 }
 
 function labelFor(key: string, facts: FactForPromotion[]): string {
@@ -203,6 +206,14 @@ export async function runPromoter(options: {
         console.error(`[promoter] why insert failed for pattern ${draft.patternId}: ${whyErr.message}`);
       }
     }
+  }
+
+  // Trajectory is derived from the pattern's instances; a failure here must
+  // never undo or block the promotion itself.
+  try {
+    result.trajectories = await refreshTrajectories(options.userId);
+  } catch (err) {
+    console.error('[promoter] trajectory refresh failed:', err instanceof Error ? err.message : err);
   }
 
   return result;
