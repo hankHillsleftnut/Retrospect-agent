@@ -11,6 +11,34 @@ import { planRetraction, type Edge, type RetractionPlan } from './retract';
 
 type Db = typeof supabase;
 
+/** Mirrors fact_claim_key() in migration 148; tested against it. Pure. */
+export function factClaimKey(predicate: string, objectEntityId: string | null, objectValue: { normalized?: unknown; raw?: unknown } | null): string {
+  return `${predicate}|${objectEntityId ?? String(objectValue?.normalized ?? objectValue?.raw ?? '').trim().toLowerCase()}`;
+}
+
+/** Mirrors answer_claim_key() in migration 148; tested against it. Pure. */
+export function answerClaimKey(questionId: number, answer: string | null): string {
+  return `${questionId}|${(answer ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
+}
+
+/** Remember what the person rejected, so no later write can bring it back (migration 148). */
+async function recordRejection(userId: string, target: { kind: ClaimKind; id: string }, db: Db, note?: string): Promise<void> {
+  let claimKey: string | null = null;
+  if (target.kind === 'fact') {
+    const { data } = await db.from('assertions').select('predicate,object_entity_id,object_value').eq('id', target.id).eq('user_id', userId).maybeSingle();
+    const f = data as { predicate: string; object_entity_id: string | null; object_value: { normalized?: unknown; raw?: unknown } | null } | null;
+    if (f) claimKey = factClaimKey(f.predicate, f.object_entity_id, f.object_value);
+  } else if (target.kind === 'answer') {
+    const { data } = await db.from('question_answers').select('question_id,answer').eq('id', target.id).eq('user_id', userId).maybeSingle();
+    const a = data as { question_id: number; answer: string | null } | null;
+    if (a) claimKey = answerClaimKey(a.question_id, a.answer);
+  }
+  // Patterns and whys are already never resurrected by their writers (status user_rejected).
+  if (!claimKey) return;
+  const { error } = await db.from('claim_rejections').upsert({ user_id: userId, claim_kind: target.kind, claim_key: claimKey, source_id: target.id, note: note ?? null }, { onConflict: 'user_id,claim_kind,claim_key' });
+  if (error) throw new Error(`recordRejection: ${error.message}`);
+}
+
 /** Claims already out of play (retired, rejected, superseded): they can't count as support. */
 async function inactiveClaims(userId: string, db: Db): Promise<Set<string>> {
   const out = new Set<string>();
@@ -43,11 +71,13 @@ export async function planCorrection(userId: string, target: { kind: ClaimKind; 
 }
 
 /** Retire what the plan says. `dryRun` returns the plan and writes nothing. */
-export async function applyCorrection(userId: string, target: { kind: ClaimKind; id: string }, options: { db?: Db; dryRun?: boolean; now?: Date } = {}): Promise<RetractionPlan> {
+export async function applyCorrection(userId: string, target: { kind: ClaimKind; id: string }, options: { db?: Db; dryRun?: boolean; now?: Date; note?: string } = {}): Promise<RetractionPlan> {
   const db = options.db ?? supabase;
   const plan = await planCorrection(userId, target, db);
   if (options.dryRun) return plan;
   const at = (options.now ?? new Date()).toISOString();
+  // Recorded first: if anything below fails, the claim still can't come back.
+  await recordRejection(userId, target, db, options.note);
 
   for (const r of plan.retire) {
     const rejected = r.because === 'rejected';
