@@ -103,8 +103,13 @@ export function recordFactPayload(userId: string, selfEntityId: string, i: Recor
  * look again if anything new was written. Safe to repeat: one fact per
  * detector per day (origin_key), rewritten in place.
  */
-export async function refreshRecordBehaviour(userId: string, days = 14, db: typeof supabase = supabase, now = new Date()) {
+export async function refreshRecordBehaviour(userId: string, days = 14, db: typeof supabase = supabase, now = new Date(), options: { writeFacts?: boolean } = {}) {
   const { summaries, textById, rows } = await rebuildDailySummariesWithDetail(userId, days, db, now);
+  // Summaries always; facts only once the founder has checked the detectors
+  // against their own days (ENABLE_RECORD_PATTERNS). A day under 3,000 steps
+  // may be a phone left on a desk, the zero-sleep trap again.
+  const writeFacts = options.writeFacts ?? process.env.ENABLE_RECORD_PATTERNS === 'true';
+  if (!writeFacts) return { summaries: rows, facts: 0, promoted: null };
   const instances = detectRecordInstances(summaries, textById);
   if (instances.length === 0) return { summaries: rows, facts: 0, promoted: null };
   const self = await resolveEntity({

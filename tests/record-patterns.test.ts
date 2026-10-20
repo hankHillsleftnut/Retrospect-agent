@@ -39,6 +39,14 @@ before(async () => {
   Object.assign(supabase, { from: fake.from, rpc: fake.rpc });
 });
 
+test('off by default: summaries are built, no facts are written', async () => {
+  const user = await insertUser(db);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content, created_at, metadata) VALUES ($1, 'healthkit', 'Steps: 900', '2026-10-10T08:00:00Z', '{"sync_day":"2026-10-10"}')`, [user]);
+  const r = await refreshRecordBehaviour(user, 30, supabase, new Date('2026-10-19T12:00:00Z'));
+  assert.equal(r.facts, 0);
+  assert.equal(r.summaries, 1);
+});
+
 test('gate: four low days and four active days become two separate patterns; twice = once', async () => {
   const user = await insertUser(db);
   const now = new Date('2026-10-19T12:00:00Z');
@@ -49,7 +57,7 @@ test('gate: four low days and four active days become two separate patterns; twi
   for (const d of ['2026-10-07', '2026-10-09', '2026-10-11', '2026-10-13']) await health(d, '12,400');
   await health('2026-10-14', '5,000');
 
-  const r = await refreshRecordBehaviour(user, 30, supabase, now);
+  const r = await refreshRecordBehaviour(user, 30, supabase, now, { writeFacts: true });
   assert.equal(r.facts, 8, 'eight detected days; the ordinary day and the unrecorded sleep detect nothing');
 
   const patterns = async () => (await db.query<{ grouping_key: string; status: string; n: number }>(
@@ -60,7 +68,7 @@ test('gate: four low days and four active days become two separate patterns; twi
   assert.ok(once.every((p) => p.n === 4), JSON.stringify(once));
   assert.ok(once.every((p) => p.status === 'live'), `four days at 0.5 each clear the standard bar: ${JSON.stringify(once)}`);
 
-  await refreshRecordBehaviour(user, 30, supabase, now);
+  await refreshRecordBehaviour(user, 30, supabase, now, { writeFacts: true });
   assert.deepEqual(await patterns(), once);
   const facts = await db.query(`SELECT 1 FROM assertions WHERE user_id = $1`, [user]);
   assert.equal(facts.rows.length, 8, 'no duplicate facts');
