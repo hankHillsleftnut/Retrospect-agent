@@ -34,6 +34,8 @@ export interface EpisodePlan {
   items: PlanItem[];
   /** One question, asked, never stated; null when none has been earned. */
   reflection: { whyId: string; patternId: string; mechanism: string } | null;
+  /** Goal 21: an offered hypothesis takes the one asked slot, in place of a why. */
+  hypothesis?: import('../hypotheses/offer').Offer | null;
   withheld: Array<{ id: string; why: string }>;
   silent: string[];
 }
@@ -80,7 +82,7 @@ export function buildCandidates(c: UnderstandingContract, extras: { saidVsDid?: 
   return out;
 }
 
-export function planEpisode(c: UnderstandingContract, extras: Parameters<typeof buildCandidates>[1] = {}, maxItems = 6, appetite?: number): EpisodePlan {
+export function planEpisode(c: UnderstandingContract, extras: Parameters<typeof buildCandidates>[1] = {}, maxItems = 6, appetite?: number, hypothesis: import('../hypotheses/offer').Offer | null = null): EpisodePlan {
   const built = buildCandidates(c, extras);
   const byId = new Map(built.map((b) => [b.candidate.id, b.item]));
   const sel = selectItems(built.map((b) => b.candidate), maxItems);
@@ -94,11 +96,13 @@ export function planEpisode(c: UnderstandingContract, extras: Parameters<typeof 
   // An 'unclear' mechanism isn't a question worth asking (found 20 Oct).
   const whys = c.whys.filter((w) => selectedPatterns.has(w.patternId) && w.mechanism !== 'unclear').sort((a, b) => Number(b.patternId === spinePattern) - Number(a.patternId === spinePattern) || b.confidence - a.confidence);
   // Goal 22: at appetite 0 (facts and patterns only) nothing is asked. Undefined = the switch is off.
-  const w = appetite === undefined || appetite >= 1 ? whys[0] : undefined;
+  // At most one asked question: an offered hypothesis takes the slot (goal 21).
+  const w = !hypothesis && (appetite === undefined || appetite >= 1) ? whys[0] : undefined;
 
   return {
     spine, items,
     reflection: w ? { whyId: w.id, patternId: w.patternId, mechanism: w.mechanism } : null,
+    hypothesis,
     withheld: Object.entries(sel.excluded).map(([id, why]) => ({ id, why })),
     silent: c.silent.map((s) => s.label),
   };

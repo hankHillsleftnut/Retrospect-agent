@@ -1,5 +1,7 @@
 import { readAppetite } from '../appetite/appetite';
 import { readLearning } from '../learning/reception';
+import { proposeHypotheses, storeHypotheses } from '../hypotheses/propose';
+import { chooseOffer, loadOfferable, markOffered, readHypothesisDial } from '../hypotheses/offer';
 /**
  * The weekly episode from the new brain (W6.4): read contract (W4) -> plan
  * (W5) -> script (W6.2, writer style from W6.3) -> sentence-by-sentence fact
@@ -40,7 +42,21 @@ export async function runPodcastV2(options: PodcastOptions): Promise<PodcastResu
     const appetite = process.env.ENABLE_APPETITE === 'true' ? (await readAppetite(options.userId)).level : undefined;
     // Goal 19: its own track record nudges ordering (bounded 0.8-1.2), only with ENABLE_LEARNING on.
     const learning = process.env.ENABLE_LEARNING === 'true' ? (await readLearning(options.userId)).current?.arms : undefined;
-    const plan = planEpisode(contract, { saidVsDid: svd.goals, content: named.groups, learning }, 6, appetite);
+    // Goal 21: hypotheses are proposed and stored every week (code decides what may exist);
+    // one is offered only when the founder's dial says speak and appetite is high enough.
+    const dial = await readHypothesisDial();
+    let offer = null;
+    try {
+      if (!options.dryRun) {
+        const proposed = await proposeHypotheses(contract);
+        trace.addCost({ anthropic_tokens_input: proposed.usage.inputTokens, anthropic_tokens_output: proposed.usage.outputTokens }, config.anthropic.writerModel);
+        await storeHypotheses(options.userId, proposed.valid);
+      }
+      if (dial.speak) offer = chooseOffer(await loadOfferable(options.userId), contract, appetite ?? (await readAppetite(options.userId)).level, dial, now);
+    } catch (err) {
+      console.warn(`[podcast-v2] hypotheses skipped: ${(err as Error).message}`);
+    }
+    const plan = planEpisode(contract, { saidVsDid: svd.goals, content: named.groups, learning }, 6, appetite, offer);
     if (plan.items.length === 0) throw new Error('Nothing this week clears the bar to be said: a quiet week (planner v2 never pads).');
 
     const style = (process.env.EPISODE_WRITER_STYLE as WriterStyle | undefined) ?? 'heavy';
@@ -90,6 +106,8 @@ export async function runPodcastV2(options: PodcastOptions): Promise<PodcastResu
       }).select('id').single();
       if (error) throw new Error(`Insert podcast episode failed: ${error.message}`);
       episodeId = (row as { id: string }).id;
+      // Counted only if the offer survived the fact check into the script.
+      if (plan.hypothesis && episode.sections.some((s) => s.id === `hypothesis:${plan.hypothesis!.id}` && s.kept.length)) await markOffered(options.userId, plan.hypothesis.id);
       trace.setEpisodeId(episodeId);
     }
     await trace.complete();

@@ -50,6 +50,13 @@ export function outlineFromPlan(plan: EpisodePlan): OutlineSection[] {
     sections.push({ id: `why:${plan.reflection.whyId}`, role: 'question', register: 'asked',
       facts: [...(pattern ? factLines(pattern) : []), `A possibility to ASK about, never to state: ${mech[plan.reflection.mechanism] ?? plan.reflection.mechanism}.`] });
   }
+  if (plan.hypothesis) {
+    // Goal 21: asked, never asserted; the framework is named so "why do you think that" has an answer.
+    sections.push({ id: `hypothesis:${plan.hypothesis.id}`, role: 'question', register: 'asked',
+      facts: [...plan.hypothesis.evidence.map((e) => `What it rests on: ${e}`),
+        `A possibility to OFFER as a question they can decline in a word, never to state: ${plan.hypothesis.question}`,
+        `Where the idea comes from (${plan.hypothesis.frameworkName}): ${plan.hypothesis.rationale}`] });
+  }
   return sections;
 }
 
