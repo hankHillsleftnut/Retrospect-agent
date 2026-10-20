@@ -46,6 +46,8 @@ export const config = {
     // The claim guard (W6.1): judgement about whether evidence supports a
     // sentence about a person. Chosen by the gate run (eval:guard), not assumed.
     guardModel: optional('ANTHROPIC_GUARD_MODEL', 'claude-haiku-5-5'),
+    // Writes the episode script from the plan (W6.2): craft matters, so a strong model.
+    writerModel: optional('ANTHROPIC_WRITER_MODEL', 'claude-sonnet-5-5'),
   },
   extraction: {
     // 'facts' (default): the facts-only extractor (agents/fact-extractor.ts).
