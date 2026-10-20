@@ -85,6 +85,11 @@ export async function readSignals(userId: string, since: string, db: typeof supa
   }
   const { data: whys } = await db.from(Tables.BEHAVIOR_PATTERN_WHYS).select('retired_at').eq('user_id', userId).eq('status', 'user_rejected').gte('retired_at', since).limit(50);
   for (const w of (whys ?? []) as Array<{ retired_at: string }>) out.push({ kind: 'discomfort', at: w.retired_at, what: 'you rejected a guess about why' });
+  // Goal 21: a declined hypothesis is a signal to ease off; a confirmed one, that it landed.
+  const { data: hyps } = await db.from('hypotheses').select('status,status_at').eq('user_id', userId).in('status', ['confirmed', 'declined']).gte('status_at', since).limit(50);
+  for (const h of (hyps ?? []) as Array<{ status: string; status_at: string }>) {
+    out.push(h.status === 'confirmed' ? { kind: 'engaged', at: h.status_at, what: 'you recognised something it wondered' } : { kind: 'discomfort', at: h.status_at, what: 'you declined something it wondered' });
+  }
   const { data: ratings } = await db.from(Tables.EPISODE_FEEDBACK).select('rating,created_at').eq('user_id', userId).gte('created_at', since).not('rating', 'is', null).limit(50);
   for (const r of (ratings ?? []) as Array<{ rating: number; created_at: string }>) {
     if (r.rating <= 2) out.push({ kind: 'discomfort', at: r.created_at, what: `you rated an episode ${r.rating}/5` });
