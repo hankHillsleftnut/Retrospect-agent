@@ -14,6 +14,7 @@
 
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { selectAll } from '../db/paged';
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 
@@ -88,8 +89,9 @@ export async function readSaidVsDid(userId: string, db: typeof supabase = supaba
   const weekStart = now.getTime() - 7 * DAY, start = now.getTime() - 35 * DAY;
   const items: Candidate[] = [];
   // Calendar events in the last five weeks (one line per event, with its hours).
-  const { data: cal } = await db.from(Tables.RAW_CONTENT).select('id,source_item_id').eq('user_id', userId).eq('content_type', 'calendar').limit(3000);
-  const sids = ((cal ?? []) as Array<{ id: string; source_item_id: string | null }>).filter((r) => r.source_item_id);
+  const cal = await selectAll<{ id: string; source_item_id: string | null }>((from, to) => db.from(Tables.RAW_CONTENT).select('id,source_item_id')
+    .eq('user_id', userId).eq('content_type', 'calendar').order('id').range(from, to));
+  const sids = cal.filter((r) => r.source_item_id);
   for (let i = 0; i < sids.length; i += 100) {
     const { data } = await db.from(Tables.SOURCE_ITEMS).select('id,normalized_data').in('id', sids.slice(i, i + 100).map((r) => r.source_item_id!));
     for (const s of (data ?? []) as Array<{ id: string; normalized_data: { title?: string; start?: string; end?: string; all_day?: boolean; my_response?: string } | null }>) {
@@ -105,8 +107,9 @@ export async function readSaidVsDid(userId: string, db: typeof supabase = supaba
   const { data: pats } = await db.from(Tables.BEHAVIOR_PATTERNS).select('id,label,status').eq('user_id', userId).eq('status', 'live');
   for (const p of (pats ?? []) as Array<{ id: string; label: string }>) items.push({ id: p.id, kind: 'pattern', text: p.label });
   // Chosen content in the window (subscriptions dated in it).
-  const { data: yt } = await db.from(Tables.RAW_CONTENT).select('id,content,metadata,source_item_id').eq('user_id', userId).eq('content_type', 'youtube').limit(2000);
-  const ytRows = ((yt ?? []) as Array<{ id: string; content: string; metadata: Record<string, unknown> | null; source_item_id: string | null }>).filter((r) => r.source_item_id);
+  const yt = await selectAll<{ id: string; content: string; metadata: Record<string, unknown> | null; source_item_id: string | null }>((from, to) =>
+    db.from(Tables.RAW_CONTENT).select('id,content,metadata,source_item_id').eq('user_id', userId).eq('content_type', 'youtube').order('id').range(from, to));
+  const ytRows = yt.filter((r) => r.source_item_id);
   const when = new Map<string, string | null>();
   for (let i = 0; i < ytRows.length; i += 100) {
     const { data } = await db.from(Tables.SOURCE_ITEMS).select('id,occurred_at').in('id', ytRows.slice(i, i + 100).map((r) => r.source_item_id!));

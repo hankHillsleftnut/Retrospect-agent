@@ -12,6 +12,7 @@
 
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { selectAll } from '../db/paged';
 
 /** A move this size, or a new answer, is worth saying. Declared 19 Oct. */
 export const MIN_MOVE = 0.15;
@@ -81,13 +82,14 @@ export async function readAnswerMoves(userId: string, db: typeof supabase = supa
     db.from(Tables.CANONICAL_QUESTIONS).select('id,domain_id,half_life_days'),
     db.from(Tables.QUESTION_DOMAINS).select('id,half_life_days'),
     db.from(Tables.EVIDENCE_KINDS).select('id,weight'),
-    db.from(Tables.ANSWER_EVIDENCE).select('id,answer_id,stance,source_key,observed_at,created_at,kind_id,retired_at').eq('user_id', userId),
+    selectAll<EvidenceRow & { kind_id: string }>((from, to) => db.from(Tables.ANSWER_EVIDENCE)
+      .select('id,answer_id,stance,source_key,observed_at,created_at,kind_id,retired_at').eq('user_id', userId).order('id').range(from, to)),
   ]);
-  for (const r of [answers, questions, domains, kinds, evidence]) if (r.error) throw new Error(`readAnswerMoves: ${r.error.message}`);
+  for (const r of [answers, questions, domains, kinds]) if (r.error) throw new Error(`readAnswerMoves: ${r.error.message}`);
   const domainHalf = new Map(((domains.data ?? []) as Array<{ id: string; half_life_days: number }>).map((d) => [d.id, d.half_life_days]));
   const qHalf = new Map(((questions.data ?? []) as Array<{ id: number; domain_id: string; half_life_days: number | null }>).map((q) => [q.id, q.half_life_days ?? domainHalf.get(q.domain_id) ?? 60]));
   const weight = new Map(((kinds.data ?? []) as Array<{ id: string; weight: number | string }>).map((k) => [k.id, Number(k.weight)]));
-  const rows = ((evidence.data ?? []) as Array<EvidenceRow & { kind_id: string }>).map((e) => ({ ...e, weight: weight.get(e.kind_id) ?? 0 }));
+  const rows = evidence.map((e) => ({ ...e, weight: weight.get(e.kind_id) ?? 0 }));
   const ans = ((answers.data ?? []) as Array<{ id: string; question_id: number; created_at: string }>).map((a) => ({ ...a, half_life_days: qHalf.get(a.question_id) ?? 60 }));
   return { since: since.toISOString(), moves: answerMoves(ans, rows, since, now) };
 }

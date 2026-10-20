@@ -93,3 +93,19 @@ test('W3.3b: patterns carry their trajectory and the counts behind it', async ()
   assert.equal(rows[0]!.trajectory, 'strengthening');
   assert.deepEqual([rows[0]!.trajectory_detail.prior, rows[0]!.trajectory_detail.recent], [1, 10]);
 });
+
+test('review fix: a detected day that no longer qualifies is invalidated, not deleted', async () => {
+  const user = await insertUser(db);
+  const now = new Date('2026-10-19T12:00:00Z');
+  const ids: string[] = [];
+  for (const d of ['2026-10-06', '2026-10-08', '2026-10-10', '2026-10-12']) {
+    ids.push((await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content, created_at, metadata) VALUES ($1, 'healthkit', $2, $3, $4) RETURNING id`,
+      [user, `Apple Health summary for ${d}:\nSteps: 1,500`, `${d}T08:00:00Z`, JSON.stringify({ sync_day: d })])).rows[0]!.id);
+  }
+  await refreshRecordBehaviour(user, 30, supabase, now, { writeFacts: true });
+  // A re-sync shows the 12th was actually active.
+  await db.query(`UPDATE raw_content SET content = $2 WHERE id = $1`, [ids[3], 'Apple Health summary for 2026-10-12:\nSteps: 9,500']);
+  await refreshRecordBehaviour(user, 30, supabase, now, { writeFacts: true });
+  const { rows } = await db.query<{ status: string; n: number }>(`SELECT status, count(*)::int n FROM assertions WHERE user_id = $1 GROUP BY 1 ORDER BY 1`, [user]);
+  assert.deepEqual(rows, [{ status: 'active', n: 3 }, { status: 'retired', n: 1 }]);
+});

@@ -21,6 +21,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { trajectoryOf, windowCounts } from './trajectory';
+import { selectAll } from '../db/paged';
 
 const CHUNK = 100;
 const DAY = 864e5;
@@ -51,11 +52,12 @@ export async function refreshTrajectories(userId: string, db: typeof supabase = 
   const split = new Date(now.getTime() - recentDays * DAY).toISOString();
   const start = new Date(now.getTime() - (recentDays + priorDays) * DAY).toISOString();
 
-  // Which kinds of source were sending material during the earlier window.
-  const { data: before, error: bErr } = await db.from(Tables.RAW_CONTENT).select('content_type')
-    .eq('user_id', userId).gte('created_at', start).lte('created_at', split).limit(5000);
-  if (bErr) throw new Error(`refreshTrajectories coverage: ${bErr.message}`);
-  const typesSeenBefore = new Set(((before ?? []) as Array<{ content_type: string }>).map((r) => coverageKind(r.content_type)));
+  // Which kinds of source were sending material during the earlier window:
+  // one paged read of the types (a single read stops at 1,000 rows, in no set
+  // order, and could miss a kind entirely; review, 19 Oct).
+  const before = await selectAll<{ content_type: string }>((from, to) => db.from(Tables.RAW_CONTENT).select('content_type')
+    .eq('user_id', userId).gte('created_at', start).lte('created_at', split).order('id').range(from, to));
+  const typesSeenBefore = new Set(before.map((r) => coverageKind(r.content_type)));
 
   const { data: patterns, error } = await db.from(Tables.BEHAVIOR_PATTERNS).select('id').eq('user_id', userId);
   if (error) throw new Error(`refreshTrajectories patterns: ${error.message}`);

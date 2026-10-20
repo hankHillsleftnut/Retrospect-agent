@@ -9,6 +9,7 @@
 
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { selectAll } from '../db/paged';
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { PLACE_SYSTEM, categoriseByRule, placePrompt, titleKey, vetPlacements } from './time-categories';
@@ -22,9 +23,9 @@ const defaultModel: PlaceModel = (system, prompt) =>
   claudeJsonCompletion(system, prompt, { model: config.anthropic.timeCategoryModel, maxTokens: 4000 });
 
 export async function placeUnrecognisedEvents(userId: string, db: typeof supabase = supabase, model: PlaceModel = defaultModel) {
-  const { data: rows, error } = await db.from(Tables.RAW_CONTENT).select('source_item_id').eq('user_id', userId).eq('content_type', 'calendar').limit(5000);
-  if (error) throw new Error(`placeUnrecognisedEvents: ${error.message}`);
-  const ids = [...new Set(((rows ?? []) as Array<{ source_item_id: string | null }>).map((r) => r.source_item_id).filter(Boolean) as string[])];
+  const rows = await selectAll<{ source_item_id: string | null }>((from, to) => db.from(Tables.RAW_CONTENT).select('source_item_id')
+    .eq('user_id', userId).eq('content_type', 'calendar').order('id').range(from, to));
+  const ids = [...new Set(rows.map((r) => r.source_item_id).filter(Boolean) as string[])];
 
   const titles = new Map<string, string>();
   for (let i = 0; i < ids.length; i += CHUNK) {

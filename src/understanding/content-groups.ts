@@ -24,6 +24,7 @@
 
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
+import { selectAll, chunks } from '../db/paged';
 import { config } from '../config';
 import { claudeJsonCompletion } from '../services/anthropic';
 
@@ -111,22 +112,30 @@ const parseVector = (v: unknown): number[] | null => {
 
 export async function readContentGroups(userId: string, db: typeof supabase = supabase, now = new Date(), days = 28) {
   const since = new Date(now.getTime() - days * 864e5).toISOString();
-  const { data: rows, error } = await db.from(Tables.RAW_CONTENT).select('id,content,metadata,embedding,source_item_id')
-    .eq('user_id', userId).eq('content_type', 'youtube').limit(2000);
-  if (error) throw new Error(`readContentGroups: ${error.message}`);
-  const ids = ((rows ?? []) as Array<{ source_item_id: string | null }>).map((r) => r.source_item_id).filter(Boolean) as string[];
+  // Rows first without embeddings (paged), dates checked, then embeddings for
+  // the kept rows only: 3,072 numbers each is too much to fetch for everything.
+  const rows = await selectAll<{ id: string; content: string; metadata: Record<string, unknown> | null; source_item_id: string | null }>((from, to) =>
+    db.from(Tables.RAW_CONTENT).select('id,content,metadata,source_item_id').eq('user_id', userId).eq('content_type', 'youtube').order('id').range(from, to));
+  const ids = rows.map((r) => r.source_item_id).filter(Boolean) as string[];
   const when = new Map<string, string | null>();
   for (let i = 0; i < ids.length; i += 100) {
     const { data } = await db.from(Tables.SOURCE_ITEMS).select('id,occurred_at').in('id', ids.slice(i, i + 100));
     for (const s of (data ?? []) as Array<{ id: string; occurred_at: string | null }>) when.set(s.id, s.occurred_at);
   }
-  const items: ContentItem[] = [];
-  for (const r of (rows ?? []) as Array<{ id: string; content: string; metadata: Record<string, unknown> | null; embedding: unknown; source_item_id: string | null }>) {
+  const kept = rows.filter((r) => {
     const rel = String(r.metadata?.relationship ?? '');
-    if (rel !== 'subscribed_to' && rel !== 'liked_video') continue;
     const at = r.source_item_id ? when.get(r.source_item_id) : null;
-    if (!at || at < since) continue;
-    const vector = parseVector(r.embedding);
+    return (rel === 'subscribed_to' || rel === 'liked_video') && !!at && at >= since;
+  });
+  const vectors = new Map<string, number[]>();
+  for (const part of chunks(kept.map((r) => r.id), 50)) {
+    const { data } = await db.from(Tables.RAW_CONTENT).select('id,embedding').in('id', part);
+    for (const e of (data ?? []) as Array<{ id: string; embedding: unknown }>) { const v = parseVector(e.embedding); if (v) vectors.set(e.id, v); }
+  }
+  const items: ContentItem[] = [];
+  for (const r of kept) {
+    const rel = String(r.metadata?.relationship ?? '');
+    const vector = vectors.get(r.id);
     if (!vector) continue;
     items.push({ id: r.id, kind: rel, title: (r.content.split('\n')[0] ?? '').replace(/^(liked video|subscribed to):\s*/i, '').slice(0, 120), vector });
   }

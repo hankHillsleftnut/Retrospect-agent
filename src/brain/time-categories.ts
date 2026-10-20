@@ -17,11 +17,11 @@ export type TimeCategory = (typeof TIME_CATEGORIES)[number];
 const RULES: Array<[TimeCategory, RegExp]> = [
   ['exercise', /\b(gym|run|running|jog|climb(ing)?|yoga|pilates|swim(ming)?|workout|lift(ing)?|bike|cycling|hike|hiking|tennis|soccer|basketball|crossfit|boxing|spin)\b/i],
   ['health', /\b(doctor|dr\.?|dentist|physio|therapy|therapist|clinic|appointment with dr|checkup|check-up|hospital|pharmacy|psychiatrist|counsel(l)?ing)\b/i],
-  ['learning', /\b(class|course|lecture|seminar|workshop|lesson|tutorial|study|office hours|section|exam|midterm|final)\b/i],
-  ['travel', /\b(flight|fly|airport|train|drive to|travel|trip|uber to|layover|check-?in|hotel)\b/i],
-  ['social', /\b(dinner|lunch|brunch|drinks|coffee with|party|birthday|wedding|hang|date|bbq|game night|catch up|catch-up)\b/i],
-  ['focus', /\b(focus|deep work|heads? down|block|build|write|writing|coding|design time|no meetings)\b/i],
-  ['meetings', /\b(meeting|sync|1:1|1-1|one on one|standup|stand-up|interview|call|review|retro|planning|demo|pitch|investor|board)\b/i],
+  ['learning', /\b(class|course|lecture|seminar|workshop|lesson|tutorial|study|office hours|exam|midterm|final exam)\b/i],
+  ['travel', /\b(flight|fly|airport|train to|drive to|travel|trip|uber to|layover|hotel check-?in|hotel)\b/i],
+  ['social', /\b(dinner|lunch|brunch|drinks|coffee with|party|birthday|wedding|hang out|hangout|date night|bbq|game night|catch up|catch-up)\b/i],
+  ['focus', /\b(focus|deep work|heads? down|focus block|writing time|coding|design time|no meetings)\b/i],
+  ['meetings', /\b(meeting|sync|1:1|1-1|one on one|standup|stand-up|check-?in|interview|call|review|retro|planning|demo|pitch|investor|board)\b/i],
   ['personal', /\b(haircut|errand|groceries|laundry|clean|move|moving|bank|dmv|personal)\b/i],
 ];
 

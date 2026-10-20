@@ -23,6 +23,8 @@ import type { DailySummary } from './daily-summaries';
 import { rebuildDailySummariesWithDetail } from './daily-summaries';
 import { selfClaimAllowed } from './trust';
 import { supabase } from '../db/supabase';
+import { Tables } from '../db/tables';
+import { selectAll } from '../db/paged';
 import { resolveEntity } from '../pipelines/graph-v2';
 import { runPromoter } from './run-promoter';
 
@@ -119,6 +121,16 @@ export async function refreshRecordBehaviour(userId: string, days = 14, db: type
   for (const i of instances) {
     const { error } = await db.rpc('write_fact', { p: recordFactPayload(userId, self, i) });
     if (error) throw new Error(`refreshRecordBehaviour write_fact: ${error.message}`);
+  }
+  // A detected day that no longer qualifies (its data was re-synced) is
+  // invalidated, never deleted, so it stops counting (review, 19 Oct).
+  const firstDay = new Date(now.getTime() - days * 864e5).toISOString().slice(0, 10);
+  const current = new Set(instances.map((i) => `daily:${i.detector.id}:${i.day}`));
+  const old = await selectAll<{ id: string; origin_key: string; metadata: { day?: string } | null }>((from, to) => db.from(Tables.ASSERTIONS)
+    .select('id,origin_key,metadata').eq('user_id', userId).eq('status', 'active').like('origin_key', 'daily:%').order('id').range(from, to));
+  for (const f of old) {
+    if (current.has(f.origin_key) || !f.metadata?.day || f.metadata.day < firstDay) continue;
+    await db.from(Tables.ASSERTIONS).update({ status: 'retired', valid_to: now.toISOString() }).eq('id', f.id);
   }
   const promoted = await runPromoter({ userId });
   return { summaries: rows, facts: instances.length, promoted };

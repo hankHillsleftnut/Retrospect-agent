@@ -67,3 +67,14 @@ test('a pattern with no facts rests on nothing, and says so', async () => {
   const lineage = await walkEvidence({ kind: 'pattern', id: pat });
   assert.deepEqual(lineage, { sources: [], steps: [] });
 });
+
+test('review fix: a pattern resting on hundreds of facts is walked in chunks', async () => {
+  const p = await person();
+  const facts: string[] = [];
+  const e = await p.item('one long conversation');
+  for (let i = 0; i < 230; i++) facts.push(await p.fact([{ raw_content_id: e, excerpt: 'one long conversation' }]));
+  const pat = await p.pattern(facts);
+  const lineage = await walkEvidence({ kind: 'pattern', id: pat });
+  assert.deepEqual(lineage.sources, [{ kind: 'raw_content', id: e }]);
+  assert.equal(lineage.steps.filter((s) => s.from.kind === 'fact').length, 230);
+});

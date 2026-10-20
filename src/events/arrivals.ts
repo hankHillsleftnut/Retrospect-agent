@@ -44,7 +44,10 @@ export async function handleArrivals(deps: ArrivalDeps): Promise<Array<{ userId:
       results.push({ userId: c.user_id, outcome: await deps.finish(c, true) });
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      results.push({ userId: c.user_id, outcome: await deps.finish(c, false), error });
+      // Releasing can fail too; that must not stop everyone after this person
+      // (their claim then lapses after LEASE and is retried; review, 19 Oct).
+      const outcome = await deps.finish(c, false).catch(() => 'deferred' as const);
+      results.push({ userId: c.user_id, outcome, error });
     }
   }
   return results;
