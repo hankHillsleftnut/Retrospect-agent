@@ -291,6 +291,9 @@ export const REMEDIATION_FOR_CHECK: Record<string, Capability> = {
   W2: 'machine_retire',
   W3: 'machine_retire',
   W4: 'escalate',
+  // Test or retire a hardening guess: a person's call, never automatic (goal 5).
+  H1: 'escalate',
+  H2: 'escalate',
   Po1: 'rerun_derivation',
   Po2: 'rerun_derivation',
   Po3: 'rerun_derivation',
