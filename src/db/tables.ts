@@ -62,5 +62,6 @@ export const Tables = {
   QUESTION_RESEARCH_LOG: 'question_research_log',
   DAILY_BRIEFS: 'daily_briefs',
   DAILY_SUMMARIES: 'daily_summaries',
+  EVENT_CATEGORIES: 'event_categories',
   CLAIM_EDGES: 'claim_edges',
 } as const;

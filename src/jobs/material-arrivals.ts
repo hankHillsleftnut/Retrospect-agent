@@ -1,5 +1,6 @@
 import { runIngest } from '../pipelines/ingest';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
+import { placeUnrecognisedEvents } from '../brain/place-events';
 import { runResearch } from '../questions/run-research';
 import { checkDailySpend } from '../pipelines/spend-guard';
 import { claimFromDb, finishInDb, handleArrivals, type ArrivalDeps } from '../events/arrivals';
@@ -10,6 +11,7 @@ export const defaultArrivalDeps: ArrivalDeps = {
   mayRun: async (userId) => (await checkDailySpend(userId)).allowed,
   read: async (userId) => {
     await runIngest({ userId, daysBack: 7, triggeredBy: 'event', notes: 'material arrived' });
+    await placeUnrecognisedEvents(userId);
     await refreshRecordBehaviour(userId, 14);
   },
   research: async (userId) => { await runResearch(userId); },

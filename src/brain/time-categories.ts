@@ -27,7 +27,22 @@ const RULES: Array<[TimeCategory, RegExp]> = [
 
 export interface EventForCategory { title?: string | null; attendee_count?: number | null }
 
-export function categoriseEvent(e: EventForCategory): TimeCategory {
+/** How a title is looked up in the cache: case and spacing don't matter. */
+export const titleKey = (title: string | null | undefined) => (title ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * The category for one event. A cached decision (the person's, or the model's
+ * for a title the rules couldn't place) is used only when the rules say
+ * "other", except a person's correction, which always wins.
+ */
+export function categoriseEvent(e: EventForCategory, cached?: Map<string, { category: TimeCategory; decided_by: string }>): TimeCategory {
+  const hit = cached?.get(titleKey(e.title));
+  if (hit?.decided_by === 'person') return hit.category;
+  const byRule = categoriseByRule(e);
+  return byRule === 'other' && hit ? hit.category : byRule;
+}
+
+export function categoriseByRule(e: EventForCategory): TimeCategory {
   const title = (e.title ?? '').trim();
   for (const [category, rule] of RULES) if (rule.test(title)) return category;
   // Unrecognised, but other people are invited: it's a meeting of some kind.
@@ -67,4 +82,29 @@ export function weekTime(summaries: DailySummary[], today: string): { categories
   const total = categories.reduce((s, c) => s + c.thisWeek, 0);
   const other = categories.find((c) => c.category === 'other')?.thisWeek ?? 0;
   return { categories, otherShare: total ? Math.round((other / total) * 100) / 100 : 0, weeksOfBaseline };
+}
+
+// ── Placing what the rules couldn't (W3.5b) ─────────────────────────────────
+
+export const PLACE_SYSTEM = `You place calendar events into one category each, by title alone.
+Categories: exercise, health, learning, travel, social, meetings, focus, personal, other.
+- meetings: work or group calls and meetings. focus: time blocked to work alone.
+- social: time with friends or family. personal: errands, chores, admin.
+- If the title doesn't make it clear, answer "other". Never guess.
+Reply with JSON only: {"placed":[{"i":<number>,"category":"<category>"}]}`;
+
+export function placePrompt(titles: string[]): string {
+  return titles.map((t, i) => `${i}: ${t}`).join('\n');
+}
+
+/** Keep only well-formed answers for titles that were asked about. Pure. */
+export function vetPlacements(titles: string[], reply: { placed?: Array<{ i?: unknown; category?: unknown }> }): Map<string, TimeCategory> {
+  const out = new Map<string, TimeCategory>();
+  for (const p of reply.placed ?? []) {
+    const i = Number(p.i);
+    if (!Number.isInteger(i) || i < 0 || i >= titles.length) continue;
+    if (!(TIME_CATEGORIES as readonly string[]).includes(String(p.category))) continue;
+    out.set(titleKey(titles[i]), p.category as TimeCategory);
+  }
+  return out;
 }
