@@ -48,6 +48,28 @@ export async function checkUrl(raw: string, resolve: (host: string) => Promise<s
   return u;
 }
 
+/**
+ * A tweet: x.com serves a page that only fills in with JavaScript after login,
+ * so it's read through X's public oEmbed endpoint (what sites use to embed
+ * tweets): the tweet's text and author, no login, no scraping. One tweet,
+ * not the thread; media come through as links.
+ */
+export function tweetOembedUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (!/^(www\.|mobile\.)?(x|twitter)\.com$/i.test(u.hostname) || !/\/status(es)?\/\d+/.test(u.pathname)) return null;
+    return `https://publish.twitter.com/oembed?omit_script=true&dnt=true&url=${encodeURIComponent(`https://twitter.com${u.pathname}`)}`;
+  } catch { return null; }
+}
+
+/** The tweet's text and author from an oEmbed answer. Pure. */
+export function readTweet(json: string): { title: string | null; text: string } {
+  const o = JSON.parse(json) as { html?: string; author_name?: string };
+  const inner = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(o.html ?? '')?.[1] ?? '';
+  const text = readPage(`<p>${inner.replace(/<br\s*\/?>/gi, ' ')}</p>`).text;
+  return { title: o.author_name ? `Post by ${o.author_name}` : null, text };
+}
+
 /** Title and readable text from a page. Pure. */
 export function readPage(html: string): { title: string | null; text: string } {
   const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/\s+/g, ' ').trim() || null;
@@ -56,7 +78,7 @@ export function readPage(html: string): { title: string | null; text: string } {
   return { title, text: text.slice(0, MAX_TEXT) };
 }
 
-export async function safeFetch(raw: string, fetcher: typeof fetch = fetch, resolve?: (host: string) => Promise<string[]>): Promise<string> {
+export async function safeFetch(raw: string, fetcher: typeof fetch = fetch, resolve?: (host: string) => Promise<string[]>, allowJson = false): Promise<string> {
   let url = await checkUrl(raw, resolve);
   for (let hop = 0; hop <= 3; hop++) {
     const ctrl = new AbortController();
@@ -66,7 +88,7 @@ export async function safeFetch(raw: string, fetcher: typeof fetch = fetch, reso
       if (res.status >= 300 && res.status < 400 && res.headers.get('location')) { url = await checkUrl(new URL(res.headers.get('location')!, url).toString(), resolve); continue; }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const type = res.headers.get('content-type') ?? '';
-      if (!/text\/(html|plain)|application\/xhtml/.test(type)) throw new Error(`not a text page (${type})`);
+      if (!/text\/(html|plain)|application\/xhtml/.test(type) && !(allowJson && /application\/json/.test(type))) throw new Error(`not a text page (${type})`);
       const len = Number(res.headers.get('content-length') ?? 0);
       if (len > MAX_BYTES) throw new Error('page too large');
       const buf = await res.arrayBuffer();
@@ -97,7 +119,10 @@ export async function enrichPending(userId: string, options: { db?: typeof supab
   for (const item of (data ?? []) as Array<{ id: string; url: string; intent: string | null }>) {
     let update: Record<string, unknown>;
     try {
-      const page = readPage(await safeFetch(item.url, options.fetcher, options.resolve));
+      const oembed = tweetOembedUrl(item.url);
+      const page = oembed
+        ? readTweet(await safeFetch(oembed, options.fetcher, options.resolve, true))
+        : readPage(await safeFetch(item.url, options.fetcher, options.resolve));
       // A long page is read in full: each section noted, then described as a whole.
       let body = page.text;
       if (page.text.length > SECTION) {

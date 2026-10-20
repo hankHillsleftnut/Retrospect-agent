@@ -59,3 +59,13 @@ test('R1.2b: a long page is read in sections, then described as a whole', async 
   assert.equal(r.enriched, 1);
   assert.deepEqual([calls.filter((c) => c === 'part').length >= 2, calls[calls.length - 1]], [true, 'whole']);
 });
+
+import { tweetOembedUrl, readTweet } from '../src/reference/enrich';
+
+test('a tweet link is read through X\'s official embed endpoint, not the login-walled page', () => {
+  assert.match(tweetOembedUrl('https://x.com/someone/status/1234567890?s=20')!, /^https:\/\/publish\.twitter\.com\/oembed\?.*twitter\.com%2Fsomeone%2Fstatus%2F1234567890/);
+  assert.equal(tweetOembedUrl('https://x.com/someone'), null, 'a profile is not a tweet');
+  assert.equal(tweetOembedUrl('https://example.com/status/1'), null);
+  assert.deepEqual(readTweet(JSON.stringify({ author_name: 'Ada', html: '<blockquote class="twitter-tweet"><p lang="en">Ship small.<br>Ship often. <a href="https://t.co/x">pic.twitter.com/x</a></p>&mdash; Ada</blockquote>' })),
+    { title: 'Post by Ada', text: 'Ship small. Ship often. pic.twitter.com/x' });
+});
