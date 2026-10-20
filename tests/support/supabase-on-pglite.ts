@@ -109,7 +109,9 @@ class Query implements PromiseLike<Result> {
     const type = (await this.types(this.table)).get(column);
     if (!type) throw new Error(`supabase-on-pglite: ${this.table} has no column "${column}"`);
     const isJson = type === 'json' || type === 'jsonb';
-    return this.bind(isJson && v !== null && v !== undefined ? JSON.stringify(v) : v);
+    // pgvector (a user-defined type) takes "[1,2,3]", as PostgREST sends it.
+    const isVector = type === 'USER-DEFINED' && Array.isArray(v);
+    return this.bind((isJson || isVector) && v !== null && v !== undefined ? JSON.stringify(v) : v);
   }
 
   private whereSql() { return this.where.length ? ` WHERE ${this.where.join(' AND ')}` : ''; }

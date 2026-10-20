@@ -812,3 +812,10 @@ test('145: facts and answers are not crowded out by many matching items', async 
   assert.ok(rows.some((r) => r.kind === 'fact'), JSON.stringify(rows));
   assert.ok(rows.filter((r) => r.kind === 'item').length <= 10);
 });
+
+test('146: keyword search matches any word, so a rewritten query still finds what was written', async () => {
+  const s = await factSetup();
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'Signed up for the Oakland half marathon in November')`, [s.user]);
+  const { rows } = await db.query<{ snippet: string }>(`SELECT snippet FROM search_person($1, 'marathon registration race')`, [s.user]);
+  assert.ok(rows.some((r) => r.snippet.includes('half marathon')));
+});
