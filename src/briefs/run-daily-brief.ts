@@ -4,6 +4,7 @@
  * The judgement lives in daily-brief.ts; this is the plumbing.
  */
 
+import { dailyV2For, runDailyBriefV2 } from './run-daily-brief-v2';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { config } from '../config';
@@ -93,6 +94,8 @@ export async function runDailyBrief(
   userId: string,
   deps: { db?: typeof supabase; model?: BriefModel; modelName?: string; now?: Date; dryRun?: boolean } = {},
 ): Promise<BriefRun> {
+  // D1.4: the new daily path, per person, off by default.
+  if (dailyV2For(userId)) return runDailyBriefV2(userId, { db: deps.db, now: deps.now, dryRun: deps.dryRun });
   const db = deps.db ?? supabase;
   const now = deps.now ?? new Date();
   const modelName = deps.modelName ?? config.anthropic.questionsModel;
