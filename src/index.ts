@@ -7,6 +7,8 @@ import { runMaterialArrivals } from './jobs/material-arrivals';
 import { runOnboardingPipeline } from './jobs/onboarding-pipeline';
 import { runDailyBriefs } from './jobs/daily-brief';
 import { briefsRouter } from './routes/briefs';
+import { searchRouter } from './routes/search';
+import { settingsRouter } from './routes/settings';
 import { config } from './config';
 import { requireInternalSecret } from './middleware/internal-auth';
 import { healthRouter } from './routes/health';
@@ -47,6 +49,8 @@ app.get('/podcast-test', (_req, res) => {
 app.use('/ingest', requireInternalSecret, ingestRouter);
 app.use('/cook0', requireInternalSecret, cook0Router);
 app.use('/podcasts', requireInternalSecret, podcastsRouter);
+app.use('/search', requireInternalSecret, searchRouter);
+app.use('/settings', requireInternalSecret, settingsRouter);
 app.use('/preferences', requireInternalSecret, preferencesRouter);
 app.use('/feedback', requireInternalSecret, feedbackRouter);
 app.use('/onboarding', requireInternalSecret, onboardingRouter);
