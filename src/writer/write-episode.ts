@@ -14,6 +14,7 @@
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { guardSentences, type GuardModel } from './claim-guard';
+import { styleIssue } from './style';
 import type { EpisodePlan, PlanItem } from '../planner/plan';
 
 export interface OutlineSection { id: string; role: 'spine' | 'item' | 'question'; register: 'stated' | 'asked'; facts: string[] }
@@ -132,8 +133,10 @@ export async function writeEpisode(plan: EpisodePlan, options: { asOf: string; s
   flat.forEach((f, i) => {
     let target = sections[sections.length - 1];
     if (!target || target.id !== f.sec.id) { target = { id: f.sec.id, register: f.sec.register, kept: [], cut: [] }; sections.push(target); }
-    if (results[i]!.verdict === 'supported') target.kept.push(f.text);
-    else target.cut.push({ sentence: f.text, reason: results[i]!.reason });
+    // Goal 9: stock comfort and performed empathy are cut like unsupported claims.
+    const style = styleIssue(f.text);
+    if (results[i]!.verdict === 'supported' && !style) target.kept.push(f.text);
+    else target.cut.push({ sentence: f.text, reason: style ?? results[i]!.reason });
   });
   const kept = sections.reduce((n, s) => n + s.kept.length, 0);
   return {

@@ -12,6 +12,7 @@
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { guardSentences, type GuardModel } from './claim-guard';
+import { styleIssue } from './style';
 import { factLines } from './write-episode';
 import type { DailyPlan } from '../planner/daily';
 
@@ -59,12 +60,14 @@ export async function writeBrief(sections: BriefSection[], options: { asOf: stri
   const { results, usage: guardUsage } = lines.length
     ? await guardSentences(lines.map((l) => ({ text: l.text, evidence: l.facts })), options.guard, options.asOf)
     : { results: [], usage: { inputTokens: 0, outputTokens: 0 } };
-  const kept = lines.filter((_, i) => results[i]!.verdict === 'supported').map((l) => l.text);
+  // Goal 9: stock comfort and performed empathy are cut like unsupported claims.
+  const ok = (i: number) => results[i]!.verdict === 'supported' && !styleIssue(lines[i]!.text);
+  const kept = lines.filter((_, i) => ok(i)).map((l) => l.text);
   return {
     title: typeof data.title === 'string' ? data.title : 'Today',
     text: kept.join(' '),
     kept: kept.length,
-    cut: lines.flatMap((l, i) => (results[i]!.verdict === 'supported' ? [] : [{ sentence: l.text, reason: results[i]!.reason }])),
+    cut: lines.flatMap((l, i) => (ok(i) ? [] : [{ sentence: l.text, reason: styleIssue(l.text) ?? results[i]!.reason }])),
     usage: { writer: writerUsage, guard: guardUsage },
   };
 }
