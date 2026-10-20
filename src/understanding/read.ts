@@ -28,7 +28,7 @@ import { readAnswerMoves, type AnswerMove } from './answer-moves';
 export type Register = 'stated' | 'asked';
 
 export interface AnswerItem { kind: 'answer'; id: string; questionId: number; question: string; domainId: string; answer: string; confidence: number; sources: number; confirmed: boolean; register: Register; lastMovedAt: string | null }
-export interface PatternItem { kind: 'pattern'; id: string; label: string; instances: number; firstSeenAt: string | null; lastSeenAt: string | null; trajectory: TrajectoryResult['trajectory'] | null; trajectoryDetail: Partial<TrajectoryResult> | null; register: 'stated' }
+export interface PatternItem { kind: 'pattern'; id: string; label: string; /** Counted and decayed by the promoter. */ confidence: number; instances: number; firstSeenAt: string | null; lastSeenAt: string | null; trajectory: TrajectoryResult['trajectory'] | null; trajectoryDetail: Partial<TrajectoryResult> | null; register: 'stated' }
 export interface WhyItem { kind: 'why'; id: string; patternId: string; mechanism: string; confidence: number; register: 'asked'; /** Not past its gate: the founder allowed at most one per episode, asked (19 Oct). */ provisional: boolean }
 export interface GoalItem { kind: 'goal'; id: string; title: string; description: string | null; statedAt: string | null; register: 'stated' }
 
@@ -52,7 +52,7 @@ export interface ContractRows {
   questions: Array<{ id: number; domain_id: string; text: string }>;
   answers: Array<{ id: string; question_id: number; answer: string; user_verdict: string | null; last_moved_at: string | null }>;
   scores: Array<{ answer_id: string; confidence: number | string; independent_sources: number | string }>;
-  patterns: Array<{ id: string; label: string; status: string; episode_promotable: boolean; instance_count: number; first_seen_at: string | null; last_seen_at: string | null; trajectory: string | null; trajectory_detail: Partial<TrajectoryResult> | null }>;
+  patterns: Array<{ id: string; label: string; status: string; episode_promotable: boolean; confidence?: number | string | null; instance_count: number; first_seen_at: string | null; last_seen_at: string | null; trajectory: string | null; trajectory_detail: Partial<TrajectoryResult> | null }>;
   whys: Array<{ id: string; pattern_id: string; mechanism: string; confidence: number | string; status: string }>;
   goals: Array<{ id: string; title: string; description: string | null; created_at: string | null; is_active: boolean | null }>;
   summaries: DailySummary[];
@@ -87,7 +87,7 @@ export function assembleContract(userId: string, rows: ContractRows, today: stri
     answers: [...best.values()].sort((a, b) => a.questionId - b.questionId),
     silent: rows.coverage.filter((c) => !c.may_speak).map((c) => ({ domainId: c.domain_id, label: c.label })),
     patterns: rows.patterns.filter((p) => p.status === 'live' && p.episode_promotable).map((p) => ({
-      kind: 'pattern' as const, id: p.id, label: p.label, instances: p.instance_count, firstSeenAt: p.first_seen_at, lastSeenAt: p.last_seen_at,
+      kind: 'pattern' as const, id: p.id, label: p.label, confidence: Number(p.confidence ?? 0.5), instances: p.instance_count, firstSeenAt: p.first_seen_at, lastSeenAt: p.last_seen_at,
       trajectory: (p.trajectory as PatternItem['trajectory']) ?? null, trajectoryDetail: p.trajectory_detail, register: 'stated' as const,
     })),
     // Live whys, and provisional ones behind a live pattern: the founder allowed
@@ -120,7 +120,7 @@ export async function readUnderstanding(userId: string, db: typeof supabase = su
     q<ContractRows['questions']>(db.from(Tables.CANONICAL_QUESTIONS).select('id,domain_id,text'), 'questions'),
     q<ContractRows['answers']>(db.from(Tables.QUESTION_ANSWERS).select('id,question_id,answer,user_verdict,last_moved_at').eq('user_id', userId).eq('status', 'active'), 'answers'),
     q<ContractRows['scores']>(db.from(Tables.ANSWER_CONFIDENCE).select('answer_id,confidence,independent_sources').eq('user_id', userId), 'confidence'),
-    q<ContractRows['patterns']>(db.from(Tables.BEHAVIOR_PATTERNS).select('id,label,status,episode_promotable,instance_count,first_seen_at,last_seen_at,trajectory,trajectory_detail').eq('user_id', userId), 'patterns'),
+    q<ContractRows['patterns']>(db.from(Tables.BEHAVIOR_PATTERNS).select('id,label,status,episode_promotable,confidence,instance_count,first_seen_at,last_seen_at,trajectory,trajectory_detail').eq('user_id', userId), 'patterns'),
     q<ContractRows['whys']>(db.from(Tables.BEHAVIOR_PATTERN_WHYS).select('id,pattern_id,mechanism,confidence,status').eq('user_id', userId), 'whys'),
     q<ContractRows['goals']>(db.from(Tables.GOALS).select('id,title,description,created_at,is_active').eq('user_id', userId), 'goals'),
     q<DailySummary[]>(db.from(Tables.DAILY_SUMMARIES).select('day,domain,metrics,items,source_ids').eq('user_id', userId).gte('day', since), 'summaries'),
