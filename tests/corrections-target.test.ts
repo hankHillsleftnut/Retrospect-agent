@@ -28,3 +28,12 @@ test('a target number that is not among the candidates asks', async () => {
   const r = await handleCorrection('u', 'wrong', { candidates: cands, model: async () => ({ data: { correction: true, target: 9, sure: true }, usage: u }) });
   assert.equal(r.outcome, 'confirm');
 });
+
+test('a fact from their own words is asked about, never quietly overwritten', async () => {
+  const r = await handleCorrection('u', 'I never said that', {
+    candidates: cands, model: async () => ({ data: { correction: true, target: 2, sure: true }, usage: u }),
+    ownWords: async () => ({ quote: 'Family time matters most to me.', writtenOn: '2026-06-02' }),
+  });
+  assert.equal(r.outcome, 'ask_own_words');
+  assert.equal(r.outcome === 'ask_own_words' && r.writtenOn, '2026-06-02');
+});

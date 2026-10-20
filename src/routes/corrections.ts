@@ -20,10 +20,13 @@ correctionsRouter.post('/', async (req, res) => {
 
 const KINDS = new Set<ClaimKind>(['fact', 'answer', 'pattern', 'why']);
 
-/** POST /corrections/confirm { userId, kind, id, note? }: the person picked which claim they meant. */
+/**
+ * POST /corrections/confirm { userId, kind, id, note?, mode? }: the person picked which claim
+ * they meant. mode "changed" (true then, not now) retires it without blacklisting; "wrong" (default) rejects it.
+ */
 correctionsRouter.post('/confirm', async (req, res) => {
-  const { userId, kind, id, note } = req.body ?? {};
+  const { userId, kind, id, note, mode } = req.body ?? {};
   if (!userId || !KINDS.has(kind) || typeof id !== 'string') return res.status(400).json({ error: 'userId, kind and id required' });
-  try { const plan = await applyCorrection(userId, { kind, id }, { note: typeof note === 'string' ? note : undefined }); return res.json({ outcome: 'applied', retired: plan.retire.length }); }
+  try { const plan = await applyCorrection(userId, { kind, id }, { note: typeof note === 'string' ? note : undefined, mode: mode === 'changed' ? 'changed' : 'wrong' }); return res.json({ outcome: 'applied', retired: plan.retire.length }); }
   catch (err) { return res.status(500).json({ error: err instanceof Error ? err.message : String(err) }); }
 });

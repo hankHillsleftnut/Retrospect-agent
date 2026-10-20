@@ -71,13 +71,15 @@ export async function planCorrection(userId: string, target: { kind: ClaimKind; 
 }
 
 /** Retire what the plan says. `dryRun` returns the plan and writes nothing. */
-export async function applyCorrection(userId: string, target: { kind: ClaimKind; id: string }, options: { db?: Db; dryRun?: boolean; now?: Date; note?: string } = {}): Promise<RetractionPlan> {
+export async function applyCorrection(userId: string, target: { kind: ClaimKind; id: string }, options: { db?: Db; dryRun?: boolean; now?: Date; note?: string; mode?: 'wrong' | 'changed' } = {}): Promise<RetractionPlan> {
   const db = options.db ?? supabase;
   const plan = await planCorrection(userId, target, db);
   if (options.dryRun) return plan;
   const at = (options.now ?? new Date()).toISOString();
-  // Recorded first: if anything below fails, the claim still can't come back.
-  await recordRejection(userId, target, db, options.note);
+  // "Wrong" is recorded first, so if anything below fails the claim still can't come back.
+  // "Changed" was true until now: it retires as of today but isn't blacklisted,
+  // so if they say it again later it's believed again.
+  if (options.mode !== 'changed') await recordRejection(userId, target, db, options.note);
 
   for (const r of plan.retire) {
     const rejected = r.because === 'rejected';

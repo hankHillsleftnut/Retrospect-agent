@@ -82,3 +82,12 @@ test('re-derived to genuinely different words, the answer is live again and the 
   await p.answer(23, 'You want to bootstrap to profitability.', dk);
   assert.deepEqual(await row(`SELECT status, user_verdict FROM question_answers WHERE id = $1`, [a]), { status: 'active', user_verdict: null });
 });
+
+test('"it changed" retires the fact as of now without blacklisting it; said again later, it is believed again', async () => {
+  const p = await person();
+  const f = await p.fact('working at Figma');
+  await applyCorrection(p.user, { kind: 'fact', id: f }, { mode: 'changed' });
+  assert.equal((await row(`SELECT status FROM assertions WHERE id = $1`, [f])).status, 'retired');
+  assert.equal(Number((await row(`SELECT count(*) AS n FROM claim_rejections WHERE user_id = $1`, [p.user])).n), 0);
+  assert.equal((await row(`SELECT status FROM assertions WHERE id = $1`, [await p.fact('working at Figma')])).status, 'active');
+});
