@@ -52,6 +52,11 @@ export function sourceWeight(contentType: string): number {
       return 0.6;
     case 'calendar':
       return 0.4;
+    // One detected day from the daily summaries (W3.2): already aggregated
+    // to one per day, so worth more than a raw sensor row. Four days make a
+    // pattern at the standard bar (declared 19 Oct, before any data was seen).
+    case 'daily_summary':
+      return 0.5;
     case 'healthkit':
     case 'screen_time':
     case 'apple_music':
