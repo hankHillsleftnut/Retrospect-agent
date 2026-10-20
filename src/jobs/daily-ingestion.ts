@@ -2,6 +2,7 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runIngest } from '../pipelines/ingest';
 import { isAmbientOn, pendingSentIds } from '../ambient/switch';
+import { captureReferences } from '../reference/capture';
 import { SENT_TYPES } from '../planner/daily';
 import { refreshRecordBehaviour } from '../brain/record-patterns';
 import { placeUnrecognisedEvents } from '../brain/place-events';
@@ -30,6 +31,7 @@ export async function runDailyIngestion(): Promise<void> {
 
   for (const userId of userIds) {
     try {
+      await captureReferences(userId);
       if (!(await isAmbientOn(userId))) {
         // Ambient off: only what they sent is read; nothing else runs for them.
         const ids = await pendingSentIds(userId, SENT_TYPES);

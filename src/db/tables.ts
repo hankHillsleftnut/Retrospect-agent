@@ -63,5 +63,6 @@ export const Tables = {
   DAILY_BRIEFS: 'daily_briefs',
   DAILY_SUMMARIES: 'daily_summaries',
   EVENT_CATEGORIES: 'event_categories',
+  REFERENCE_ITEMS: 'reference_items',
   CLAIM_EDGES: 'claim_edges',
 } as const;

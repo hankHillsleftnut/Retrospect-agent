@@ -58,6 +58,7 @@ class Query implements PromiseLike<Result> {
   lt(c: string, v: unknown) { this.where.push(`${ident(c)} < ${this.bind(v)}`); return this; }
   lte(c: string, v: unknown) { this.where.push(`${ident(c)} <= ${this.bind(v)}`); return this; }
   like(c: string, v: string) { this.where.push(`${ident(c)} LIKE ${this.bind(v)}`); return this; }
+  ilike(c: string, v: string) { this.where.push(`${ident(c)} ILIKE ${this.bind(v)}`); return this; }
   is(c: string, v: null | boolean) {
     this.where.push(`${ident(c)} IS ${v === null ? 'NULL' : v ? 'TRUE' : 'FALSE'}`);
     return this;
