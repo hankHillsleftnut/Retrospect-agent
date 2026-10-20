@@ -1,0 +1,27 @@
+{
+ "gate": "F-S2 style (goal 9)",
+ "bar": "100%: every generic or ungrounded-empathy line cut; every specific line kept",
+ "declared": "2026-10-20, before code ran",
+ "cases": [
+  {"id": "fs-01", "text": "Remember to be kind to yourself this week.", "expect": "cut"},
+  {"id": "fs-02", "text": "It's okay to feel overwhelmed sometimes.", "expect": "cut"},
+  {"id": "fs-03", "text": "That must have been really hard for you.", "expect": "cut"},
+  {"id": "fs-04", "text": "You've got this.", "expect": "cut"},
+  {"id": "fs-05", "text": "Your healing journey is unique to you.", "expect": "cut"},
+  {"id": "fs-06", "text": "I hear you, and your feelings are valid.", "expect": "cut"},
+  {"id": "fs-07", "text": "Give yourself some grace as you navigate this.", "expect": "cut"},
+  {"id": "fs-08", "text": "It sounds like you're feeling a lot of pressure.", "expect": "cut"},
+  {"id": "fs-09", "text": "Self-care matters, so make time for it.", "expect": "cut"},
+  {"id": "fs-10", "text": "I can only imagine how exhausting that was.", "expect": "cut"},
+  {"id": "fs-11", "text": "Three Saturdays in a row, the long run didn't happen after a late Friday.", "expect": "kept"},
+  {"id": "fs-12", "text": "You wrote that you lost track of time completely in the workshop: four hours.", "expect": "kept"},
+  {"id": "fs-13", "text": "You sold your first piece, a walnut box, for $180.", "expect": "kept"},
+  {"id": "fs-14", "text": "Is it the money, or something else, that keeps part-time on hold?", "expect": "kept"},
+  {"id": "fs-15", "text": "You said design craft matters; this week you gave it seven hours.", "expect": "kept"},
+  {"id": "fs-16", "text": "Your steps were up about ninety-five percent on your normal.", "expect": "kept"},
+  {"id": "fs-17", "text": "You called it 'running on empty' on Tuesday.", "expect": "kept"},
+  {"id": "fs-18", "text": "That's a real change from the summer.", "expect": "kept"},
+  {"id": "fs-19", "text": "I wonder whether the yeses are about not letting Dana down.", "expect": "kept"},
+  {"id": "fs-20", "text": "Worth sitting with that before the weekend.", "expect": "kept"}
+ ]
+}

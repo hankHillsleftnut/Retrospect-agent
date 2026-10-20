@@ -55,3 +55,15 @@ test('W6.3: a woven script keeps spoken order; a "craft" line that claims someth
   assert.deepEqual(e.sections.map((s) => s.id), ['craft', 'pattern:gym', 'craft']);
   assert.equal(e.stats.cut, 2, 'the unsupported craft line and the unknown-section line');
 });
+
+test('goal 9: stock comfort is cut even when the guard finds no claim in it', async () => {
+  const e = await writeEpisode(plan, {
+    asOf: '2026-10-20',
+    writer: async () => ({ data: { title: 't', sections: [
+      { id: 'pattern:gym', sentences: ['Six times last month, once this month.', 'Remember to be kind to yourself.'] },
+    ] }, usage: { inputTokens: 1, outputTokens: 1 } }),
+    guard: async (_s, prompt) => ({ data: { sentences: prompt.split('SENTENCE ').slice(1).map((_c, i) => ({ i, claims: [], isQuestion: false })) }, usage: { inputTokens: 1, outputTokens: 1 } }),
+  });
+  assert.equal(e.sections[0]!.kept.length, 1);
+  assert.match(e.sections[0]!.cut[0]!.reason, /stock comfort/);
+});
