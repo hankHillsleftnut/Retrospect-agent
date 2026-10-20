@@ -25,6 +25,9 @@ export interface PlanCandidate {
   goalLinked?: boolean;
   /** Says the same thing as another candidate. */
   duplicateOf?: string;
+  /** Behaviour, content, time, goals...: the same lens overlaps a little, so an
+   *  episode isn't six patterns and nothing else (founder: the three lenses). */
+  lens?: string;
 }
 
 export const BAR = 0.3;
@@ -32,6 +35,9 @@ export const MOVED_BONUS = 0.1;
 export const GOAL_BONUS = 0.1;
 /** How much a second item on the same topic is worth relative to the first. */
 export const SAME_TOPIC_DISCOUNT = 0.5;
+/** Overlap between two items through the same lens. Found 20 Oct: without it,
+ *  21 live patterns pushed every shift, goal and content item past the cap. */
+export const SAME_LENS_OVERLAP = 0.35;
 
 export interface Plan { spine: string | null; selected: string[]; excluded: Record<string, string> }
 
@@ -41,7 +47,8 @@ export function quality(c: PlanCandidate): number {
 
 function similarity(a: PlanCandidate, b: PlanCandidate): number {
   if (a.duplicateOf === b.id || b.duplicateOf === a.id) return 1;
-  return a.topic === b.topic ? SAME_TOPIC_DISCOUNT : 0;
+  if (a.topic === b.topic) return SAME_TOPIC_DISCOUNT;
+  return a.lens && a.lens === b.lens ? SAME_LENS_OVERLAP : 0;
 }
 
 export function selectItems(candidates: PlanCandidate[], maxItems = 6): Plan {
@@ -54,8 +61,9 @@ export function selectItems(candidates: PlanCandidate[], maxItems = 6): Plan {
   while (remaining.length) {
     let best: PlanCandidate | null = null, bestValue = -1;
     for (const c of remaining) {
-      const overlap = chosen.reduce((m, x) => Math.max(m, similarity(c, x)), 0);
-      const value = quality(c) * (1 - overlap);
+      // Overlap accumulates, as in a determinantal process: each further item
+      // through the same lens is worth less than the last one was.
+      const value = chosen.reduce((v, x) => v * (1 - similarity(c, x)), quality(c));
       if (value > bestValue) { best = c; bestValue = value; }
     }
     if (!best) break;

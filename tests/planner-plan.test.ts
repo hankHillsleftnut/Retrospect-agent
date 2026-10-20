@@ -37,3 +37,21 @@ test('answers keep the register the contract gave them; shifts are stated with t
   assert.equal(byKind.answer!.register, 'asked');
   assert.deepEqual([byKind.shift!.facts.thisWeek, byKind.shift!.evidence], [5006, ['h1']]);
 });
+
+test('three lenses: many strong patterns do not crowd out a shift, a goal and content', () => {
+  const p = planEpisode(contract({
+    patterns: Array.from({ length: 8 }, (_, i) => pattern(`p${i}`, 0.85)),
+    shifts: [{ domain: 'health', metric: 'steps', label: 'steps', direction: 'up', recentMedian: 5006, baselineMedian: 2566, change: 0.95, p: 0.03, recentDays: 5, baselineDays: 25, sourceIds: [] }],
+  }), {
+    saidVsDid: [{ goalId: 'g', title: 'g', said: { statedAt: '2026-06-01', lastMentionedAt: null }, did: { hoursThisWeek: 7, hoursUsualWeek: 0, events: 3, contentItems: 1, patterns: [] }, evidence: ['e'] }],
+    content: [{ itemIds: ['a', 'b', 'c', 'd', 'e', 'f'], titles: [], goalIds: [], label: 'woodworking' }],
+  });
+  const kinds = new Set(p.items.map((i) => i.kind));
+  assert.ok(kinds.has('shift') && kinds.has('said_vs_did') && kinds.has('content'), [...kinds].join(','));
+  assert.ok(p.items.filter((i) => i.kind === 'pattern').length >= 2);
+});
+
+test('an "unclear" why is never the asked question', () => {
+  const p = planEpisode(contract({ patterns: [pattern('gym', 0.7, 'weakening')], whys: [{ kind: 'why', id: 'w', patternId: 'gym', mechanism: 'unclear', confidence: 0.9, register: 'asked', provisional: true }] }));
+  assert.equal(p.reflection, null);
+});
