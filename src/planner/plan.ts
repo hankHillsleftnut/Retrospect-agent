@@ -14,6 +14,7 @@
  * Silent domains never contribute. Every item carries its evidence ids.
  */
 
+import { weightFor, type ArmStat } from '../learning/reception';
 import type { UnderstandingContract, Register } from '../understanding/read';
 import type { SaidVsDid } from '../understanding/said-vs-did';
 import type { ContentGroup } from '../understanding/content-groups';
@@ -39,7 +40,7 @@ export interface EpisodePlan {
 
 interface Built { candidate: PlanCandidate; item: PlanItem }
 
-export function buildCandidates(c: UnderstandingContract, extras: { saidVsDid?: SaidVsDid[]; content?: ContentGroup[] } = {}): Built[] {
+export function buildCandidates(c: UnderstandingContract, extras: { saidVsDid?: SaidVsDid[]; content?: ContentGroup[]; learning?: ArmStat[] } = {}): Built[] {
   const moved = new Set(c.moves.items.map((m) => m.answerId));
   const out: Built[] = [];
   for (const p of c.patterns) {
@@ -51,8 +52,9 @@ export function buildCandidates(c: UnderstandingContract, extras: { saidVsDid?: 
   }
   for (const a of c.answers) {
     out.push({
-      candidate: { id: `answer:${a.id}`, topic: `question:${a.questionId}`, lens: 'understanding', strength: a.confidence, moved: moved.has(a.id) },
-      item: { id: `answer:${a.id}`, kind: 'answer', register: a.register, facts: { question: a.question, answer: a.answer, confidence: a.confidence, sources: a.sources, confirmedByYou: a.confirmed }, evidence: [a.id] },
+      // Goal 19: an asked answer competes a little more or less by how often this kind of question gets answered (0.8-1.2).
+      candidate: { id: `answer:${a.id}`, topic: `question:${a.questionId}`, lens: 'understanding', strength: a.register === 'asked' ? Math.min(1, a.confidence * weightFor(extras.learning, `answer:${a.domainId}`)) : a.confidence, moved: moved.has(a.id) },
+      item: { id: `answer:${a.id}`, kind: 'answer', register: a.register, facts: { question: a.question, answer: a.answer, confidence: a.confidence, sources: a.sources, confirmedByYou: a.confirmed, domainId: a.domainId }, evidence: [a.id] },
     });
   }
   for (const s of c.shifts) {

@@ -3,6 +3,7 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { masterOff } from '../ambient/switch';
 import { LEVELS, readAppetite, setStatedAppetite, type Level } from '../appetite/appetite';
+import { readLearning } from '../learning/reception';
 
 /** Per-person settings the app changes. */
 export const settingsRouter = Router();
@@ -34,5 +35,11 @@ settingsRouter.put('/:userId/appetite', async (req, res) => {
   const level = req.body?.level;
   if (!(level === null || [0, 1, 2, 3].includes(level))) return res.status(400).json({ error: 'level 0-3, or null' });
   try { return res.json({ ...(await setStatedAppetite(req.params.userId, level as Level | null)), levels: LEVELS }); }
+  catch (err) { return res.status(500).json({ error: err instanceof Error ? err.message : String(err) }); }
+});
+
+/** GET /settings/:userId/learning -- what it has learned about its own questions, and the last five snapshots (goal 19: visible). */
+settingsRouter.get('/:userId/learning', async (req, res) => {
+  try { return res.json({ ...(await readLearning(req.params.userId)), inUse: process.env.ENABLE_LEARNING === 'true' }); }
   catch (err) { return res.status(500).json({ error: err instanceof Error ? err.message : String(err) }); }
 });
