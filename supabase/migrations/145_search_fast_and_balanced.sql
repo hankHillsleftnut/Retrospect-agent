@@ -1,0 +1,56 @@
+-- 145: search, fast and balanced (S1.1, after measuring 144 on real data).
+-- Measured: ~2 s per query, nearly all of it turning ~2,700 items into search
+-- text on every call; and only raw items reached the top, because they're
+-- ranked by keyword AND meaning while facts and answers have keywords only.
+-- Now: a keyword index on raw_content, and per-kind quotas so the distilled
+-- things (facts, answers, saved links) are never crowded out.
+CREATE INDEX IF NOT EXISTS idx_raw_content_fts ON raw_content USING gin (to_tsvector('english', coalesce(content, '')));
+
+CREATE OR REPLACE FUNCTION search_person(p_user UUID, p_query TEXT, p_embedding vector DEFAULT NULL, p_limit INTEGER DEFAULT 20)
+RETURNS TABLE (kind TEXT, id UUID, snippet TEXT, happened_at TIMESTAMPTZ, score DOUBLE PRECISION)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  WITH q AS (SELECT websearch_to_tsquery('english', p_query) AS tsq),
+  kw_items AS (
+    SELECT 'item'::TEXT AS kind, r.id, row_number() OVER (ORDER BY ts_rank_cd(to_tsvector('english', coalesce(r.content, '')), q.tsq) DESC) AS rnk
+      FROM raw_content r, q
+     WHERE r.user_id = p_user AND to_tsvector('english', coalesce(r.content, '')) @@ q.tsq
+     LIMIT 100
+  ),
+  others AS (
+    SELECT 'fact'::TEXT AS kind, a.id, replace(a.predicate, '_', ' ') || ': ' || coalesce(a.object_value->>'raw', a.object_value->>'normalized', '') AS body, coalesce(a.event_time, a.observed_at) AS happened_at
+      FROM assertions a WHERE a.user_id = p_user AND a.status = 'active' AND a.valid_to IS NULL
+    UNION ALL
+    SELECT 'answer', qa.id, cq.text || ' ' || qa.answer, qa.last_moved_at
+      FROM question_answers qa JOIN canonical_questions cq ON cq.id = qa.question_id
+     WHERE qa.user_id = p_user AND qa.status = 'active' AND qa.user_verdict IS DISTINCT FROM 'rejected'
+    UNION ALL
+    SELECT 'saved', ri.id, coalesce(ri.title, '') || ' ' || coalesce(ri.summary, '') || ' ' || coalesce(ri.intent, '') || ' ' || ri.url, ri.created_at
+      FROM reference_items ri WHERE ri.user_id = p_user
+  ),
+  kw_others AS (
+    SELECT o.kind, o.id, row_number() OVER (PARTITION BY o.kind ORDER BY ts_rank_cd(to_tsvector('english', o.body), q.tsq) DESC) AS rnk
+      FROM others o, q WHERE to_tsvector('english', o.body) @@ q.tsq
+  ),
+  sem AS (
+    SELECT 'item'::TEXT AS kind, r.id, row_number() OVER (ORDER BY r.embedding <=> p_embedding) AS rnk
+      FROM raw_content r
+     WHERE p_embedding IS NOT NULL AND r.user_id = p_user AND r.embedding IS NOT NULL
+     ORDER BY r.embedding <=> p_embedding LIMIT 100
+  ),
+  fused AS (
+    SELECT kind, id, sum(1.0 / (60 + rnk)) AS score
+      FROM (SELECT * FROM kw_items UNION ALL SELECT * FROM kw_others UNION ALL SELECT * FROM sem) x GROUP BY kind, id
+  ),
+  ranked AS (
+    SELECT f.*, row_number() OVER (PARTITION BY f.kind ORDER BY f.score DESC) AS kind_rank FROM fused f
+  )
+  SELECT r.kind, r.id,
+         left(coalesce((SELECT rc.content FROM raw_content rc WHERE rc.id = r.id AND r.kind = 'item'), (SELECT o.body FROM others o WHERE o.id = r.id AND o.kind = r.kind)), 400),
+         coalesce((SELECT rc.created_at FROM raw_content rc WHERE rc.id = r.id AND r.kind = 'item'), (SELECT o.happened_at FROM others o WHERE o.id = r.id AND o.kind = r.kind)),
+         r.score
+    FROM ranked r
+   WHERE r.kind_rank <= CASE r.kind WHEN 'item' THEN 10 ELSE 5 END
+   ORDER BY r.score DESC LIMIT p_limit;
+$$;
+REVOKE ALL ON FUNCTION search_person(UUID, TEXT, vector, INTEGER) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION search_person(UUID, TEXT, vector, INTEGER) TO service_role;

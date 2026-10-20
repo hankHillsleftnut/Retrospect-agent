@@ -787,3 +787,28 @@ test('142: a link is stored once per message; app roles are shut out', async () 
   const { rows } = await db.query<{ anon: boolean }>(`SELECT has_table_privilege('anon', 'reference_items', 'SELECT') AS anon`);
   assert.equal(rows[0]!.anon, false);
 });
+
+// ── 144–145: hybrid search (S1.1) ───────────────────────────────────────────
+test('144: search finds a person\'s items, facts and saved links by keyword, and never another person\'s', async () => {
+  const s = await factSetup();
+  const other = await insertUser(db);
+  await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', 'Talked to Priya about the seed round'), ($2, 'journal_entry', 'My own seed round notes')`, [s.user, other]);
+  await writeFact(fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }]));
+  const rc = (await db.query<{ id: string }>(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'text_entry', 'x') RETURNING id`, [s.user])).rows[0]!.id;
+  await db.query(`INSERT INTO reference_items (user_id, raw_content_id, url, title, intent) VALUES ($1, $2, 'https://a.com', 'Pricing handmade furniture', 'for the side business')`, [s.user, rc]);
+  const find = async (q: string) => (await db.query<{ kind: string; snippet: string }>(`SELECT kind, snippet FROM search_person($1, $2)`, [s.user, q])).rows;
+  assert.ok((await find('seed round')).some((r) => r.kind === 'item' && r.snippet.includes('Priya')));
+  assert.ok(!(await find('seed round')).some((r) => r.snippet.includes('My own')), 'another person\'s notes never appear');
+  assert.deepEqual([...new Set((await find('standup')).map((r) => r.kind))].sort(), ['fact', 'item'], 'the entry and the fact drawn from it');
+  assert.equal((await find('furniture'))[0]!.kind, 'saved');
+  assert.deepEqual(await find('zebra'), []);
+});
+
+test('145: facts and answers are not crowded out by many matching items', async () => {
+  const s = await factSetup();
+  for (let i = 0; i < 15; i++) await db.query(`INSERT INTO raw_content (user_id, content_type, content) VALUES ($1, 'journal_entry', $2)`, [s.user, `standup again ${i}`]);
+  await writeFact(fact(s, [{ raw_content_id: s.entry, excerpt: 'I skipped standup' }]));
+  const { rows } = await db.query<{ kind: string }>(`SELECT kind FROM search_person($1, 'standup', NULL, 12)`, [s.user]);
+  assert.ok(rows.some((r) => r.kind === 'fact'), JSON.stringify(rows));
+  assert.ok(rows.filter((r) => r.kind === 'item').length <= 10);
+});
