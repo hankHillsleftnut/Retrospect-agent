@@ -10,8 +10,7 @@ import type { Request, Response, NextFunction } from 'express';
  *
  * Routes NOT protected by this middleware:
  *   - /health (uptime checks)
- *   - /runs (developer-only dashboard; the service is deployed as a Render
- *           private service so this isn't reachable from the public internet anyway)
+ * /runs uses requireInternalSecretOrLocalDev below.
  */
 export function requireInternalSecret(
   req: Request,
@@ -32,4 +31,24 @@ export function requireInternalSecret(
     return;
   }
   next();
+}
+
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+
+/**
+ * For the developer /runs dashboard (per-user cost, traces). It used to be open,
+ * relying on the service being private on Render; one misconfigured deploy would
+ * have exposed every user's run history (M14 B0.7). Now it needs the internal
+ * secret, except from the developer's own machine when not in production, where
+ * the browser dashboard (src/public/runs-dashboard.html) has no way to send it.
+ */
+export function requireInternalSecretOrLocalDev(req: Request, res: Response, next: NextFunction): void {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const remote = req.socket?.remoteAddress ?? '';
+  const forwarded = req.header('x-forwarded-for');
+  if (!isProduction && LOOPBACK.has(remote) && !forwarded) {
+    next();
+    return;
+  }
+  requireInternalSecret(req, res, next);
 }
