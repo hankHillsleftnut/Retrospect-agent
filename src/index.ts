@@ -10,7 +10,7 @@ import { briefsRouter } from './routes/briefs';
 import { searchRouter } from './routes/search';
 import { settingsRouter } from './routes/settings';
 import { config } from './config';
-import { requireInternalSecret } from './middleware/internal-auth';
+import { requireInternalSecret, requireInternalSecretOrLocalDev } from './middleware/internal-auth';
 import { healthRouter } from './routes/health';
 import { ingestRouter } from './routes/ingest';
 import { cook0Router } from './routes/cook0';
@@ -39,11 +39,10 @@ app.use(express.json({ limit: '10mb' }));
 const publicDir = path.join(__dirname, 'public');
 app.use('/public', express.static(publicDir));
 
-// Open routes (no auth): health checks + the developer-only /runs dashboard.
-// /runs is not exposed publicly because the service is deployed as a Render
-// private service (see render.yaml). In local dev it's reachable at localhost.
+// Open route: health checks. The developer /runs dashboard needs the internal
+// secret, except from localhost outside production (M14 B0.7).
 app.use('/health', healthRouter);
-app.use('/runs', runsRouter);
+app.use('/runs', requireInternalSecretOrLocalDev, runsRouter);
 
 app.get('/podcast-test', (_req, res) => {
   res.sendFile(path.join(publicDir, 'podcast-test.html'));
