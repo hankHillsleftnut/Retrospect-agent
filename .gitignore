@@ -2,6 +2,8 @@ node_modules/
 dist/
 .env
 .env.local
+# Local staging values; only the .example is committed
+.env.staging
 .DS_Store
 *.log
 scripts/outputs/

@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "dev:staging": "tsx watch --env-file=.env.staging src/index.ts",
     "build": "tsc -p tsconfig.build.json && cp -r src/public dist/src/public",
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit",
@@ -30,6 +31,7 @@
     "health": "tsx scripts/health.ts",
     "db:check": "tsx scripts/schema-check.ts",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:migrate:staging": "tsx --env-file=.env.staging scripts/migrate.ts",
     "questions:first-pass": "tsx scripts/questions-first-pass.ts",
     "bank:score": "tsx scripts/bank-score.ts",
     "import:transcript": "tsx scripts/import-transcript.ts",
