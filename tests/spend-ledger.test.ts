@@ -186,7 +186,8 @@ test('over the cap a model route is refused and a read is not', async () => {
 
 test("one person's spending never refuses another", async () => {
   const heavy = await insertUser(db), light = await insertUser(db);
-  await trace(heavy, 20);
+  // Seeded through the ledger itself, so this guards the ledger read's user scope.
+  await recordSpend(heavy, 'search', usageLines([{ model: config.anthropic.writerModel, usage: { inputTokens: 5_000_000, outputTokens: 1_000_000 } }]), { now: NOW });
   assert.equal((await call('POST', '/conversation', { userId: light, text: 'hi' })).status, 200);
   assert.equal((await call('POST', '/conversation', { userId: heavy, text: 'hi' })).status, 429);
 });
@@ -210,20 +211,38 @@ test('the staging cap stops everyone in staging only', async () => {
   const a = await insertUser(db), b = await insertUser(db), c = await insertUser(db);
   await trace(a, 2);
   await trace(b, 2);
+  // The database is shared with the other tests here, so the project total is read, not assumed.
+  const project = (await projectSpendSince(hoursAgo(24))).totalUsd;
+  assert.ok(project >= 4, 'a and b are in the project total');
   const staging = { RETROSPECT_ENV: 'staging', STAGING_DAILY_CAP_USD: '3' } as NodeJS.ProcessEnv;
-  assert.equal((await projectSpendSince(hoursAgo(24))).totalUsd >= 4, true);
   const refused = await checkDailySpend(c, { capUsd: 15, now: NOW, env: staging });
   assert.equal(refused.allowed, false);
   if (!refused.allowed) {
     assert.equal(refused.scope, 'project');
-    assert.equal(refused.spentUsd, 0, "c's own spend is still zero");
+    assert.equal(refused.spentUsd, project, "the project's figure, not c's own zero");
+    assert.equal(refused.capUsd, 3, 'the project cap, not the per-person one');
     assert.match(refused.message, /Staging limit reached/);
   }
   // The same numbers outside staging, or with no staging cap set, refuse nobody.
   assert.equal((await checkDailySpend(c, { capUsd: 15, now: NOW, env: { RETROSPECT_ENV: 'production', STAGING_DAILY_CAP_USD: '3' } })).allowed, true);
   assert.equal((await checkDailySpend(c, { capUsd: 15, now: NOW, env: { RETROSPECT_ENV: 'staging' } })).allowed, true);
   // Under the project cap, staging lets people through.
-  assert.equal((await checkDailySpend(c, { capUsd: 15, now: NOW, env: { RETROSPECT_ENV: 'staging', STAGING_DAILY_CAP_USD: '50' } })).allowed, true);
+  assert.equal((await checkDailySpend(c, { capUsd: 15, now: NOW, env: { RETROSPECT_ENV: 'staging', STAGING_DAILY_CAP_USD: String(Math.ceil(project) + 50) } })).allowed, true);
+});
+
+test('a busy day of more than a thousand rows is summed in full', async () => {
+  // PostgREST (and the fake) answer at most 1,000 rows per request; 1,001 cents must still add up to over $10.
+  const userId = await insertUser(db);
+  await db.query(
+    `INSERT INTO spend_ledger (user_id, at, kind, usd, model) SELECT $1, $2::timestamptz, 'search', 0.01, 'm' FROM generate_series(1, 1001)`,
+    [userId, hoursAgo(1)],
+  );
+  const s = await spendSince(userId, hoursAgo(24));
+  assert.equal(Number(s.totalUsd.toFixed(2)), 10.01);
+  // A cap between the first page's $10.00 and the true $10.01: a read of one page alone would let this through.
+  assert.equal((await checkDailySpend(userId, { capUsd: 10.005, now: NOW })).allowed, false, 'the cap is not missed');
+  const project = await projectSpendSince(hoursAgo(24));
+  assert.ok(project.totalUsd >= 10.01, 'the project read pages too');
 });
 
 test('the staging refusal is a 429 at the door too', async () => {

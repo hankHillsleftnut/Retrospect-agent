@@ -20,6 +20,7 @@
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { envInt } from '../services/token-budget';
+import { selectAll } from '../db/paged';
 
 /** Dollars per person per rolling 24 hours. USER_DAILY_SPEND_CAP_USD overrides; 0 turns the ceiling off. */
 export const DAILY_SPEND_CAP_USD = envInt('USER_DAILY_SPEND_CAP_USD', 15);
@@ -45,23 +46,36 @@ function sumSources(traces: TraceRow[], research: ResearchRow[], ledger: LedgerR
   return { byKind, totalUsd };
 }
 
-export async function spendSince(userId: string, since: string, db: typeof supabase = supabase): Promise<SpendSummary> {
-  const [{ data: traces }, { data: research }, { data: ledger }] = await Promise.all([
-    db.from(Tables.PIPELINE_RUN_TRACES).select('kind,cost_breakdown').eq('user_id', userId).gte('started_at', since),
-    db.from(Tables.QUESTION_RESEARCH_LOG).select('cost_usd').eq('user_id', userId).gte('researched_at', since),
-    db.from(Tables.SPEND_LEDGER).select('kind,usd').eq('user_id', userId).gte('at', since),
+/**
+ * The three sources, read in full. PostgREST answers at most 1,000 rows per
+ * request, so every read pages (db/paged.ts); a sum over the first page alone
+ * would silently undercount a busy day, and the staging cap most of all.
+ */
+async function readSources(since: string, db: typeof supabase, userId?: string) {
+  const [traces, research, ledger] = await Promise.all([
+    selectAll<TraceRow>((f, t) => {
+      const q = db.from(Tables.PIPELINE_RUN_TRACES).select('kind,cost_breakdown').gte('started_at', since).order('id').range(f, t);
+      return userId ? q.eq('user_id', userId) : q;
+    }),
+    selectAll<ResearchRow>((f, t) => {
+      const q = db.from(Tables.QUESTION_RESEARCH_LOG).select('cost_usd').gte('researched_at', since).order('id').range(f, t);
+      return userId ? q.eq('user_id', userId) : q;
+    }),
+    selectAll<LedgerRow>((f, t) => {
+      const q = db.from(Tables.SPEND_LEDGER).select('kind,usd').gte('at', since).order('id').range(f, t);
+      return userId ? q.eq('user_id', userId) : q;
+    }),
   ]);
-  return { userId, since, ...sumSources((traces ?? []) as TraceRow[], (research ?? []) as ResearchRow[], (ledger ?? []) as LedgerRow[]) };
+  return sumSources(traces, research, ledger);
+}
+
+export async function spendSince(userId: string, since: string, db: typeof supabase = supabase): Promise<SpendSummary> {
+  return { userId, since, ...(await readSources(since, db, userId)) };
 }
 
 /** Everyone's spending since `since`: the staging project cap. */
 export async function projectSpendSince(since: string, db: typeof supabase = supabase): Promise<{ since: string; byKind: Record<string, number>; totalUsd: number }> {
-  const [{ data: traces }, { data: research }, { data: ledger }] = await Promise.all([
-    db.from(Tables.PIPELINE_RUN_TRACES).select('kind,cost_breakdown').gte('started_at', since),
-    db.from(Tables.QUESTION_RESEARCH_LOG).select('cost_usd').gte('researched_at', since),
-    db.from(Tables.SPEND_LEDGER).select('kind,usd').gte('at', since),
-  ]);
-  return { since, ...sumSources((traces ?? []) as TraceRow[], (research ?? []) as ResearchRow[], (ledger ?? []) as LedgerRow[]) };
+  return { since, ...(await readSources(since, db)) };
 }
 
 /** The project-wide ceiling, only in staging. 0 or unset means none. */
@@ -96,10 +110,11 @@ export async function checkDailySpend(
   if (projectCap > 0) {
     const project = await projectSpendSince(since, options.db);
     if (project.totalUsd >= projectCap) {
+      // The figures are the project's: that is the ceiling that was hit.
       return {
         allowed: false,
-        spentUsd: totalUsd,
-        capUsd,
+        spentUsd: project.totalUsd,
+        capUsd: projectCap,
         scope: 'project',
         message: `Staging limit reached: $${project.totalUsd.toFixed(2)} of $${projectCap} across everyone in the last 24 hours.`,
       };
