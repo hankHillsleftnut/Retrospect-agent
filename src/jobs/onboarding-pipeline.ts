@@ -3,12 +3,18 @@ import { Tables } from '../db/tables';
 import { runFirstPass } from '../questions/run-first-pass';
 import { runPodcast } from '../pipelines/podcast';
 import { checkDailySpend } from '../pipelines/spend-guard';
+import { recordSpend } from '../pipelines/spend-ledger';
 import { advanceOnboarding, loadOnboardingFacts, type AdvanceDeps } from '../onboarding/pipeline';
 
 /** The real steps behind advanceOnboarding. */
 export const defaultAdvanceDeps: AdvanceDeps = {
   loadFacts: (userId) => loadOnboardingFacts(userId),
-  firstPass: (userId) => runFirstPass(userId),
+  // The first pass writes answers but no trace: its cost goes to the ledger (BEA.4). Episodes trace themselves.
+  firstPass: async (userId) => {
+    const report = await runFirstPass(userId);
+    await recordSpend(userId, 'first_pass', report.cost);
+    return report;
+  },
   makeEpisode: (userId) => runPodcast({ userId, triggeredBy: 'cron', notes: 'first episode (onboarding pipeline)' }),
   mayMakeEpisode: async (userId) => (await checkDailySpend(userId)).allowed,
 };
