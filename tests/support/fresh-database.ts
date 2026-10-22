@@ -35,6 +35,16 @@ const SUPABASE_ENVIRONMENT = `
   DO $$ BEGIN CREATE ROLE anon; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   DO $$ BEGIN CREATE ROLE authenticated; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
   DO $$ BEGIN CREATE ROLE service_role; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  -- Supabase's service_role bypasses row-level security; without this, RLS would
+  -- hide every row from a test that switches to it.
+  ALTER ROLE service_role BYPASSRLS;
+  -- Supabase gives service_role every privilege on what the migrations create,
+  -- unless a migration revokes it (121 does, for answers). Mirrored here so a
+  -- test that runs SET ROLE service_role sees production's permissions (BEA.1).
+  GRANT USAGE ON SCHEMA public TO service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
   CREATE SCHEMA IF NOT EXISTS storage;
   CREATE TABLE IF NOT EXISTS storage.buckets (
     id text PRIMARY KEY, name text, public boolean, owner uuid,

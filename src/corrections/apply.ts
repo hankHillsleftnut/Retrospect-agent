@@ -21,24 +21,6 @@ export function answerClaimKey(questionId: number, answer: string | null): strin
   return `${questionId}|${(answer ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
 }
 
-/** Remember what the person rejected, so no later write can bring it back (migration 148). */
-async function recordRejection(userId: string, target: { kind: ClaimKind; id: string }, db: Db, note?: string): Promise<void> {
-  let claimKey: string | null = null;
-  if (target.kind === 'fact') {
-    const { data } = await db.from('assertions').select('predicate,object_entity_id,object_value').eq('id', target.id).eq('user_id', userId).maybeSingle();
-    const f = data as { predicate: string; object_entity_id: string | null; object_value: { normalized?: unknown; raw?: unknown } | null } | null;
-    if (f) claimKey = factClaimKey(f.predicate, f.object_entity_id, f.object_value);
-  } else if (target.kind === 'answer') {
-    const { data } = await db.from('question_answers').select('question_id,answer').eq('id', target.id).eq('user_id', userId).maybeSingle();
-    const a = data as { question_id: number; answer: string | null } | null;
-    if (a) claimKey = answerClaimKey(a.question_id, a.answer);
-  }
-  // Patterns and whys are already never resurrected by their writers (status user_rejected).
-  if (!claimKey) return;
-  const { error } = await db.from('claim_rejections').upsert({ user_id: userId, claim_kind: target.kind, claim_key: claimKey, source_id: target.id, note: note ?? null }, { onConflict: 'user_id,claim_kind,claim_key' });
-  if (error) throw new Error(`recordRejection: ${error.message}`);
-}
-
 /** Claims already out of play (retired, rejected, superseded): they can't count as support. */
 async function inactiveClaims(userId: string, db: Db): Promise<Set<string>> {
   const out = new Set<string>();
@@ -70,39 +52,50 @@ export async function planCorrection(userId: string, target: { kind: ClaimKind; 
   return planRetraction(target, await currentEdges(userId, db), await inactiveClaims(userId, db));
 }
 
-/** Retire what the plan says. `dryRun` returns the plan and writes nothing. */
+/** Ids of the answer evidence a weakened answer loses: its live rows resting on the dropped facts or patterns. */
+async function droppedEvidenceIds(userId: string, plan: RetractionPlan, db: Db): Promise<string[]> {
+  const ids: string[] = [];
+  for (const w of plan.weaken.filter((x) => x.claim.kind === 'answer')) {
+    for (const kind of ['fact', 'pattern'] as const) {
+      const dropped = w.dropped.filter((d) => d.kind === kind).map((d) => d.id);
+      for (const part of chunks(dropped)) {
+        const { data, error } = await db.from('answer_evidence').select('id')
+          .eq('user_id', userId).eq('answer_id', w.claim.id)
+          .in(kind === 'fact' ? 'assertion_id' : 'pattern_id', part).is('retired_at', null);
+        if (error) throw new Error(`applyCorrection: answer evidence ${w.claim.id}: ${error.message}`);
+        ids.push(...((data ?? []) as Array<{ id: string }>).map((r) => r.id));
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Retire what the plan says. `dryRun` returns the plan and writes nothing.
+ *
+ * Every write happens in one call to apply_correction (migration 152), so in
+ * one transaction: the rejection, the retirements and the dropped evidence
+ * land together or not at all. Answers and their evidence are written only
+ * through that function, as migration 121 requires; the service role can't
+ * update those tables directly.
+ */
 export async function applyCorrection(userId: string, target: { kind: ClaimKind; id: string }, options: { db?: Db; dryRun?: boolean; now?: Date; note?: string; mode?: 'wrong' | 'changed' } = {}): Promise<RetractionPlan> {
   const db = options.db ?? supabase;
   const plan = await planCorrection(userId, target, db);
   if (options.dryRun) return plan;
-  const at = (options.now ?? new Date()).toISOString();
-  // "Wrong" is recorded first, so if anything below fails the claim still can't come back.
-  // "Changed" was true until now: it retires as of today but isn't blacklisted,
-  // so if they say it again later it's believed again.
-  if (options.mode !== 'changed') await recordRejection(userId, target, db, options.note);
-
-  for (const r of plan.retire) {
-    const rejected = r.because === 'rejected';
-    const write = r.kind === 'fact'
-      ? db.from('assertions').update({ status: 'retired', valid_to: at }).eq('id', r.id).eq('user_id', userId)
-      : r.kind === 'pattern'
-        ? db.from('behavior_patterns').update({ status: rejected ? 'user_rejected' : 'retired' }).eq('id', r.id).eq('user_id', userId)
-        : r.kind === 'why'
-          ? db.from('behavior_pattern_whys').update({ status: rejected ? 'user_rejected' : 'retired', retired_at: at, retirement_reason: rejected ? 'rejected by the person' : 'its support was corrected away' }).eq('id', r.id).eq('user_id', userId)
-          : db.from('question_answers').update({ status: 'retired', retired_at: at, ...(rejected ? { user_verdict: 'rejected', verdict_at: at } : {}) }).eq('id', r.id).eq('user_id', userId);
-    const { error } = await write;
-    if (error) throw new Error(`applyCorrection: ${r.kind} ${r.id}: ${error.message}`);
-  }
-
-  // Answers that survive lose the rejected evidence, so their confidence is recomputed from what's left.
-  for (const w of plan.weaken.filter((x) => x.claim.kind === 'answer')) {
-    for (const kind of ['fact', 'pattern'] as const) {
-      const ids = w.dropped.filter((d) => d.kind === kind).map((d) => d.id);
-      for (const part of chunks(ids)) {
-        const { error } = await db.from('answer_evidence').update({ retired_at: at }).eq('answer_id', w.claim.id).in(kind === 'fact' ? 'assertion_id' : 'pattern_id', part).is('retired_at', null);
-        if (error) throw new Error(`applyCorrection: answer evidence ${w.claim.id}: ${error.message}`);
-      }
-    }
-  }
+  const { error } = await db.rpc('apply_correction', {
+    p: {
+      user_id: userId,
+      at: (options.now ?? new Date()).toISOString(),
+      // "Wrong" records the rejection so the claim can't come back; "changed"
+      // was true until now: it retires as of today but isn't blacklisted.
+      mode: options.mode === 'changed' ? 'changed' : 'wrong',
+      note: options.note ?? null,
+      target,
+      retire: plan.retire.map((r) => ({ kind: r.kind, id: r.id, rejected: r.because === 'rejected' })),
+      evidence_ids: await droppedEvidenceIds(userId, plan, db),
+    },
+  });
+  if (error) throw new Error(`applyCorrection: ${error.code ?? 'failed'}`);
   return plan;
 }
