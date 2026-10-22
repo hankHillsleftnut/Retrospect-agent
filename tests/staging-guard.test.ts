@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { freshDatabase } from './support/fresh-database';
-import { assertOnlyTestUsers, loadStagingEnv, stagingTls, type Executor } from '../src/db/staging-guard';
+import { assertOnlyTestUsers, loadStagingEnv, type Executor } from '../src/db/staging-guard';
 
 const STAGING_FILE = [
   'RETROSPECT_ENV=staging',
@@ -30,11 +30,6 @@ test('a variable missing from the staging file is refused, never inherited', () 
   assert.equal(env.DATABASE_URL, 'postgres://production.invalid/db', 'nothing was changed');
   assert.throws(() => loadStagingEnv('.env.staging', {}, () => STAGING_FILE.replace('=staging', '=production')), /not "staging"/);
   assert.throws(() => loadStagingEnv('.env.staging', {}, () => { throw new Error('ENOENT'); }), /could not read/);
-});
-
-test('the staging connection is verified against the CA certificate, never unverified', () => {
-  assert.throws(() => stagingTls({}), /DATABASE_CA_CERT is not set/);
-  assert.deepEqual(stagingTls({ DATABASE_CA_CERT: '/ca.crt' }, (p) => `cert at ${p}`), { ca: 'cert at /ca.crt', rejectUnauthorized: true });
 });
 
 test('a database with a real user is refused; only test users, or no users table, is staging', async () => {

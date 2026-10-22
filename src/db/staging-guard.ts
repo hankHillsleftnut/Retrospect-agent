@@ -10,8 +10,8 @@
  * 2. The file must say RETROSPECT_ENV=staging.
  * 3. assertOnlyTestUsers: the database itself is checked. Any user who isn't a
  *    `dev-test-user:` account means it isn't staging, whatever the env says.
- * 4. stagingTls: the connection is verified against Supabase's CA certificate
- *    (DATABASE_CA_CERT), never unverified.
+ * 4. The connection is verified against Supabase's CA certificate
+ *    (DATABASE_CA_CERT), as every db:migrate connection is (src/db/tls.ts).
  */
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -54,8 +54,3 @@ export async function assertOnlyTestUsers(db: Executor): Promise<void> {
   if (n > 0) throw new Error(`Refusing to run: this database has ${n} users who are not test accounts, so it is not staging.`);
 }
 
-export function stagingTls(env: NodeJS.ProcessEnv, read: (path: string) => string = (p) => readFileSync(p, 'utf8')) {
-  const path = env.DATABASE_CA_CERT;
-  if (!path) throw new Error('DATABASE_CA_CERT is not set: point it at the Supabase CA certificate');
-  return { ca: read(path), rejectUnauthorized: true };
-}
