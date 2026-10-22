@@ -92,7 +92,7 @@ async function runPersona(p: Persona) {
     for (const c of a?.cites ?? []) {
       const claim = claimOf.get(c);
       if (!claim) continue;
-      for (const s of (await walkEvidence(claim)).sources) { const item = itemByRow.get(s.id); if (item) cited.add(item); }
+      for (const s of (await walkEvidence(user, claim)).sources) { const item = itemByRow.get(s.id); if (item) cited.add(item); }
     }
     verdicts.push({ ...scoreOne(q, a, cited), question: q.question, expected: q.abstain ? '(abstain)' : q.answer, got: a ? (a.abstain ? `(abstain) ${a.answer}` : a.answer) : '(none)' });
   }

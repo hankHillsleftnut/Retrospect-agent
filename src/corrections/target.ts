@@ -40,7 +40,7 @@ export type CorrectionResult =
 /** If a fact came from the person's own words, the words and when they wrote them. */
 export async function ownWordsBehind(userId: string, target: { kind: ClaimKind; id: string }, db: typeof supabase = supabase): Promise<{ quote: string; writtenOn: string | null } | null> {
   if (target.kind !== 'fact') return null;
-  const ids = (await walkEvidence(target, db)).sources.filter((s) => s.kind === 'raw_content').map((s) => s.id);
+  const ids = (await walkEvidence(userId, target, db)).sources.filter((s) => s.kind === 'raw_content').map((s) => s.id);
   if (!ids.length) return null;
   const { data } = await db.from('raw_content').select('content,created_at,trust_class').eq('user_id', userId).in('id', ids).eq('trust_class', 'own_words').order('created_at', { ascending: false }).limit(1);
   const r = ((data ?? []) as Array<{ content: string | null; created_at: string | null }>)[0];

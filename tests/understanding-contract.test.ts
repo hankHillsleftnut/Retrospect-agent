@@ -77,7 +77,7 @@ test('gate, against the database: every answer, pattern and why it returns walks
   assert.equal(c.patterns.length, 1);
   assert.equal(c.whys.length, 1);
   for (const item of [...c.answers, ...c.patterns, ...c.whys]) {
-    const lineage = await walkEvidence({ kind: item.kind, id: item.id });
+    const lineage = await walkEvidence(user, { kind: item.kind, id: item.id });
     assert.deepEqual(lineage.sources.map((s) => s.id), [entry], `${item.kind} ${item.id}`);
   }
 });

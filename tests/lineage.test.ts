@@ -44,7 +44,7 @@ test('an answer walks through its pattern and facts to the entries they came fro
   const pat = await p.pattern([f1, f2]);
   const ans = await p.answer([{ pattern_id: pat }]);
 
-  const lineage = await walkEvidence({ kind: 'answer', id: ans });
+  const lineage = await walkEvidence(p.user, { kind: 'answer', id: ans });
   assert.deepEqual(lineage.sources.map((s) => s.id).sort(), [e1, e2].sort());
   assert.ok(lineage.sources.every((s) => s.kind === 'raw_content'));
   assert.deepEqual(lineage.steps.map((s) => `${s.from.kind}->${s.to.kind}`).sort(),
@@ -57,14 +57,14 @@ test('an answer citing an entry directly and a fact reaches both sources, each o
   const e1 = await p.item('Standup again, skipped');
   const f1 = await p.fact([{ raw_content_id: e1, excerpt: 'skipped' }]);
   const ans = await p.answer([{ raw_content_id: e1 }, { assertion_id: f1 }]);
-  const lineage = await walkEvidence({ kind: 'answer', id: ans });
+  const lineage = await walkEvidence(p.user, { kind: 'answer', id: ans });
   assert.deepEqual(lineage.sources, [{ kind: 'raw_content', id: e1 }]);
 });
 
 test('a pattern with no facts rests on nothing, and says so', async () => {
   const p = await person();
   const pat = await p.pattern([]);
-  const lineage = await walkEvidence({ kind: 'pattern', id: pat });
+  const lineage = await walkEvidence(p.user, { kind: 'pattern', id: pat });
   assert.deepEqual(lineage, { sources: [], steps: [] });
 });
 
@@ -74,7 +74,7 @@ test('review fix: a pattern resting on hundreds of facts is walked in chunks', a
   const e = await p.item('one long conversation');
   for (let i = 0; i < 230; i++) facts.push(await p.fact([{ raw_content_id: e, excerpt: 'one long conversation' }]));
   const pat = await p.pattern(facts);
-  const lineage = await walkEvidence({ kind: 'pattern', id: pat });
+  const lineage = await walkEvidence(p.user, { kind: 'pattern', id: pat });
   assert.deepEqual(lineage.sources, [{ kind: 'raw_content', id: e }]);
   assert.equal(lineage.steps.filter((s) => s.from.kind === 'fact').length, 230);
 });
