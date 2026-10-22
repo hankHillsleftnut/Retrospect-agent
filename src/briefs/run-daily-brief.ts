@@ -11,6 +11,7 @@ import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { costLines, estimateCostUsd, type CostLine } from '../pipelines/trace';
 import { recordSpend } from '../pipelines/spend-ledger';
+import { AUDIO_RESET, briefWordsChanged, makeBriefAudio, type BriefAudioOutcome } from './brief-audio';
 import { OWN_WORDS_CONTENT_TYPES } from '../questions/first-pass';
 import { distinctEvents } from '../questions/run-first-pass';
 import {
@@ -31,6 +32,29 @@ export interface BriefRun {
   cost: CostLine[];
   materialCount: number;
   saved: boolean;
+  /** The saved row's id, when saved. */
+  briefId: string | null;
+  /** What happened to the audio (BE1.3b); null when nothing was saved or the brief is quiet. */
+  audio: BriefAudioOutcome | null;
+}
+
+/** The audio hook the brief engines share: injectable so tests speak nothing. */
+export type MakeBriefAudio = typeof makeBriefAudio;
+
+/**
+ * Save a brief for the day (one per person per day) and, when its words
+ * changed, start its audio over. Returns the row's id.
+ */
+export async function saveBrief(
+  db: typeof supabase, userId: string, briefDate: string, row: Record<string, unknown> & { through_line: string; items: unknown },
+): Promise<string> {
+  const { data: before } = await db.from(Tables.DAILY_BRIEFS).select('through_line,items').eq('user_id', userId).eq('brief_date', briefDate).maybeSingle();
+  const changed = briefWordsChanged(before as { through_line: string; items: unknown } | null, row);
+  const { data, error } = await db.from(Tables.DAILY_BRIEFS)
+    .upsert({ user_id: userId, brief_date: briefDate, ...row, ...(changed ? AUDIO_RESET : {}) }, { onConflict: 'user_id,brief_date' })
+    .select('id').single();
+  if (error) throw new Error(`Could not save the brief: ${error.message}`);
+  return (data as { id: string }).id;
 }
 
 /** Everything new since `since`: their own words first, then calendar and mail. */
@@ -93,10 +117,10 @@ async function lastBriefAt(userId: string, briefDate: string, db: typeof supabas
 
 export async function runDailyBrief(
   userId: string,
-  deps: { db?: typeof supabase; model?: BriefModel; modelName?: string; now?: Date; dryRun?: boolean } = {},
+  deps: { db?: typeof supabase; model?: BriefModel; modelName?: string; now?: Date; dryRun?: boolean; makeAudio?: MakeBriefAudio } = {},
 ): Promise<BriefRun> {
   // D1.4: the new daily path, per person, off by default.
-  if (dailyV2For(userId)) return runDailyBriefV2(userId, { db: deps.db, now: deps.now, dryRun: deps.dryRun });
+  if (dailyV2For(userId)) return runDailyBriefV2(userId, { db: deps.db, now: deps.now, dryRun: deps.dryRun, makeAudio: deps.makeAudio });
   const db = deps.db ?? supabase;
   const now = deps.now ?? new Date();
   const modelName = deps.modelName ?? config.anthropic.questionsModel;
@@ -129,10 +153,10 @@ export async function runDailyBrief(
   await recordSpend(userId, 'brief', costLines(breakdown as any), { db, now });
 
   let saved = false;
+  let briefId: string | null = null;
+  let audio: BriefAudioOutcome | null = null;
   if (!deps.dryRun) {
-    const { error } = await db.from(Tables.DAILY_BRIEFS).upsert({
-      user_id: userId,
-      brief_date: briefDate,
+    briefId = await saveBrief(db, userId, briefDate, {
       kind: brief.kind,
       through_line: brief.throughLine,
       spine_question_id: brief.spineQuestionId,
@@ -141,9 +165,10 @@ export async function runDailyBrief(
       dropped: brief.dropped,
       model_version: usage.inputTokens ? modelName : null,
       cost_usd: costUsd,
-    }, { onConflict: 'user_id,brief_date' });
-    if (error) throw new Error(`Could not save the brief: ${error.message}`);
+    });
     saved = true;
+    // Briefs are audio: spoken once the words are saved; a quiet day says nothing (BE1.3b).
+    if (brief.kind === 'brief') audio = await (deps.makeAudio ?? makeBriefAudio)(userId, briefId, { db });
   }
-  return { brief, briefDate, costUsd, cost: costLines(breakdown as any), materialCount: material.length, saved };
+  return { brief, briefDate, costUsd, cost: costLines(breakdown as any), materialCount: material.length, saved, briefId, audio };
 }

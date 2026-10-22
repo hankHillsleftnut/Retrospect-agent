@@ -15,7 +15,8 @@ import { recordSpend } from '../pipelines/spend-ledger';
 import { readUnderstanding } from '../understanding/read';
 import { readDailyInputs, planDaily } from '../planner/daily';
 import { briefSections, writeBrief } from '../writer/write-brief';
-import type { BriefRun } from './run-daily-brief';
+import { saveBrief, type BriefRun, type MakeBriefAudio } from './run-daily-brief';
+import { makeBriefAudio, type BriefAudioOutcome } from './brief-audio';
 
 /** DAILY_PLANNER=v2 for everyone, or DAILY_PLANNER_V2_USERS=<id,id> for a few. */
 export function dailyV2For(userId: string, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -23,7 +24,7 @@ export function dailyV2For(userId: string, env: NodeJS.ProcessEnv = process.env)
   return (env.DAILY_PLANNER_V2_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean).includes(userId);
 }
 
-export async function runDailyBriefV2(userId: string, deps: { db?: typeof supabase; now?: Date; dryRun?: boolean } = {}): Promise<BriefRun> {
+export async function runDailyBriefV2(userId: string, deps: { db?: typeof supabase; now?: Date; dryRun?: boolean; makeAudio?: MakeBriefAudio } = {}): Promise<BriefRun> {
   const db = deps.db ?? supabase;
   const now = deps.now ?? new Date();
   const briefDate = now.toISOString().slice(0, 10);
@@ -46,7 +47,7 @@ export async function runDailyBriefV2(userId: string, deps: { db?: typeof supaba
   await recordSpend(userId, 'brief', costLines(breakdown as never), { db, now });
   const brief = {
     kind: (plan.quiet ? 'quiet' : 'brief') as 'brief' | 'quiet',
-    throughLine: written.text || 'A quiet day: nothing new to bring you.',
+    throughLine: written.text || 'a quiet day: nothing new to bring you.',
     spineQuestionId: null, spineMovement: null,
     items: [
       ...plan.inbox.map((i) => ({ planId: `inbox:${i.id}`, text: i.preview, why: null, quote: i.preview, sourceRef: { raw_content_id: i.id } })),
@@ -58,14 +59,17 @@ export async function runDailyBriefV2(userId: string, deps: { db?: typeof supaba
   };
 
   let saved = false;
+  let briefId: string | null = null;
+  let audio: BriefAudioOutcome | null = null;
   if (!deps.dryRun) {
-    const { error } = await db.from(Tables.DAILY_BRIEFS).upsert({
-      user_id: userId, brief_date: briefDate, kind: brief.kind, through_line: brief.throughLine,
+    briefId = await saveBrief(db, userId, briefDate, {
+      kind: brief.kind, through_line: brief.throughLine,
       spine_question_id: null, spine_movement: 'planner v2', items: brief.items, dropped: brief.dropped,
       model_version: config.anthropic.writerModel, cost_usd: costUsd,
-    }, { onConflict: 'user_id,brief_date' });
-    if (error) throw new Error(`Could not save the brief: ${error.message}`);
+    });
     saved = true;
+    // Briefs are audio: spoken once the words are saved; a quiet day says nothing (BE1.3b).
+    if (brief.kind === 'brief') audio = await (deps.makeAudio ?? makeBriefAudio)(userId, briefId, { db });
   }
-  return { brief: brief as BriefRun['brief'], briefDate, costUsd, cost: costLines(breakdown as never), materialCount: plan.inbox.length, saved };
+  return { brief: brief as BriefRun['brief'], briefDate, costUsd, cost: costLines(breakdown as never), materialCount: plan.inbox.length, saved, briefId, audio };
 }
