@@ -98,6 +98,18 @@ test('a made episode still returns its id and plan', async () => {
   assert.deepEqual(await traceOf(r.traceId!), { status: 'completed', episode_id: r.episodeId });
 });
 
+test('an empty writer result is a failed run, not a quiet one: nothing was checked, so nothing was cut', async () => {
+  const userId = await insertUser(db);
+  const d = deps(livelyContract, {
+    write: async (plan) => ({ title: 'x', sections: plan.items.map((i) => ({ id: i.id, register: i.register, kept: [], cut: [] })), stats: { sentences: 0, kept: 0, cut: 0, sectionsWithEvidence: 1, sections: 1, words: 0 }, usage: { writer: u, guard: u } }),
+  });
+  await assert.rejects(runPodcastV2({ userId, skipTTS: true }, d), /writer returned no sentences/);
+  assert.equal(await episodesOf(userId), 0);
+  const { rows } = await db.query<{ status: string }>(`SELECT status FROM pipeline_run_traces WHERE user_id = $1 ORDER BY started_at DESC LIMIT 1`, [userId]);
+  assert.equal(rows[0]!.status, 'failed');
+  assert.deepEqual(d.calls.filter((c) => c !== 'write'), ['gather', 'hypotheses'], 'no summary, no embedding, no voice');
+});
+
 test('a real failure is still a failed run', async () => {
   const userId = await insertUser(db);
   const d = deps(livelyContract, { write: async () => { throw new Error('writer down'); } });

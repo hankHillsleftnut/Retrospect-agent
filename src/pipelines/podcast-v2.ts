@@ -123,10 +123,14 @@ export async function runPodcastV2(options: PodcastOptions, deps: PodcastV2Deps 
     const guard = { sentences: episode.stats.sentences, kept: episode.stats.kept, cut: episode.stats.cut };
 
     const script = scriptText(episode);
-    // The fact check cut every sentence: nothing safe to say. Also a state, not a failure.
     if (!script.trim()) {
-      await trace.complete();
-      return notMade(trace, 'nothing_safe_to_say', plan, guard);
+      // The fact check checked sentences and cut every one: nothing safe to say, a state, not a failure.
+      if (guard.sentences > 0 && guard.cut === guard.sentences) {
+        await trace.complete();
+        return notMade(trace, 'nothing_safe_to_say', plan, guard);
+      }
+      // The writer returned nothing to check: that is a failed run, never a quiet one.
+      throw new Error('The writer returned no sentences for a plan with items.');
     }
     trace.setFinalScript(script);
 
