@@ -11,7 +11,7 @@ import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { costLines, estimateCostUsd, type CostLine } from '../pipelines/trace';
 import { recordSpend } from '../pipelines/spend-ledger';
-import { AUDIO_RESET, briefWordsChanged, makeBriefAudio, type BriefAudioOutcome } from './brief-audio';
+import { AUDIO_RESET, briefWordsChanged, makeBriefAudio, markAudioFailed, type BriefAudioOutcome } from './brief-audio';
 import { OWN_WORDS_CONTENT_TYPES } from '../questions/first-pass';
 import { distinctEvents } from '../questions/run-first-pass';
 import {
@@ -41,6 +41,17 @@ export interface BriefRun {
 /** The audio hook the brief engines share: injectable so tests speak nothing. */
 export type MakeBriefAudio = typeof makeBriefAudio;
 
+/** Speak a saved brief; an unexpected throw marks its audio failed and never fails the saved run. */
+export async function speakSavedBrief(make: MakeBriefAudio, db: typeof supabase, userId: string, briefId: string): Promise<BriefAudioOutcome> {
+  try {
+    return await make(userId, briefId, { db });
+  } catch (err) {
+    console.error(`[brief-audio] threw: ${err instanceof Error ? err.name : 'unknown'}`);
+    await markAudioFailed(db, userId, briefId).catch(() => undefined);
+    return { outcome: 'failed', reason: 'exception' };
+  }
+}
+
 /**
  * Save a brief for the day (one per person per day) and, when its words
  * changed, start its audio over. Returns the row's id.
@@ -48,7 +59,9 @@ export type MakeBriefAudio = typeof makeBriefAudio;
 type SavedBriefRow = Record<string, unknown> & { kind: 'brief' | 'quiet'; through_line: string; spine_movement: string | null; items: Array<{ text?: unknown }> };
 
 export async function saveBrief(db: typeof supabase, userId: string, briefDate: string, row: SavedBriefRow): Promise<string> {
-  const { data: before } = await db.from(Tables.DAILY_BRIEFS).select('kind,through_line,spine_movement,items').eq('user_id', userId).eq('brief_date', briefDate).maybeSingle();
+  const { data: before, error: lookup } = await db.from(Tables.DAILY_BRIEFS).select('kind,through_line,spine_movement,items').eq('user_id', userId).eq('brief_date', briefDate).maybeSingle();
+  // An unknown "before" must not read as "new": that would throw away audio the words still deserve.
+  if (lookup) throw new Error(`Could not read today's brief: ${lookup.message}`);
   const changed = briefWordsChanged(before as SavedBriefRow | null, row);
   const { data, error } = await db.from(Tables.DAILY_BRIEFS)
     .upsert({ user_id: userId, brief_date: briefDate, ...row, ...(changed ? AUDIO_RESET : {}) }, { onConflict: 'user_id,brief_date' })
@@ -168,7 +181,7 @@ export async function runDailyBrief(
     });
     saved = true;
     // Briefs are audio: spoken once the words are saved; a quiet day says nothing (BE1.3b).
-    if (brief.kind === 'brief') audio = await (deps.makeAudio ?? makeBriefAudio)(userId, briefId, { db });
+    if (brief.kind === 'brief') audio = await speakSavedBrief(deps.makeAudio ?? makeBriefAudio, db, userId, briefId);
   }
   return { brief, briefDate, costUsd, cost: costLines(breakdown as any), materialCount: material.length, saved, briefId, audio };
 }

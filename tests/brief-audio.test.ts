@@ -16,9 +16,9 @@ import { freshDatabase, insertUser, type PGlite } from './support/fresh-database
 import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
 import {
-  briefPartsOf, briefWordsChanged, makeBriefAudio, measureSeconds, stripFrameMetadata, briefAudioPath, type BriefAudioStorage,
+  briefPartsOf, briefWordsChanged, makeBriefAudio, measureSeconds, stripFrameMetadata, briefAudioPath, MAKING_STALE_MS, type BriefAudioStorage,
 } from '../src/briefs/brief-audio';
-import { runDailyBrief, saveBrief } from '../src/briefs/run-daily-brief';
+import { runDailyBrief, saveBrief, speakSavedBrief } from '../src/briefs/run-daily-brief';
 import { quietBrief } from '../src/briefs/daily-brief';
 import { makeBriefsRouter } from '../src/routes/briefs';
 import { checkDailySpend } from '../src/pipelines/spend-guard';
@@ -115,9 +115,9 @@ test('a brief is spoken part by part, measured, joined, stored privately, and re
   assert.deepEqual(spoken, ['thoughtful_friend:you slept short.', 'thoughtful_friend:the call is at ten.'], 'one call per part, with the persona');
   assert.equal(statusAtUpload, 'making', 'while the file was going up the row said making');
   assert.equal(uploads.length, 1);
-  assert.equal(uploads[0]!.path, briefAudioPath(userId, id));
+  assert.equal(uploads[0]!.path, briefAudioPath(userId, id, NOW.toISOString()));
   assert.equal(uploads[0]!.contentType, 'audio/mpeg');
-  assert.equal(r.path, `${userId}/${id}.mp3`);
+  assert.match(r.path, new RegExp(`^${userId}/${id}-\\d+\\.mp3$`), 'named by the synthesis that made it');
   assert.equal(r.parts.length, 2);
   assert.deepEqual(r.parts.map((p) => p.index), [0, 1]);
   assert.equal(r.parts[0]!.startSeconds, 0);
@@ -235,6 +235,80 @@ test('the brief engine speaks a saved brief and not a quiet one, never on a dry 
   assert.equal(real.saved, true);
   assert.deepEqual(made, [real.briefId]);
   assert.equal(real.audio?.outcome, 'ready');
+});
+
+test('two runs at once: one speaks, the other is already_making; a claim older than the grace is taken over', async () => {
+  const userId = await insertUser(db);
+  const id = await brief(userId, { date: '2026-10-17' });
+  let spoken = 0;
+  const slow = async () => { spoken++; await new Promise((r) => setTimeout(r, 30)); return SHORT; };
+  const [a, b] = await Promise.all([
+    makeBriefAudio(userId, id, { storage: fakeStorage().storage, tts: slow }),
+    makeBriefAudio(userId, id, { storage: fakeStorage().storage, tts: slow }),
+  ]);
+  assert.deepEqual([a.outcome, b.outcome].sort(), ['already_making', 'ready']);
+  assert.equal(spoken, 2, 'the two parts were spoken once each, by one run');
+  const ledger = await db.query<{ n: number }>(`SELECT count(*)::int n FROM spend_ledger WHERE user_id = $1 AND kind = 'brief_audio'`, [userId]);
+  assert.equal(ledger.rows[0]!.n, 1);
+  // A run that died mid-way leaves `making`; within the grace nobody else may start, after it they may.
+  const crashed = await brief(userId, { date: '2026-10-16' });
+  await db.query(`UPDATE daily_briefs SET audio_status = 'making', audio_updated_at = $2 WHERE id = $1`, [crashed, new Date(NOW.getTime() - MAKING_STALE_MS + 60_000).toISOString()]);
+  assert.deepEqual(await makeBriefAudio(userId, crashed, { storage: fakeStorage().storage, tts: alternating(), now: () => NOW }), { outcome: 'already_making' });
+  const later = new Date(NOW.getTime() + 2 * 60_000);
+  assert.equal((await makeBriefAudio(userId, crashed, { storage: fakeStorage().storage, tts: alternating(), now: () => later })).outcome, 'ready');
+});
+
+test('a billing failure never leaves a ready brief, and a failed ready write charges once', async () => {
+  const userId = await insertUser(db);
+  const unbilled = await brief(userId, { date: '2026-10-15' });
+  const r1 = await makeBriefAudio(userId, unbilled, { storage: fakeStorage().storage, tts: alternating(), recordSpend: async () => 0 });
+  assert.deepEqual(r1, { outcome: 'failed', reason: 'billing' });
+  assert.equal((await rowOf(unbilled)).audio_status, 'failed');
+  // The ready write refused: failed, and the characters are in the ledger exactly once.
+  const refused = await brief(userId, { date: '2026-10-14' });
+  const real = supabase;
+  const db2 = new Proxy(real, { get(target, prop) {
+    if (prop !== 'from') return Reflect.get(target, prop);
+    return (table: string) => {
+      const q = real.from(table);
+      const update = q.update.bind(q);
+      return Object.assign(q, { update: (values: Record<string, unknown>) => (values.audio_status === 'ready' ? { eq: () => ({ eq: () => ({ eq: () => ({ eq: () => ({ select: async () => ({ data: null, error: { message: 'write refused' } }) }) }) }) }) } : update(values)) });
+    };
+  } }) as typeof supabase;
+  const r2 = await makeBriefAudio(userId, refused, { db: db2, storage: fakeStorage().storage, tts: alternating() });
+  assert.deepEqual(r2, { outcome: 'failed', reason: 'save' });
+  const ledger = await db.query<{ n: number }>(`SELECT count(*)::int n FROM spend_ledger WHERE user_id = $1 AND kind = 'brief_audio'`, [userId]);
+  assert.equal(ledger.rows[0]!.n, 1, 'charged once for the refused write, nothing for the unbilled one');
+});
+
+test('a brief re-made while its audio is being spoken keeps the newer words: the older synthesis is superseded', async () => {
+  const userId = await insertUser(db);
+  const id = await brief(userId, { date: '2026-10-13' });
+  const items = JSON.parse((await db.query<{ items: string }>(`SELECT items::text FROM daily_briefs WHERE id = $1`, [id])).rows[0]!.items);
+  let n = 0;
+  const tts = async () => {
+    if (n++ === 1) {
+      // New words arrive while the second part is being spoken.
+      await saveBrief(supabase, userId, '2026-10-13', { kind: 'brief', through_line: 'the through line.', spine_question_id: null, spine_movement: 'complicates', items: [{ ...items[0], text: 'new words.' }, items[1]], dropped: 0, model_version: null, cost_usd: 0 });
+    }
+    return SHORT;
+  };
+  const { storage, uploads } = fakeStorage();
+  const r = await makeBriefAudio(userId, id, { storage, tts });
+  assert.deepEqual(r, { outcome: 'superseded' });
+  assert.equal(uploads.length, 1, 'the old words were uploaded under their own revision, which nothing points at');
+  const row = await rowOf(id);
+  assert.equal(row.audio_status, 'none', 'the reset by the re-make stands');
+  assert.equal(row.audio_path, null);
+});
+
+test('an audio exception never fails a saved brief run: the audio is failed, the brief is returned', async () => {
+  const userId = await insertUser(db);
+  const id = await brief(userId, { date: '2026-10-12' });
+  await db.query(`UPDATE daily_briefs SET audio_status = 'making', audio_updated_at = now() WHERE id = $1`, [id]);
+  const r = await speakSavedBrief(async () => { throw new Error('boom'); }, supabase, userId, id);
+  assert.deepEqual(r, { outcome: 'failed', reason: 'exception' });
+  assert.equal((await rowOf(id)).audio_status, 'failed');
 });
 
 // ── The internal route ───────────────────────────────────────────────────────

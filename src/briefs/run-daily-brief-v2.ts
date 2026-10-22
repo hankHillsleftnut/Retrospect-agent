@@ -15,7 +15,7 @@ import { recordSpend } from '../pipelines/spend-ledger';
 import { readUnderstanding } from '../understanding/read';
 import { readDailyInputs, planDaily } from '../planner/daily';
 import { briefSections, writeBrief } from '../writer/write-brief';
-import { saveBrief, type BriefRun, type MakeBriefAudio } from './run-daily-brief';
+import { saveBrief, speakSavedBrief, type BriefRun, type MakeBriefAudio } from './run-daily-brief';
 import { makeBriefAudio, type BriefAudioOutcome } from './brief-audio';
 
 /** DAILY_PLANNER=v2 for everyone, or DAILY_PLANNER_V2_USERS=<id,id> for a few. */
@@ -69,7 +69,7 @@ export async function runDailyBriefV2(userId: string, deps: { db?: typeof supaba
     });
     saved = true;
     // Briefs are audio: spoken once the words are saved; a quiet day says nothing (BE1.3b).
-    if (brief.kind === 'brief') audio = await (deps.makeAudio ?? makeBriefAudio)(userId, briefId, { db });
+    if (brief.kind === 'brief') audio = await speakSavedBrief(deps.makeAudio ?? makeBriefAudio, db, userId, briefId);
   }
   return { brief: brief as BriefRun['brief'], briefDate, costUsd, cost: costLines(breakdown as never), materialCount: plan.inbox.length, saved, briefId, audio };
 }

@@ -20,8 +20,8 @@ import { recordSpend } from '../pipelines/spend-ledger';
 import type { VoicePersona } from '../types';
 
 export const BRIEF_AUDIO_BUCKET = 'brief-audio';
-/** Where one brief's audio lives, under the person. */
-export const briefAudioPath = (userId: string, briefId: string) => `${userId}/${briefId}.mp3`;
+/** Where one brief's audio lives, under the person, named by the synthesis that made it (its claim stamp). */
+export const briefAudioPath = (userId: string, briefId: string, stamp: string) => `${userId}/${briefId}-${stamp.replace(/[^0-9]/g, '')}.mp3`;
 
 export type BriefAudioStatus = 'none' | 'making' | 'ready' | 'failed';
 export interface AudioPart { index: number; startSeconds: number; text: string }
@@ -125,9 +125,16 @@ export interface BriefAudioDeps {
 export type BriefAudioOutcome =
   | { outcome: 'ready'; path: string; durationSeconds: number; parts: AudioPart[]; chars: number }
   | { outcome: 'already_ready' }
+  /** Another run holds the claim (started within the last MAKING_STALE_MS). */
+  | { outcome: 'already_making' }
+  /** The brief was re-made while this synthesis ran; its words are no longer the brief's. */
+  | { outcome: 'superseded' }
   | { outcome: 'quiet' }
   | { outcome: 'not_found' }
-  | { outcome: 'failed'; reason: 'no_voice' | 'synthesis' | 'upload' | 'save' };
+  | { outcome: 'failed'; reason: 'no_voice' | 'synthesis' | 'upload' | 'billing' | 'save' | 'exception' };
+
+/** A `making` claim older than this belongs to a run that died; the next run may take it over. */
+export const MAKING_STALE_MS = 15 * 60 * 1000;
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -154,28 +161,55 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
   const texts = briefPartsOf(brief);
   if (!texts.length) return { outcome: 'quiet' };
 
+  // Claim the row atomically before anything is paid for: one synthesis at a time per brief
+  // (review, #138: two calls that both read "not ready" would both speak and both pay). The
+  // claim stamp is this synthesis's revision: only the synthesis holding it may mark ready.
+  const stamp = now().toISOString();
+  const claiming = { audio_status: 'making', audio_path: null, audio_parts: [], audio_duration_seconds: null, audio_updated_at: stamp };
+  const { data: fresh } = await db.from(Tables.DAILY_BRIEFS).update(claiming)
+    .eq('id', briefId).eq('user_id', userId).in('audio_status', ['none', 'failed']).select('id');
+  if (!(fresh as unknown[] | null)?.length) {
+    // Already being made; a claim older than the grace is a crashed run and may be taken over.
+    const stale = new Date(now().getTime() - MAKING_STALE_MS).toISOString();
+    const { data: taken } = await db.from(Tables.DAILY_BRIEFS).update(claiming)
+      .eq('id', briefId).eq('user_id', userId).eq('audio_status', 'making').lt('audio_updated_at', stale).select('id');
+    if (!(taken as unknown[] | null)?.length) return { outcome: 'already_making' };
+  }
+
   const { data: user } = await db.from(Tables.USERS).select('voice_persona').eq('id', userId).maybeSingle();
   const vp = (user as { voice_persona?: string | null } | null)?.voice_persona;
   const persona: VoicePersona = vp && vp in VOICE_PERSONAS ? (vp as VoicePersona) : 'thoughtful_friend';
 
-  // ElevenLabs bills every part it spoke, whether or not the brief gets its audio: charged on every exit (review, #138).
+  // ElevenLabs bills every part it spoke, whether or not the brief gets its audio: charged on every
+  // exit, each character once (review, #138). A charge that didn't land is reported, never thrown.
   let chars = 0;
-  const charge = async () => {
-    if (chars === 0) return;
-    await record(userId, 'brief_audio', costLines({
+  let charged = 0;
+  const charge = async (): Promise<boolean> => {
+    const due = chars - charged;
+    if (due === 0) return true;
+    const lines = costLines({
       openai_tokens_input: 0, openai_tokens_output: 0, anthropic_tokens_input: 0, anthropic_tokens_output: 0,
-      embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: chars, est_usd: 0,
-    }), { db, now: now() });
+      embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: due, est_usd: 0,
+    });
+    const expected = lines.reduce((sum, l) => sum + l.usd, 0);
+    try {
+      const got = await record(userId, 'brief_audio', lines, { db, now: now() });
+      if (got + 1e-9 < expected) throw new Error('ledger wrote less than the voice cost');
+      charged = chars;
+      return true;
+    } catch {
+      console.error(`[brief-audio] spend not recorded chars=${due}`);
+      return false;
+    }
   };
   const fail = async (reason: Extract<BriefAudioOutcome, { outcome: 'failed' }>['reason']): Promise<BriefAudioOutcome> => {
     console.warn(`[brief-audio] failed reason=${reason} parts=${texts.length} spoken=${chars}`);
+    // The row says failed first; a billing hiccup must not leave it in making.
+    await db.from(Tables.DAILY_BRIEFS).update({ audio_status: 'failed', audio_updated_at: now().toISOString() })
+      .eq('id', briefId).eq('user_id', userId).eq('audio_updated_at', stamp);
     await charge();
-    await db.from(Tables.DAILY_BRIEFS).update({ audio_status: 'failed', audio_updated_at: now().toISOString() }).eq('id', briefId).eq('user_id', userId);
     return { outcome: 'failed', reason };
   };
-
-  await db.from(Tables.DAILY_BRIEFS).update({ audio_status: 'making', audio_path: null, audio_parts: [], audio_duration_seconds: null, audio_updated_at: now().toISOString() })
-    .eq('id', briefId).eq('user_id', userId);
 
   const buffers: Buffer[] = [];
   const parts: AudioPart[] = [];
@@ -202,7 +236,8 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
     cursor += seconds;
   }
 
-  const path = briefAudioPath(userId, briefId);
+  // The object is named by its revision, so an older synthesis can never overwrite a newer one's file.
+  const path = briefAudioPath(userId, briefId, stamp);
   // A refusal and a throw are the same to the brief: no audio this time.
   let uploadError: { message: string } | null;
   try {
@@ -212,14 +247,20 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
   }
   if (uploadError) return fail('upload');
 
-  await charge();
+  // Never ready without the ledger line the cap reads.
+  if (!(await charge())) return fail('billing');
 
   const durationSeconds = round2(cursor);
-  // Ready only now: the file is in the bucket.
-  const { error: saveError } = await db.from(Tables.DAILY_BRIEFS).update({
+  // Ready only now, and only while this synthesis still holds the claim: a brief re-made meanwhile
+  // (saveBrief resets the claim) keeps the newer words' audio, never these.
+  const { data: readied, error: saveError } = await db.from(Tables.DAILY_BRIEFS).update({
     audio_status: 'ready', audio_path: path, audio_parts: parts, audio_duration_seconds: durationSeconds, audio_chars: chars, audio_updated_at: now().toISOString(),
-  }).eq('id', briefId).eq('user_id', userId);
+  }).eq('id', briefId).eq('user_id', userId).eq('audio_status', 'making').eq('audio_updated_at', stamp).select('id');
   if (saveError) return fail('save');
+  if (!(readied as unknown[] | null)?.length) {
+    console.warn(`[brief-audio] superseded parts=${texts.length}`);
+    return { outcome: 'superseded' };
+  }
   return { outcome: 'ready', path, durationSeconds, parts, chars };
 }
 
@@ -235,6 +276,12 @@ export function briefWordsChanged(before: SpokenShape | null, after: SpokenShape
   if (!before) return true;
   const a = briefPartsOf(before), b = briefPartsOf(after);
   return before.kind !== after.kind || a.length !== b.length || a.some((t, i) => t !== b[i]);
+}
+
+/** Marks a brief's audio failed after an unexpected throw, so a saved brief never stays `making`. */
+export async function markAudioFailed(db: typeof supabase, userId: string, briefId: string, now = new Date()): Promise<void> {
+  await db.from(Tables.DAILY_BRIEFS).update({ audio_status: 'failed', audio_updated_at: now.toISOString() })
+    .eq('id', briefId).eq('user_id', userId).eq('audio_status', 'making');
 }
 
 /** The columns an upsert writes to start a brief's audio over. */
