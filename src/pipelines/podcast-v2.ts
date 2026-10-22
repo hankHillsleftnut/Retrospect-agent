@@ -17,6 +17,7 @@ import { config } from '../config';
 import { chatCompletion } from '../services/openai';
 import { generateEmbedding } from '../services/embeddings';
 import { textToSpeech, estimateDuration, VOICE_PERSONAS } from '../services/elevenlabs';
+import { episodeAudioPath, legacyPublicAudioUrl, storeEpisodeAudio } from '../services/audio-storage';
 import { EPISODE_SUMMARY_SYSTEM_PROMPT } from '../prompts/episode-summary';
 import { Trace, costLines } from './trace';
 import { readUnderstanding } from '../understanding/read';
@@ -79,17 +80,16 @@ export async function runPodcastV2(options: PodcastOptions): Promise<PodcastResu
     const vp = (userRow as { voice_persona?: string } | null)?.voice_persona;
     if (!options.persona && vp && vp in VOICE_PERSONAS) persona = vp as VoicePersona;
 
-    let audioUrl: string | null = null;
+    // The object path is what is kept; the public URL only for app versions before X07 (BEA.7).
+    let audioPath: string | null = null;
     if (!options.skipTTS && !options.dryRun) {
       const audio = await textToSpeech(script, { persona });
       if (audio.length > 0) {
         trace.addCost({ elevenlabs_chars: script.length });
-        const path = `podcasts/${options.userId}/${trace.id ?? Date.now()}.mp3`;
-        const { error } = await supabase.storage.from('podcast-audio').upload(path, audio, { contentType: 'audio/mpeg', upsert: true });
-        if (!error) audioUrl = supabase.storage.from('podcast-audio').getPublicUrl(path).data.publicUrl;
-        else console.warn(`[podcast-v2] audio upload failed: ${error.message}`);
+        audioPath = await storeEpisodeAudio(episodeAudioPath(options.userId, trace.id ?? String(Date.now())), audio);
       }
     }
+    const audioUrl = audioPath ? legacyPublicAudioUrl(audioPath) : null;
     trace.setAudioUrl(audioUrl);
 
     const durationSeconds = estimateDuration(script);
@@ -98,7 +98,7 @@ export async function runPodcastV2(options: PodcastOptions): Promise<PodcastResu
       const { count } = await supabase.from(Tables.PODCAST_EPISODES).select('*', { count: 'exact', head: true }).eq('user_id', options.userId).eq('status', 'ready');
       const { data: row, error } = await supabase.from(Tables.PODCAST_EPISODES).insert({
         user_id: options.userId, title: episode.title, description: summary.split('\n')[0]!.slice(0, 280), script,
-        audio_url: audioUrl, duration_seconds: durationSeconds, mood: 'reflective', generation_type: 'weekly', status: 'ready',
+        audio_path: audioPath, audio_url: audioUrl, duration_seconds: durationSeconds, mood: 'reflective', generation_type: 'weekly', status: 'ready',
         episode_number: (count ?? 0) + 1, covers_period_start: new Date(now.getTime() - 28 * 864e5).toISOString(), covers_period_end: now.toISOString(),
         outline: { planner: 'v2', style, plan } as unknown as Record<string, unknown>,
         topics_covered: plan.items.map((i) => i.kind), summary, summary_embedding: await generateEmbedding(summary),
@@ -112,7 +112,7 @@ export async function runPodcastV2(options: PodcastOptions): Promise<PodcastResu
     }
     await trace.complete();
     return {
-      traceId: trace.id, episodeId, script, audioUrl, summary, title: episode.title, description: summary.split('\n')[0] ?? '',
+      traceId: trace.id, episodeId, script, audioPath, audioUrl, summary, title: episode.title, description: summary.split('\n')[0] ?? '',
       mood: 'reflective', durationSeconds, cost: costLines(trace.snapshot().cost_breakdown),
       v2: { plan, guard: { sentences: episode.stats.sentences, kept: episode.stats.kept, cut: episode.stats.cut } },
     };

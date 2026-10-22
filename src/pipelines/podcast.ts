@@ -6,6 +6,7 @@ import { chatCompletion, jsonChatCompletion } from '../services/openai';
 import { claudeCompletion } from '../services/anthropic';
 import { generateEmbedding } from '../services/embeddings';
 import { textToSpeech, estimateDuration, VOICE_PERSONAS } from '../services/elevenlabs';
+import { episodeAudioPath, legacyPublicAudioUrl, storeEpisodeAudio } from '../services/audio-storage';
 import { CURRENT_CONTEXT_OUTLINE_SYSTEM_PROMPT } from '../prompts/current-context-outline';
 import { FINAL_TRANSCRIPT_SYSTEM_PROMPT, PERSONA_PROMPT_STYLES } from '../prompts/final-transcript';
 import {
@@ -58,6 +59,9 @@ export interface PodcastResult {
   /** The new path (W6.4): what was planned and what the fact check cut. */
   v2?: { plan: unknown; guard: { sentences: number; kept: number; cut: number } };
   script: string;
+  /** The object path in the private bucket; routes sign a link from it (BEA.7). */
+  audioPath: string | null;
+  /** The public URL old app versions read, until X07. */
   audioUrl: string | null;
   summary: string;
   title: string;
@@ -508,30 +512,19 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       persona = ctx.user.voice_persona as VoicePersona;
     }
 
-    // TTS
-    let audioUrl: string | null = null;
+    // TTS: the object path is what is kept; the public URL only for app versions before X07 (BEA.7).
+    let audioPath: string | null = null;
     let durationSeconds = estimateDuration(script);
     if (!options.skipTTS && !options.dryRun) {
       const audioBuf = await textToSpeech(script, { persona });
       if (audioBuf.length === 0) {
-        console.warn('[podcast] TTS returned empty buffer — audio_url will be null');
+        console.warn('[podcast] TTS returned empty buffer — the episode will have no audio');
       } else {
         trace.addCost({ elevenlabs_chars: script.length });
-      }
-      if (audioBuf.length > 0) {
-        const episodeIdPlaceholder = trace.id ?? Date.now().toString();
-        const audioPath = `podcasts/${options.userId}/${episodeIdPlaceholder}.mp3`;
-        const { error: uploadErr } = await supabase.storage
-          .from('podcast-audio')
-          .upload(audioPath, audioBuf, { contentType: 'audio/mpeg', upsert: true });
-        if (uploadErr) {
-          console.warn(`[podcast] Audio upload failed: ${uploadErr.message}`);
-        } else {
-          const { data: pub } = supabase.storage.from('podcast-audio').getPublicUrl(audioPath);
-          audioUrl = pub.publicUrl;
-        }
+        audioPath = await storeEpisodeAudio(episodeAudioPath(options.userId, trace.id ?? Date.now().toString()), audioBuf);
       }
     }
+    const audioUrl = audioPath ? legacyPublicAudioUrl(audioPath) : null;
     trace.setAudioUrl(audioUrl);
 
     // Persist episode (unless dry-run)
@@ -546,6 +539,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
           title: titleDesc.title,
           description: titleDesc.description,
           script,
+          audio_path: audioPath,
           audio_url: audioUrl,
           duration_seconds: durationSeconds,
           mood: titleDesc.mood,
@@ -614,6 +608,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
       outlineV1,
       outlineV2,
       script,
+      audioPath,
       audioUrl,
       summary,
       title: titleDesc.title,
