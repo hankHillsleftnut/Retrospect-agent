@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { runPodcast as runPodcastEngine } from '../pipelines/podcast';
-import { checkDailySpend } from '../pipelines/spend-guard';
+import { checkDailySpend, spendLimitedBody } from '../pipelines/spend-guard';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { audioPathOf, signedAudioUrl, type SignedAudio } from '../services/audio-storage';
@@ -30,7 +30,7 @@ export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
         const spend = await checkDailySpend(userId);
         if (!spend.allowed) {
           console.warn(`[podcasts] refused for ${userId}: ${spend.message}`);
-          return res.status(429).json({ error: spend.message, spentUsd: spend.spentUsd, capUsd: spend.capUsd });
+          return res.status(429).json(spendLimitedBody(spend));
         }
       }
       const result = await d.runPodcast({

@@ -10,6 +10,8 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
+import { usageLines } from '../pipelines/spend-ledger';
+import type { CostLine } from '../pipelines/trace';
 import { searchPerson, type SearchHit } from '../search/search';
 import { readUnderstanding, type UnderstandingContract } from '../understanding/read';
 import { guardSentences, type GuardModel } from '../writer/claim-guard';
@@ -32,7 +34,7 @@ type Turn = { role: 'person' | 'companion'; text: string; created_at: string };
 type Raw = { intent?: unknown; sentences?: unknown };
 type Model = (system: string, prompt: string) => Promise<{ data: Raw; usage: ClaudeUsage }>;
 export interface ContextLine { n: number; kind: string; id: string; text: string }
-export interface ConverseResult { intent: 'fyi' | 'question' | 'correction' | 'chat'; reply: string; cut: Array<{ sentence: string; reason: string }>; used: Array<{ kind: string; id: string }>; usage: ClaudeUsage }
+export interface ConverseResult { intent: 'fyi' | 'question' | 'correction' | 'chat'; reply: string; cut: Array<{ sentence: string; reason: string }>; used: Array<{ kind: string; id: string }>; usage: ClaudeUsage; /** Priced by model (writer, guard), for the spend ledger (BEA.4). */ cost: CostLine[] }
 
 const asks = (t: string) => /\?\s*$/.test(t.trim()) || /^(what|when|where|why|how|who|which|did|do|does|is|are|was|were|can|could|should|have|has)\b/i.test(t.trim());
 const CITE = /\[(\d+)\]/g;
@@ -78,7 +80,7 @@ export async function converse(userId: string, text: string, options: { now?: Da
   const earlier = turns.filter((t, i) => !(t.role === 'person' && t.text === text && i === turns.map((x) => x.text).lastIndexOf(text)));
   const prompt = `BUDGET: ${budget} sentence(s)\n\nEARLIER TODAY\n${earlier.map((t) => `${t.role === 'person' ? 'THEM' : 'YOU'}: ${t.text}`).join('\n') || '(nothing yet)'}\n\nCONTEXT\n${ctx.map((l) => `[${l.n}] ${l.text}`).join('\n') || '(nothing relevant)'}\n\nTHEIR NEW MESSAGE, THE ONE TO REPLY TO\n${text}`;
   const out = await model(CONVERSE_SYSTEM, prompt).catch(() => model(CONVERSE_SYSTEM, prompt)).catch((err) => { console.warn(`[conversation] reply failed twice: ${(err as Error).message.slice(0, 200)}`); return null; });
-  if (!out) return save({ intent: 'chat', reply: '', cut: [], used: [], usage: zero });
+  if (!out) return save({ intent: 'chat', reply: '', cut: [], used: [] }, zero, zero);
   const intent = (['fyi', 'question', 'correction', 'chat'].includes(String(out.data.intent)) ? out.data.intent : 'chat') as ConverseResult['intent'];
 
   if (intent === 'correction') {
@@ -86,11 +88,12 @@ export async function converse(userId: string, text: string, options: { now?: Da
     const reply = r.outcome === 'applied' ? r.echo
       : r.outcome === 'ask_own_words' ? `You wrote "${r.quote}"${r.writtenOn ? ` on ${r.writtenOn}` : ''}. Has that changed, or did I read it wrong?`
       : r.outcome === 'confirm' && r.candidates.length ? `Which did you mean: ${r.candidates.map((c) => `"${c.text}"`).join(', or ')}?` : 'Got it.';
-    return save({ intent, reply, cut: [], used: [], usage: out.usage });
+    // The correction's own model call is this turn's spending too.
+    return save({ intent, reply, cut: [], used: [] }, { inputTokens: out.usage.inputTokens + r.usage.inputTokens, outputTokens: out.usage.outputTokens + r.usage.outputTokens }, zero);
   }
 
   const sentences = (Array.isArray(out.data.sentences) ? out.data.sentences : []).map(String).filter((s) => s.trim()).slice(0, 6);
-  if (!sentences.length) return save({ intent, reply: '', cut: [], used: [], usage: out.usage });
+  if (!sentences.length) return save({ intent, reply: '', cut: [], used: [] }, out.usage, zero);
   const byN = new Map(ctx.map((l) => [l.n, l]));
   const parsed = sentences.map((s) => ({ s, cites: [...s.matchAll(CITE)].map((m) => Number(m[1])), text: s.replace(CITE, '').replace(/\s+([.,;!?])/g, '$1').trim() }));
   const { results, usage: gu } = await guardSentences(parsed.map((p) => ({ text: p.text, evidence: p.cites.map((n) => byN.get(n)?.text).filter(Boolean) as string[] })), options.guard, now.toISOString().slice(0, 10));
@@ -104,9 +107,14 @@ export async function converse(userId: string, text: string, options: { now?: Da
     kept.push(p.text);
     for (const n of p.cites) { const l = byN.get(n); if (l) used.set(`${l.kind}:${l.id}`, { kind: l.kind, id: l.id }); }
   });
-  return save({ intent, reply: kept.join(' '), cut, used: [...used.values()], usage: { inputTokens: out.usage.inputTokens + gu.inputTokens, outputTokens: out.usage.outputTokens + gu.outputTokens } });
+  return save({ intent, reply: kept.join(' '), cut, used: [...used.values()] }, out.usage, gu);
 
-  async function save(r: ConverseResult): Promise<ConverseResult> {
+  async function save(partial: Omit<ConverseResult, 'usage' | 'cost'>, writer: ClaudeUsage, guard: ClaudeUsage): Promise<ConverseResult> {
+    const r: ConverseResult = {
+      ...partial,
+      usage: { inputTokens: writer.inputTokens + guard.inputTokens, outputTokens: writer.outputTokens + guard.outputTokens },
+      cost: usageLines([{ model: config.anthropic.writerModel, usage: writer }, { model: config.anthropic.guardModel, usage: guard }]),
+    };
     // Its own words are kept for working memory only, never read as facts about the person.
     if (r.reply) await db.from('conversation_turns').insert({ user_id: userId, role: 'companion', text: r.reply, used: r.used, created_at: new Date(now.getTime() + 1).toISOString() });
     return r;
