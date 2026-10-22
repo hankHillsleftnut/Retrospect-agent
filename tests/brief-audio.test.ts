@@ -52,12 +52,21 @@ test('the MP3 fixtures measure as encoded, and stripped parts joined measure as 
   await assert.rejects(measureSeconds(Buffer.from('not audio')), /no measurable length/);
 });
 
-test('a re-made brief with different words starts its audio over; the same words keep it', () => {
-  const row = { through_line: 'a', items: [{ text: 'x' }] };
-  assert.equal(briefWordsChanged(null, row), true);
-  assert.equal(briefWordsChanged({ through_line: 'a', items: [{ text: 'x' }] }, row), false);
-  assert.equal(briefWordsChanged({ through_line: 'b', items: [{ text: 'x' }] }, row), true);
-  assert.equal(briefWordsChanged({ through_line: 'a', items: [] }, row), true);
+test('a re-made brief with different spoken words starts its audio over; the same words keep it, whatever the stored key order', () => {
+  const stored = { text: 'x', why: null, quote: '', sourceRef: { raw_content_id: '' } };
+  // The same item as jsonb hands it back: keys reordered.
+  const readBack = { sourceRef: { raw_content_id: '' }, quote: '', why: null, text: 'x' };
+  const v1 = { kind: 'brief' as const, through_line: 'a', spine_movement: 'complicates', items: [stored] };
+  assert.equal(briefWordsChanged(null, v1), true);
+  assert.equal(briefWordsChanged({ ...v1, items: [readBack] }, v1), false, 'jsonb key order is not a change');
+  assert.equal(briefWordsChanged({ ...v1, items: [{ text: 'y' }] }, v1), true);
+  assert.equal(briefWordsChanged({ ...v1, items: [] }, v1), true);
+  // v1 speaks the items, not the through line; v2 speaks the through line, not the items.
+  assert.equal(briefWordsChanged({ ...v1, through_line: 'b' }, v1), false);
+  const v2 = { kind: 'brief' as const, through_line: 'one.\n\ntwo.', spine_movement: 'planner v2', items: [{ text: 'pattern' }] };
+  assert.equal(briefWordsChanged({ ...v2, items: [{ text: 'answer' }] }, v2), false);
+  assert.equal(briefWordsChanged({ ...v2, through_line: 'one.\n\nthree.' }, v2), true);
+  assert.equal(briefWordsChanged({ ...v2, kind: 'quiet' }, v2), true);
 });
 
 // ── On the database ──────────────────────────────────────────────────────────
@@ -159,9 +168,25 @@ test('no voice configured, or a failed upload, leaves a failed status and a brie
   assert.equal((await rowOf(refused)).audio_status, 'failed');
   const words = await db.query<{ through_line: string }>(`SELECT through_line FROM daily_briefs WHERE id = $1`, [refused]);
   assert.equal(words.rows[0]!.through_line, 'the through line.', 'the text brief is untouched');
-  // No voice was paid for.
-  const ledger = await db.query<{ n: number }>(`SELECT count(*)::int n FROM spend_ledger WHERE user_id = $1`, [userId]);
-  assert.equal(ledger.rows[0]!.n, 0);
+  // The voice billed both parts before the upload failed: charged, even though no audio came of it. Nothing for the silent one.
+  const ledger = await db.query<{ n: number; usd: string }>(`SELECT count(*)::int n, coalesce(sum(usd), 0)::text usd FROM spend_ledger WHERE user_id = $1 AND kind = 'brief_audio'`, [userId]);
+  assert.equal(ledger.rows[0]!.n, 1);
+  assert.ok(Number(ledger.rows[0]!.usd) > 0);
+  // A throwing upload is the same failure.
+  const thrown = await brief(userId, { date: '2026-10-18' });
+  const r3 = await makeBriefAudio(userId, thrown, { storage: { upload: async () => { throw new Error('socket hang up'); } }, tts: alternating() });
+  assert.deepEqual(r3, { outcome: 'failed', reason: 'upload' });
+  assert.equal((await rowOf(thrown)).audio_status, 'failed');
+});
+
+test('a part that fails to synthesise still charges the parts spoken before it', async () => {
+  const userId = await insertUser(db);
+  const id = await brief(userId);
+  let n = 0;
+  const r = await makeBriefAudio(userId, id, { storage: fakeStorage().storage, tts: async () => { if (n++ === 0) return SHORT; throw new Error('voice down'); } });
+  assert.deepEqual(r, { outcome: 'failed', reason: 'synthesis' });
+  const ledger = await db.query<{ n: number }>(`SELECT count(*)::int n FROM spend_ledger WHERE user_id = $1 AND kind = 'brief_audio'`, [userId]);
+  assert.equal(ledger.rows[0]!.n, 1, 'the first part was spoken, so it was paid for');
 });
 
 test("another person's brief is not found, and nothing is spoken", async () => {
@@ -177,10 +202,13 @@ test('a re-made brief resets its audio when the words change, and keeps it when 
   const id = await brief(userId, { date: '2026-10-20' });
   await makeBriefAudio(userId, id, { storage: fakeStorage().storage, tts: alternating() });
   assert.equal((await rowOf(id)).audio_status, 'ready');
-  const same = { kind: 'brief', through_line: 'the through line.', spine_question_id: null, spine_movement: 'complicates', items: JSON.parse((await db.query<{ items: string }>(`SELECT items::text FROM daily_briefs WHERE id = $1`, [id])).rows[0]!.items), dropped: 0, model_version: null, cost_usd: 0 };
+  const same = { kind: 'brief' as const, through_line: 'the through line.', spine_question_id: null, spine_movement: 'complicates', items: JSON.parse((await db.query<{ items: string }>(`SELECT items::text FROM daily_briefs WHERE id = $1`, [id])).rows[0]!.items), dropped: 0, model_version: null, cost_usd: 0 };
   assert.equal(await saveBrief(supabase, userId, '2026-10-20', same), id, 'the same row');
   assert.equal((await rowOf(id)).audio_status, 'ready', 'the same words keep their audio');
-  assert.equal(await saveBrief(supabase, userId, '2026-10-20', { ...same, through_line: 'different words.' }), id);
+  // A v1 brief speaks its items: a new through line alone is not a change; a changed item is.
+  assert.equal(await saveBrief(supabase, userId, '2026-10-20', { ...same, through_line: 'different line.' }), id);
+  assert.equal((await rowOf(id)).audio_status, 'ready');
+  assert.equal(await saveBrief(supabase, userId, '2026-10-20', { ...same, items: [{ ...same.items[0], text: 'different words.' }, same.items[1]] }), id);
   const reset = await rowOf(id);
   assert.equal(reset.audio_status, 'none');
   assert.equal(reset.audio_path, null);

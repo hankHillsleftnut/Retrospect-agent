@@ -32,6 +32,7 @@ export interface BriefRowForAudio {
   kind: 'brief' | 'quiet';
   through_line: string;
   spine_movement: string | null;
+  /** v1 items carry text, why, quote and a source ref; only text is spoken. */
   items: Array<{ text?: unknown }> | null;
   audio_status: BriefAudioStatus;
 }
@@ -157,8 +158,18 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
   const vp = (user as { voice_persona?: string | null } | null)?.voice_persona;
   const persona: VoicePersona = vp && vp in VOICE_PERSONAS ? (vp as VoicePersona) : 'thoughtful_friend';
 
+  // ElevenLabs bills every part it spoke, whether or not the brief gets its audio: charged on every exit (review, #138).
+  let chars = 0;
+  const charge = async () => {
+    if (chars === 0) return;
+    await record(userId, 'brief_audio', costLines({
+      openai_tokens_input: 0, openai_tokens_output: 0, anthropic_tokens_input: 0, anthropic_tokens_output: 0,
+      embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: chars, est_usd: 0,
+    }), { db, now: now() });
+  };
   const fail = async (reason: Extract<BriefAudioOutcome, { outcome: 'failed' }>['reason']): Promise<BriefAudioOutcome> => {
-    console.warn(`[brief-audio] failed reason=${reason} parts=${texts.length}`);
+    console.warn(`[brief-audio] failed reason=${reason} parts=${texts.length} spoken=${chars}`);
+    await charge();
     await db.from(Tables.DAILY_BRIEFS).update({ audio_status: 'failed', audio_updated_at: now().toISOString() }).eq('id', briefId).eq('user_id', userId);
     return { outcome: 'failed', reason };
   };
@@ -169,7 +180,6 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
   const buffers: Buffer[] = [];
   const parts: AudioPart[] = [];
   let cursor = 0;
-  let chars = 0;
   for (const [index, text] of texts.entries()) {
     let spoken: Buffer;
     try {
@@ -178,6 +188,8 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
       return fail('synthesis');
     }
     if (spoken.length === 0) return fail('no_voice');
+    // Spoken, so billed: counted before anything after it can fail.
+    chars += text.length;
     const frames = stripFrameMetadata(spoken);
     let seconds: number;
     try {
@@ -188,17 +200,19 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
     parts.push({ index, startSeconds: round2(cursor), text });
     buffers.push(frames);
     cursor += seconds;
-    chars += text.length;
   }
 
   const path = briefAudioPath(userId, briefId);
-  const { error: uploadError } = await storage.upload(path, Buffer.concat(buffers), { contentType: 'audio/mpeg', upsert: true });
+  // A refusal and a throw are the same to the brief: no audio this time.
+  let uploadError: { message: string } | null;
+  try {
+    ({ error: uploadError } = await storage.upload(path, Buffer.concat(buffers), { contentType: 'audio/mpeg', upsert: true }));
+  } catch {
+    return fail('upload');
+  }
   if (uploadError) return fail('upload');
 
-  await record(userId, 'brief_audio', costLines({
-    openai_tokens_input: 0, openai_tokens_output: 0, anthropic_tokens_input: 0, anthropic_tokens_output: 0,
-    embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: chars, est_usd: 0,
-  }), { db, now: now() });
+  await charge();
 
   const durationSeconds = round2(cursor);
   // Ready only now: the file is in the bucket.
@@ -209,13 +223,18 @@ export async function makeBriefAudio(userId: string, briefId: string, deps: Brie
   return { outcome: 'ready', path, durationSeconds, parts, chars };
 }
 
-/** Whether a re-made brief says something different, so its audio must be made again. */
-export function briefWordsChanged(
-  before: { through_line: string; items: unknown } | null,
-  after: { through_line: string; items: unknown },
-): boolean {
+type SpokenShape = Pick<BriefRowForAudio, 'kind' | 'through_line' | 'spine_movement' | 'items'>;
+
+/**
+ * Whether a re-made brief says something different, so its audio must be made
+ * again. Compared as the spoken parts, not the stored JSON: jsonb reorders
+ * object keys, so identical items can stringify differently, and v2 items are
+ * bookkeeping that is never spoken (review, #138).
+ */
+export function briefWordsChanged(before: SpokenShape | null, after: SpokenShape): boolean {
   if (!before) return true;
-  return before.through_line !== after.through_line || JSON.stringify(before.items ?? []) !== JSON.stringify(after.items ?? []);
+  const a = briefPartsOf(before), b = briefPartsOf(after);
+  return before.kind !== after.kind || a.length !== b.length || a.some((t, i) => t !== b[i]);
 }
 
 /** The columns an upsert writes to start a brief's audio over. */

@@ -60,7 +60,8 @@ before(async () => {
   } }));
   app.use('/briefs', makeBriefsRouter({ checkSpend, runDailyBrief: async (userId, deps) => {
     calls.push('brief');
-    return runDailyBrief(userId, { ...deps, now: NOW, model: async () => ({ data: { through_line: 'x', items: [] }, usage: u }) });
+    // No voice here: the brief's own spend is the point of this test, not its audio.
+    return runDailyBrief(userId, { ...deps, now: NOW, model: async () => ({ data: { through_line: 'x', items: [] }, usage: u }), makeAudio: async () => ({ outcome: 'quiet' }) });
   } }));
   app.use('/notifications', makeNotificationsRouter({ checkSpend, model: async () => {
     calls.push('notification');
@@ -136,7 +137,7 @@ test('the brief engine records whichever way it is reached, including a dry run'
   const userId = await insertUser(db);
   await withMaterial(userId);
   const model = async () => ({ data: { through_line: 'x', items: [] }, usage: u });
-  await runDailyBrief(userId, { now: NOW, dryRun: true, model });
+  await runDailyBrief(userId, { now: NOW, dryRun: true, model, makeAudio: async () => ({ outcome: 'quiet' }) });
   const rows = await ledger(userId);
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.kind, 'brief');

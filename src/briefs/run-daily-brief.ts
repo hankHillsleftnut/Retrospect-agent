@@ -45,11 +45,11 @@ export type MakeBriefAudio = typeof makeBriefAudio;
  * Save a brief for the day (one per person per day) and, when its words
  * changed, start its audio over. Returns the row's id.
  */
-export async function saveBrief(
-  db: typeof supabase, userId: string, briefDate: string, row: Record<string, unknown> & { through_line: string; items: unknown },
-): Promise<string> {
-  const { data: before } = await db.from(Tables.DAILY_BRIEFS).select('through_line,items').eq('user_id', userId).eq('brief_date', briefDate).maybeSingle();
-  const changed = briefWordsChanged(before as { through_line: string; items: unknown } | null, row);
+type SavedBriefRow = Record<string, unknown> & { kind: 'brief' | 'quiet'; through_line: string; spine_movement: string | null; items: Array<{ text?: unknown }> };
+
+export async function saveBrief(db: typeof supabase, userId: string, briefDate: string, row: SavedBriefRow): Promise<string> {
+  const { data: before } = await db.from(Tables.DAILY_BRIEFS).select('kind,through_line,spine_movement,items').eq('user_id', userId).eq('brief_date', briefDate).maybeSingle();
+  const changed = briefWordsChanged(before as SavedBriefRow | null, row);
   const { data, error } = await db.from(Tables.DAILY_BRIEFS)
     .upsert({ user_id: userId, brief_date: briefDate, ...row, ...(changed ? AUDIO_RESET : {}) }, { onConflict: 'user_id,brief_date' })
     .select('id').single();
