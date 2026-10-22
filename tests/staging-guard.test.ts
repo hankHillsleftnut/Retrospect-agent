@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { freshDatabase } from './support/fresh-database';
@@ -45,6 +45,12 @@ test('a database with a real user is refused; only test users, or no users table
   await db.query(`INSERT INTO users (apple_user_id) VALUES ('001234.abcdef.0123')`);
   await assert.rejects(assertOnlyTestUsers(db), /1 users who are not test accounts/);
 
+  // A row with no Apple subject isn't a test account either.
+  const { db: other } = await freshDatabase();
+  await other.query('ALTER TABLE users ALTER COLUMN apple_user_id DROP NOT NULL');
+  await other.query('INSERT INTO users (email) VALUES (NULL)');
+  await assert.rejects(assertOnlyTestUsers(other), /1 users who are not test accounts/);
+
   const bare: Executor = { query: async <R>() => ({ rows: [{ present: false }] as R[] }) };
   await assert.doesNotReject(assertOnlyTestUsers(bare), 'a fresh database with no users table');
 });
@@ -52,6 +58,15 @@ test('a database with a real user is refused; only test users, or no users table
 // dev:staging runs `--env-file=.env.staging --require dotenv/config`: node's
 // --env-file never overrides the shell, so dotenv/config re-reads the file with
 // DOTENV_CONFIG_OVERRIDE=true before any module runs.
+test('dev:staging sets the env file and the override in the script itself', () => {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8')) as { scripts: Record<string, string> };
+  const script = pkg.scripts['dev:staging'] ?? '';
+  assert.match(script, /DOTENV_CONFIG_PATH=\.env\.staging/);
+  assert.match(script, /DOTENV_CONFIG_OVERRIDE=true/);
+  assert.match(script, /--require dotenv\/config/);
+  assert.match(pkg.scripts['db:migrate:staging'] ?? '', /--staging/);
+});
+
 test('the staging service reads its env file over the shell', () => {
   const dir = mkdtempSync(join(tmpdir(), 'agent-staging-'));
   const file = join(dir, '.env.staging');

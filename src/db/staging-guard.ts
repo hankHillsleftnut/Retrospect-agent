@@ -47,7 +47,7 @@ export async function assertOnlyTestUsers(db: Executor): Promise<void> {
   const { rows: exists } = await db.query<{ present: boolean }>(`SELECT to_regclass('public.users') IS NOT NULL AS present`);
   if (!exists[0]?.present) return;
   const { rows } = await db.query<{ n: number }>(
-    `SELECT count(*)::int AS n FROM users WHERE apple_user_id NOT LIKE $1`,
+    `SELECT count(*)::int AS n FROM users WHERE apple_user_id IS NULL OR apple_user_id NOT LIKE $1`,
     [`${TEST_SUBJECT_PREFIX}%`],
   );
   const n = Number(rows[0]?.n ?? 0);
