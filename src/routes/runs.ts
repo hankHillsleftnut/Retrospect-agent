@@ -1,17 +1,45 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import path from 'path';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 
 export const runsRouter = Router();
 
+/**
+ * Whose runs a request may see (BEA.2b). The developer's own dashboard (local,
+ * not production; requireInternalSecretOrLocalDev marks it) looks across users
+ * and may narrow with `?userId=`. Any other caller (one holding the internal
+ * secret, such as a backend door) must name the user, and sees only that
+ * user's rows: another person's run is "not found". Returns undefined after
+ * answering 400.
+ */
+function scopeOf(req: Request, res: Response): { userId: string | null } | undefined {
+  const raw = req.query.userId;
+  const parsed = raw === undefined ? null : z.string().uuid().safeParse(raw);
+  if (parsed && !parsed.success) {
+    res.status(400).json({ error: 'invalid userId' });
+    return undefined;
+  }
+  const userId = parsed ? parsed.data : null;
+  if (!userId && res.locals.localDev !== true) {
+    res.status(400).json({ error: 'userId is required' });
+    return undefined;
+  }
+  return { userId };
+}
+
 const DASHBOARD_HTML = path.join(__dirname, '..', 'public', 'runs-dashboard.html');
 
 runsRouter.get('/users', async (req, res) => {
+  const scope = scopeOf(req, res);
+  if (!scope) return;
   // Aggregate per-user stats from pipeline_run_traces + join users table for email
-  const { data: runs, error } = await supabase
+  let runsQuery = supabase
     .from(Tables.PIPELINE_RUN_TRACES)
     .select('user_id, kind, status, started_at, cost_breakdown');
+  if (scope.userId) runsQuery = runsQuery.eq('user_id', scope.userId);
+  const { data: runs, error } = await runsQuery;
 
   if (error) return res.status(500).json({ error: error.message });
 
@@ -64,7 +92,9 @@ runsRouter.get('/', async (req, res) => {
   if (req.accepts('html') && !req.query.json) {
     return res.sendFile(DASHBOARD_HTML);
   }
-  const { userId, limit = 50 } = req.query;
+  const scope = scopeOf(req, res);
+  if (!scope) return;
+  const { limit = 50 } = req.query;
   let q = supabase
     .from(Tables.PIPELINE_RUN_TRACES)
     .select(
@@ -72,37 +102,48 @@ runsRouter.get('/', async (req, res) => {
     )
     .order('started_at', { ascending: false })
     .limit(Number(limit));
-  if (userId) q = q.eq('user_id', userId as string);
+  if (scope.userId) q = q.eq('user_id', scope.userId);
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ runs: data ?? [] });
 });
 
 runsRouter.get('/latest', async (req, res) => {
-  const { userId } = req.query;
+  const scope = scopeOf(req, res);
+  if (!scope) return;
   let q = supabase
     .from(Tables.PIPELINE_RUN_TRACES)
     .select('id')
     .order('started_at', { ascending: false })
     .limit(1);
-  if (userId) q = q.eq('user_id', userId as string);
+  if (scope.userId) q = q.eq('user_id', scope.userId);
   const { data } = await q;
   if (!data || data.length === 0) return res.status(404).json({ error: 'no runs' });
   const id = (data[0] as { id: string }).id;
 
+  const user = scope.userId ? `userId=${scope.userId}&` : '';
   if (req.accepts('html') && !req.query.json) {
-    return res.redirect(`/runs/${id}`);
+    return res.redirect(`/runs/${id}${user ? `?${user.slice(0, -1)}` : ''}`);
   }
-  return res.redirect(`/runs/${id}?json=1`);
+  return res.redirect(`/runs/${id}?${user}json=1`);
 });
 
 runsRouter.get('/integrations', async (req, res) => {
-  const { userId, limit = 100 } = req.query;
+  const scope = scopeOf(req, res);
+  if (!scope) return;
+  const { limit = 100 } = req.query;
   let q = supabase
     .from(Tables.INTEGRATION_SYNC_RUNS)
     .select('*')
     .order('started_at', { ascending: false })
     .limit(Number(limit));
+  if (scope.userId) {
+    // Narrowed before the limit, so a busy other user can't crowd this one out.
+    const { data: own, error: ownError } = await supabase
+      .from(Tables.INTEGRATION_CONNECTIONS).select('id').eq('user_id', scope.userId);
+    if (ownError) return res.status(500).json({ error: ownError.message });
+    q = q.in('connection_id', (own ?? []).map((c) => c.id as string));
+  }
 
   const { data: runs, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
@@ -118,23 +159,26 @@ runsRouter.get('/integrations', async (req, res) => {
 
   const hydrated = (runs ?? [])
     .map((run) => ({ ...run, connection: connectionById.get(run.connection_id) ?? null }))
-    .filter((run) => !userId || run.connection?.user_id === userId);
+    .filter((run) => !scope.userId || run.connection?.user_id === scope.userId);
 
   return res.json({ integration_runs: hydrated });
 });
 
 runsRouter.get('/integrations/:id', async (req, res) => {
+  const scope = scopeOf(req, res);
+  if (!scope) return;
   const { data: run, error } = await supabase
     .from(Tables.INTEGRATION_SYNC_RUNS)
     .select('*')
     .eq('id', req.params.id)
     .single();
-  if (error || !run) return res.status(404).json({ error: error?.message ?? 'run not found' });
+  if (error || !run) return res.status(404).json({ error: 'run not found' });
+  const { data: connection } = await supabase.from(Tables.INTEGRATION_CONNECTIONS).select('*').eq('id', run.connection_id).maybeSingle();
+  // Another person's run is not found, before anything of theirs is read.
+  if (scope.userId && connection?.user_id !== scope.userId) return res.status(404).json({ error: 'run not found' });
 
-  const [{ data: connection }, { data: payloads }] = await Promise.all([
-    supabase.from(Tables.INTEGRATION_CONNECTIONS).select('*').eq('id', run.connection_id).maybeSingle(),
-    supabase.from(Tables.SOURCE_PAYLOADS).select('*').eq('sync_run_id', run.id).order('captured_at', { ascending: false }),
-  ]);
+  const { data: payloads } = await supabase
+    .from(Tables.SOURCE_PAYLOADS).select('*').eq('sync_run_id', run.id).order('captured_at', { ascending: false });
 
   const payloadIds = (payloads ?? []).map((payload) => payload.id);
   const { data: sourceItems } = payloadIds.length > 0
@@ -177,12 +221,15 @@ runsRouter.get('/:id', async (req, res) => {
   if (req.accepts('html') && !req.query.json) {
     return res.sendFile(DASHBOARD_HTML);
   }
-  const { data, error } = await supabase
+  const scope = scopeOf(req, res);
+  if (!scope) return;
+  let one = supabase
     .from(Tables.PIPELINE_RUN_TRACES)
     .select('*')
-    .eq('id', req.params.id)
-    .single();
-  if (error) return res.status(404).json({ error: error.message });
+    .eq('id', req.params.id);
+  if (scope.userId) one = one.eq('user_id', scope.userId);
+  const { data, error } = await one.single();
+  if (error || !data) return res.status(404).json({ error: 'run not found' });
 
   // Hydrate IDs from inputs_snapshot into actual content
   const snap = (data as Record<string, unknown>).inputs_snapshot as Record<string, unknown> | null;
@@ -335,10 +382,14 @@ runsRouter.get('/:idA/compare/:idB', async (req, res) => {
   if (req.accepts('html') && !req.query.json) {
     return res.sendFile(DASHBOARD_HTML);
   }
-  const [{ data: a }, { data: b }] = await Promise.all([
-    supabase.from(Tables.PIPELINE_RUN_TRACES).select('*').eq('id', req.params.idA).maybeSingle(),
-    supabase.from(Tables.PIPELINE_RUN_TRACES).select('*').eq('id', req.params.idB).maybeSingle(),
-  ]);
+  const scope = scopeOf(req, res);
+  if (!scope) return;
+  const byId = (id: string) => {
+    let q = supabase.from(Tables.PIPELINE_RUN_TRACES).select('*').eq('id', id);
+    if (scope.userId) q = q.eq('user_id', scope.userId);
+    return q.maybeSingle();
+  };
+  const [{ data: a }, { data: b }] = await Promise.all([byId(req.params.idA), byId(req.params.idB)]);
   if (!a || !b) return res.status(404).json({ error: 'one or both runs not found' });
   return res.json({ a, b });
 });

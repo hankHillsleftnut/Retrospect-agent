@@ -47,6 +47,8 @@ export function requireInternalSecretOrLocalDev(req: Request, res: Response, nex
   const remote = req.socket?.remoteAddress ?? '';
   const forwarded = req.header('x-forwarded-for');
   if (!isProduction && LOOPBACK.has(remote) && !forwarded) {
+    // The developer's own dashboard: it may look across users (src/routes/runs.ts).
+    res.locals.localDev = true;
     next();
     return;
   }

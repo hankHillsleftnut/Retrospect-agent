@@ -105,10 +105,28 @@ integrationsRouter.post('/enqueue-device-batch', async (req, res) => {
   }
 });
 
+/**
+ * BEA.2b: whether this connection is this person's. The agent trusts the user
+ * id it's sent, so every route that names a connection checks it first; another
+ * person's connection is "not found".
+ */
+async function ownsConnection(userId: string, connectionId: string): Promise<boolean> {
+  if (!z.string().uuid().safeParse(connectionId).success) return false;
+  const { data, error } = await supabase
+    .from(Tables.INTEGRATION_CONNECTIONS).select('id').eq('id', connectionId).eq('user_id', userId).maybeSingle();
+  if (error) throw new Error(`connection lookup failed (${error.code ?? 'unknown'})`);
+  return data !== null;
+}
+
 integrationsRouter.post('/queue-import', async (req, res) => {
   const parsed = queueImportSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: 'invalid import job', details: parsed.error.errors });
   try {
+    // The import must be this person's (BEA.2b).
+    const { data: own, error: ownError } = await supabase
+      .from(Tables.INTEGRATION_IMPORTS).select('id').eq('id', parsed.data.importId).eq('user_id', parsed.data.userId).maybeSingle();
+    if (ownError) throw new Error(`import lookup failed (${ownError.code ?? 'unknown'})`);
+    if (!own) return res.status(404).json({ error: 'not found' });
     const connection = await ensureConnection({
       userId: parsed.data.userId,
       providerId: parsed.data.providerId,
@@ -122,7 +140,7 @@ integrationsRouter.post('/queue-import', async (req, res) => {
       payload: { importId: parsed.data.importId },
       maxAttempts: 3,
     });
-    await supabase.from(Tables.INTEGRATION_IMPORTS).update({ status: 'queued' }).eq('id', parsed.data.importId);
+    await supabase.from(Tables.INTEGRATION_IMPORTS).update({ status: 'queued' }).eq('id', parsed.data.importId).eq('user_id', parsed.data.userId);
     return res.status(202).json({ jobId: job.id, status: job.status });
   } catch (err) {
     return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -159,6 +177,7 @@ integrationsRouter.post('/connections/:connectionId/delete-data', async (req, re
   const userId = z.string().uuid().safeParse(req.body?.userId);
   if (!userId.success) return res.status(400).json({ error: 'invalid userId' });
   try {
+    if (!(await ownsConnection(userId.data, req.params.connectionId))) return res.status(404).json({ error: 'not found' });
     const job = await enqueueIntegrationJob({
       userId: userId.data,
       connectionId: req.params.connectionId,
@@ -207,7 +226,10 @@ integrationsRouter.put('/connections/:connectionId/credentials', async (req, res
 });
 
 integrationsRouter.post('/test/:connectionId', async (req, res) => {
+  const userId = z.string().uuid().safeParse(req.body?.userId);
+  if (!userId.success) return res.status(400).json({ error: 'invalid userId' });
   try {
+    if (!(await ownsConnection(userId.data, req.params.connectionId))) return res.status(404).json({ error: 'not found' });
     const result = await runIntegrationTests(req.params.connectionId);
     return res.status(result.status === 'failed' ? 500 : 200).json(result);
   } catch (err) {
