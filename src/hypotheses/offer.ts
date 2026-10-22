@@ -42,7 +42,7 @@ export async function loadOfferable(userId: string, db: typeof supabase = supaba
   // Newest first, no cap: the open set is small (guesses expire), and a cap without an
   // order could drop the newest. A query error is an error, not an empty list.
   const { data, error } = await db.from('hypotheses').select('id,question,framework,rationale,supports,offered_count,last_offered_at,status,created_at').eq('user_id', userId).in('status', ['stored', 'offered']).order('created_at', { ascending: false });
-  if (error) throw new Error(`loadOfferable: ${error.message}`);
+  if (error) throw new Error(`loadOfferable failed (${error.code ?? 'unknown'})`);
   return (data ?? []) as Row[];
 }
 
