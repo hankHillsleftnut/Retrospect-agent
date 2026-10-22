@@ -119,6 +119,8 @@ export async function changedSince(options: {
   ];
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Everything the bank knows about one entity, current by default. */
 export async function factsAbout(options: {
   userId: string;
@@ -126,17 +128,25 @@ export async function factsAbout(options: {
   includeHistorical?: boolean;
   limit?: number;
 }): Promise<FactRow[]> {
-  let q = supabase.from(Tables.ASSERTIONS).select('*')
-    .eq('user_id', options.userId)
-    .or(`subject_entity_id.eq.${options.entityId},object_entity_id.eq.${options.entityId}`)
-    .order('observed_at', { ascending: false })
-    .limit(options.limit ?? 100);
-
-  if (!options.includeHistorical) q = q.eq('status', 'active').is('valid_to', null);
-
-  const { data, error } = await q;
-  if (error) throw new Error(`factsAbout failed: ${error.message}`);
-  return (data ?? []) as FactRow[];
+  // Never interpolated into a filter string: a crafted id could widen it (BEA.2).
+  if (!UUID.test(options.entityId)) throw new Error('factsAbout: entityId must be a UUID');
+  const limit = options.limit ?? 100;
+  const side = async (column: 'subject_entity_id' | 'object_entity_id') => {
+    let q = supabase.from(Tables.ASSERTIONS).select('*')
+      .eq('user_id', options.userId)
+      .eq(column, options.entityId)
+      .order('observed_at', { ascending: false })
+      .limit(limit);
+    if (!options.includeHistorical) q = q.eq('status', 'active').is('valid_to', null);
+    const { data, error } = await q;
+    if (error) throw new Error(`factsAbout failed: ${error.message}`);
+    return (data ?? []) as FactRow[];
+  };
+  const byId = new Map<string, FactRow>();
+  for (const f of [...await side('subject_entity_id'), ...await side('object_entity_id')]) byId.set(f.id, f);
+  return [...byId.values()]
+    .sort((a, b) => String(b.observed_at ?? '').localeCompare(String(a.observed_at ?? '')))
+    .slice(0, limit);
 }
 
 /**
@@ -246,7 +256,7 @@ export async function pattern(options: {
 
   const [whys, facts] = await Promise.all([
     supabase.from(Tables.BEHAVIOR_PATTERN_WHYS).select('*')
-      .eq('pattern_id', options.patternId).is('retired_at', null),
+      .eq('user_id', options.userId).eq('pattern_id', options.patternId).is('retired_at', null),
     factsFor({ userId: options.userId, patternId: options.patternId }),
   ]);
 
@@ -260,7 +270,7 @@ export async function factsFor(options: {
   role?: 'supports' | 'weakly_related' | 'counter_evidence';
 }): Promise<FactRow[]> {
   let link = supabase.from(Tables.BEHAVIOR_PATTERN_FACTS)
-    .select('assertion_id').eq('pattern_id', options.patternId);
+    .select('assertion_id').eq('user_id', options.userId).eq('pattern_id', options.patternId);
   if (options.role) link = link.eq('role', options.role);
 
   const { data: links, error } = await link;
@@ -376,7 +386,7 @@ export async function lineage(options: {
     }
     const { data: ev } = await supabase.from(Tables.ASSERTION_EVIDENCE)
       .select('raw_content_id,excerpt,char_start,char_end')
-      .eq('assertion_id', options.id);
+      .eq('user_id', options.userId).eq('assertion_id', options.id);
     for (const e of (ev ?? []) as any[]) {
       out.push({
         kind: 'raw_content',
@@ -393,7 +403,7 @@ export async function lineage(options: {
 
   // forward
   const { data: ev } = await supabase.from(Tables.ASSERTION_EVIDENCE)
-    .select('assertion_id').eq('raw_content_id', options.id);
+    .select('assertion_id').eq('user_id', options.userId).eq('raw_content_id', options.id);
   const assertionIds = (ev ?? []).map((e: { assertion_id: string }) => e.assertion_id);
 
   if (assertionIds.length === 0) {
@@ -415,7 +425,7 @@ export async function lineage(options: {
   }
 
   const { data: links } = await supabase.from(Tables.BEHAVIOR_PATTERN_FACTS)
-    .select('pattern_id').in('assertion_id', assertionIds);
+    .select('pattern_id').eq('user_id', options.userId).in('assertion_id', assertionIds);
   const patternIds = [...new Set((links ?? []).map((l: { pattern_id: string }) => l.pattern_id))];
 
   if (patternIds.length === 0) {
@@ -425,7 +435,7 @@ export async function lineage(options: {
   }
 
   const { data: patterns } = await supabase.from(Tables.BEHAVIOR_PATTERNS)
-    .select('id,label,status').in('id', patternIds);
+    .select('id,label,status').eq('user_id', options.userId).in('id', patternIds);
   for (const p of (patterns ?? []) as any[]) {
     out.push({
       kind: 'pattern', id: p.id, summary: p.label,

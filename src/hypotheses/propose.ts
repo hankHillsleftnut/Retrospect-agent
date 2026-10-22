@@ -38,7 +38,7 @@ export async function proposeHypotheses(c: UnderstandingContract, options: { mod
   const model = options.model ?? ((s, p) => claudeJsonCompletion<Raw>(s, p, { model: config.anthropic.writerModel, maxTokens: 900 }));
   const sourcesOf = options.sourcesOf ?? (async (claims) => {
     const ids = new Set<string>();
-    for (const cl of claims) for (const s of (await walkEvidence(cl)).sources) ids.add(`${s.kind}:${s.id}`);
+    for (const cl of claims) for (const s of (await walkEvidence(c.userId, cl)).sources) ids.add(`${s.kind}:${s.id}`);
     return ids.size;
   });
   const lines = evidenceLines(c);

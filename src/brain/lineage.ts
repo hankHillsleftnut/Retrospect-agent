@@ -28,7 +28,29 @@ export interface Lineage {
 const SOURCE_KINDS = new Set<EvidenceKind>(['raw_content', 'source_item']);
 const MAX_DEPTH = 6;
 
-export async function walkEvidence(claim: { kind: ClaimKind; id: string }, db: typeof supabase = supabase): Promise<Lineage> {
+const CLAIM_TABLES: Record<ClaimKind, string> = {
+  fact: Tables.ASSERTIONS,
+  pattern: Tables.BEHAVIOR_PATTERNS,
+  why: Tables.BEHAVIOR_PATTERN_WHYS,
+  answer: Tables.QUESTION_ANSWERS,
+};
+
+/** Whether a claim is this person's. The agent trusts the user id it is sent, so every walk and write checks. */
+export async function claimBelongsTo(userId: string, claim: { kind: ClaimKind; id: string }, db: typeof supabase = supabase): Promise<boolean> {
+  const table = CLAIM_TABLES[claim.kind];
+  if (!table) return false;
+  const { data, error } = await db.from(table).select('id').eq('id', claim.id).eq('user_id', userId).maybeSingle();
+  if (error) throw new Error(`claimBelongsTo: ${error.code ?? 'failed'}`);
+  return data !== null;
+}
+
+/**
+ * Everything a claim rests on, down to the sources. Scoped to `userId`: a
+ * claim that isn't theirs walks to nothing, and every step is filtered by
+ * user (BEA.2).
+ */
+export async function walkEvidence(userId: string, claim: { kind: ClaimKind; id: string }, db: typeof supabase = supabase): Promise<Lineage> {
+  if (!(await claimBelongsTo(userId, claim, db))) return { sources: [], steps: [] };
   const sources = new Map<string, EvidenceNode>();
   const steps: EvidenceStep[] = [];
   const seen = new Set<string>([`${claim.kind}:${claim.id}`]);
@@ -44,7 +66,7 @@ export async function walkEvidence(claim: { kind: ClaimKind; id: string }, db: t
       for (const part of chunks(ids)) {
         const r = await db.from(Tables.CLAIM_EDGES)
           .select('claim_kind,claim_id,evidence_kind,evidence_id,role,excerpt')
-          .eq('claim_kind', kind).in('claim_id', part);
+          .eq('user_id', userId).eq('claim_kind', kind).in('claim_id', part);
         if (r.error) throw new Error(`walkEvidence: ${r.error.message}`);
         data.push(...(r.data ?? []));
       }

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { handleCorrection } from '../corrections/target';
 import { applyCorrection } from '../corrections/apply';
-import type { ClaimKind } from '../brain/lineage';
+import { claimBelongsTo, type ClaimKind } from '../brain/lineage';
 
 /**
  * Corrections in plain words (goal 20). The app sends what the person said;
@@ -27,6 +27,9 @@ const KINDS = new Set<ClaimKind>(['fact', 'answer', 'pattern', 'why']);
 correctionsRouter.post('/confirm', async (req, res) => {
   const { userId, kind, id, note, mode } = req.body ?? {};
   if (!userId || !KINDS.has(kind) || typeof id !== 'string') return res.status(400).json({ error: 'userId, kind and id required' });
-  try { const plan = await applyCorrection(userId, { kind, id }, { note: typeof note === 'string' ? note : undefined, mode: mode === 'changed' ? 'changed' : 'wrong' }); return res.json({ outcome: 'applied', retired: plan.retire.length }); }
+  try {
+    // The agent trusts the user id it is sent: refuse a claim that isn't theirs, before planning (BEA.2).
+    if (!(await claimBelongsTo(userId, { kind, id }))) return res.status(404).json({ error: 'not found' });
+    const plan = await applyCorrection(userId, { kind, id }, { note: typeof note === 'string' ? note : undefined, mode: mode === 'changed' ? 'changed' : 'wrong' }); return res.json({ outcome: 'applied', retired: plan.retire.length }); }
   catch (err) { return res.status(500).json({ error: err instanceof Error ? err.message : String(err) }); }
 });
