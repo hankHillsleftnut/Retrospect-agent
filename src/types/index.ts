@@ -156,6 +156,9 @@ export interface DbPodcastEpisode {
   title: string;
   description: string | null;
   script: string;
+  /** Object path in the private bucket (154); links are signed from it. */
+  audio_path?: string | null;
+  /** Public URL for app versions before X07. */
   audio_url: string | null;
   duration_seconds: number | null;
   mood: string | null;
