@@ -7,6 +7,10 @@
  *   npm run db:migrate -- --only 128_x.sql [--apply]         just that one pending migration
  *   npm run db:migrate -- --baseline-through 114_x.sql       first run only: record 100..114
  *                                                            as already applied, without running them
+ *   npm run db:migrate:staging [-- --apply]                  the same against local staging (--staging):
+ *                                                            .env.staging overrides everything, the
+ *                                                            database must hold only test users, and TLS
+ *                                                            is verified (src/db/staging-guard.ts)
  *
  * Needs DATABASE_URL: the direct Postgres connection string (Supabase
  * dashboard -> Project Settings -> Database). The API keys cannot change
@@ -29,11 +33,14 @@ import { parseArgs } from './_args';
 import { compareWithProduction } from './_schema';
 import { migrationFiles } from '../tests/support/fresh-database';
 import { applyPlan, only, plan, recordedMigrations } from '../src/db/migrate';
+import { assertOnlyTestUsers, loadStagingEnv, stagingTls } from '../src/db/staging-guard';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
 
 async function main() {
   const args = parseArgs();
+  const staging = args.staging === true;
+  if (staging) loadStagingEnv(join(__dirname, '..', '.env.staging'));
   const apply = args.apply === true;
   const baseline = typeof args['baseline-through'] === 'string' ? args['baseline-through'] : undefined;
   const url = process.env.DATABASE_URL;
@@ -42,10 +49,17 @@ async function main() {
     process.exit(1);
   }
 
-  const client = new Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
+  // Production keeps its existing connection settings (unchanged here; a
+  // findings-log item). Staging is always verified against the CA certificate.
+  const client = new Client({ connectionString: url, ssl: staging ? stagingTls(process.env) : { rejectUnauthorized: false } });
   await client.connect();
   try {
-    console.log(`Database: ${new URL(url).hostname}`);
+    if (staging) {
+      await assertOnlyTestUsers(client);
+      console.log('Database: staging (only test users)');
+    } else {
+      console.log(`Database: ${new URL(url).hostname}`);
+    }
     // A preview only reads; the ledger table is created only when applying.
     const full = plan(migrationFiles(), await recordedMigrations(client, { create: apply }), baseline);
     const p = typeof args.only === 'string' ? only(full, args.only) : full;
@@ -81,4 +95,9 @@ async function main() {
   }
 }
 
-main().catch((err) => { console.error(err instanceof Error ? err.message : err); process.exit(1); });
+// A driver error can carry the database host, so only its code is printed then.
+main().catch((err) => {
+  const code = (err as { code?: unknown }).code;
+  console.error(typeof code === 'string' ? `db:migrate failed (${code})` : err instanceof Error ? err.message : 'db:migrate failed');
+  process.exit(1);
+});
