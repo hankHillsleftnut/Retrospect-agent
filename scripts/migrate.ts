@@ -33,7 +33,8 @@ import { parseArgs } from './_args';
 import { compareWithProduction } from './_schema';
 import { migrationFiles } from '../tests/support/fresh-database';
 import { applyPlan, only, plan, recordedMigrations } from '../src/db/migrate';
-import { assertOnlyTestUsers, loadStagingEnv, stagingTls } from '../src/db/staging-guard';
+import { assertOnlyTestUsers, loadStagingEnv } from '../src/db/staging-guard';
+import { migrationClientConfig } from '../src/db/tls';
 
 const MIGRATIONS = join(__dirname, '..', 'supabase', 'migrations');
 
@@ -49,9 +50,8 @@ async function main() {
     process.exit(1);
   }
 
-  // Production keeps its existing connection settings (unchanged here; a
-  // findings-log item). Staging is always verified against the CA certificate.
-  const client = new Client({ connectionString: url, ssl: staging ? stagingTls(process.env) : { rejectUnauthorized: false } });
+  // Verified against Supabase's CA certificate in every mode (src/db/tls.ts).
+  const client = new Client(migrationClientConfig(url, process.env));
   await client.connect();
   try {
     if (staging) {
