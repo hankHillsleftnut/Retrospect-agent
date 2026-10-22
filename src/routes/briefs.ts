@@ -3,15 +3,20 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { runDailyBrief as runDailyBriefEngine } from '../briefs/run-daily-brief';
 import { checkDailySpend, spendLimitedBody } from '../pipelines/spend-guard';
+import { makeBriefAudio as makeBriefAudioEngine } from '../briefs/brief-audio';
 
 export interface BriefsDeps {
   /** The engine records its own spend (BEA.4), whichever way it is reached: here, the cron, the CLI. */
   runDailyBrief: typeof runDailyBriefEngine;
   checkSpend: typeof checkDailySpend;
+  /** (Re)makes one brief's audio (BE1.3b). */
+  makeBriefAudio: typeof makeBriefAudioEngine;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function makeBriefsRouter(deps: Partial<BriefsDeps> = {}): Router {
-  const d: BriefsDeps = { runDailyBrief: runDailyBriefEngine, checkSpend: checkDailySpend, ...deps };
+  const d: BriefsDeps = { runDailyBrief: runDailyBriefEngine, checkSpend: checkDailySpend, makeBriefAudio: makeBriefAudioEngine, ...deps };
   const router = Router();
 
   /** GET /briefs/:userId/latest -- their most recent daily brief, or null. */
@@ -41,6 +46,24 @@ export function makeBriefsRouter(deps: Partial<BriefsDeps> = {}): Router {
       const spend = await d.checkSpend(userId);
       if (!spend.allowed) return res.status(429).json(spendLimitedBody(spend));
       return res.json(await d.runDailyBrief(userId, { dryRun: !!dryRun }));
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * POST /briefs/:userId/:briefId/audio -- (re)make one brief's audio (BE1.3b). Idempotent: a brief
+   * already `ready` answers as is. Voice synthesis costs money, so the cap applies.
+   */
+  router.post('/:userId/:briefId/audio', async (req, res) => {
+    const { userId, briefId } = req.params;
+    if (!UUID.test(userId) || !UUID.test(briefId)) return res.status(400).json({ error: 'userId and briefId must be ids' });
+    try {
+      const spend = await d.checkSpend(userId);
+      if (!spend.allowed) return res.status(429).json(spendLimitedBody(spend));
+      const result = await d.makeBriefAudio(userId, briefId);
+      if (result.outcome === 'not_found') return res.status(404).json({ error: 'not found' });
+      return res.json(result);
     } catch (err) {
       return res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
