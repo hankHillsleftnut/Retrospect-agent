@@ -15,6 +15,7 @@ import {
 } from '../prompts/episode-summary';
 import { runPodcastAgent } from '../agents/podcast-agent';
 import { runPodcastV2 } from './podcast-v2';
+import type { EpisodePlan } from '../planner/plan';
 import { Trace, TraceTrigger, costLines, type CostLine } from './trace';
 import { formatUnderstanding, loadUnderstanding } from '../questions/understanding';
 import type {
@@ -50,14 +51,22 @@ export interface PodcastOptions {
   parentRunId?: string | null;
 }
 
+/**
+ * What a run came to (BEA.8). 'made' is an episode; the other two are states,
+ * not errors: nothing cleared the bar to be said, or the fact check cut every
+ * sentence. Only the planner (v2) can end in them.
+ */
+export type EpisodeOutcome = 'made' | 'quiet_week' | 'nothing_safe_to_say';
+
 export interface PodcastResult {
+  outcome: EpisodeOutcome;
   traceId: string | null;
   episodeId: string | null;
   /** The old path's outlines; absent when the episode came from the planner (v2). */
   outlineV1?: OutlineV1;
   outlineV2?: OutlineV2;
   /** The new path (W6.4): what was planned and what the fact check cut. */
-  v2?: { plan: unknown; guard: { sentences: number; kept: number; cut: number } };
+  v2?: { plan: EpisodePlan; guard: { sentences: number; kept: number; cut: number } };
   script: string;
   /** The object path in the private bucket; routes sign a link from it (BEA.7). */
   audioPath: string | null;
@@ -603,6 +612,7 @@ export async function runPodcast(options: PodcastOptions): Promise<PodcastResult
     await trace.complete();
 
     return {
+      outcome: 'made',
       traceId: trace.id,
       episodeId,
       outlineV1,

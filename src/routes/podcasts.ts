@@ -20,6 +20,8 @@ export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
    * POST /podcasts/generate
    * Body: { userId, daysBack?, skipTTS?, dryRun?, persona?, notes? }
    * `audio` is a signed link that expires; `audioUrl` is the public URL old app versions read, until X07.
+   * `outcome` is 'made', or (planner v2, BEA.8) 'quiet_week' / 'nothing_safe_to_say': a 200 with no episode,
+   * the `plan` and the `guard` numbers, never a 500. `plan` and `guard` replace `outlineV2` for v2 runs.
    */
   router.post('/generate', async (req, res) => {
     const { userId, daysBack, skipTTS, dryRun, persona, notes } = req.body ?? {};
@@ -42,7 +44,11 @@ export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
         persona,
         notes,
       });
+      if (result.outcome !== 'made') {
+        return res.json({ outcome: result.outcome, traceId: result.traceId, episodeId: null, plan: result.v2?.plan ?? null, guard: result.v2?.guard ?? null, cost: result.cost });
+      }
       return res.json({
+        outcome: result.outcome,
         traceId: result.traceId,
         episodeId: result.episodeId,
         title: result.title,
@@ -54,6 +60,8 @@ export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
         script: result.script,
         summary: result.summary,
         outlineV2: result.outlineV2,
+        plan: result.v2?.plan ?? null,
+        guard: result.v2?.guard ?? null,
       });
     } catch (err) {
       return res
