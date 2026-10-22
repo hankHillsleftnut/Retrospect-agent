@@ -11,6 +11,7 @@ import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
 import { config } from '../config';
 import { estimateCostUsd, costLines } from '../pipelines/trace';
+import { recordSpend } from '../pipelines/spend-ledger';
 import { readUnderstanding } from '../understanding/read';
 import { readDailyInputs, planDaily } from '../planner/daily';
 import { briefSections, writeBrief } from '../writer/write-brief';
@@ -41,6 +42,8 @@ export async function runDailyBriefV2(userId: string, deps: { db?: typeof supaba
     by_model: { [config.anthropic.writerModel]: { input: w.inputTokens, output: w.outputTokens, calls: 1 }, [config.anthropic.guardModel]: { input: g.inputTokens, output: g.outputTokens, calls: g.inputTokens ? 1 : 0 } },
   };
   const costUsd = estimateCostUsd(breakdown as never).usd;
+  // Spent whether or not the brief is saved: a dry run still called the models (BEA.4).
+  await recordSpend(userId, 'brief', costLines(breakdown as never), { db, now });
   const brief = {
     kind: (plan.quiet ? 'quiet' : 'brief') as 'brief' | 'quiet',
     throughLine: written.text || 'A quiet day: nothing new to bring you.',

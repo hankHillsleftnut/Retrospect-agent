@@ -65,4 +65,6 @@ export const Tables = {
   EVENT_CATEGORIES: 'event_categories',
   REFERENCE_ITEMS: 'reference_items',
   CLAIM_EDGES: 'claim_edges',
+  // NEW (153): every model call with no trace of its own, summed by the spend guard (BEA.4).
+  SPEND_LEDGER: 'spend_ledger',
 } as const;
