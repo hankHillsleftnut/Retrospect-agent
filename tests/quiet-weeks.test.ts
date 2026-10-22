@@ -114,7 +114,7 @@ let next: PodcastResult;
 before(async () => {
   const app = express();
   app.use(express.json());
-  app.use('/podcasts', makePodcastsRouter({ runPodcast: async () => next, signAudio: async (path) => (path ? { url: `https://signed/${path}`, expiresAt: '2026-10-22T13:00:00.000Z' } : null) }));
+  app.use('/podcasts', makePodcastsRouter({ runPodcast: async () => next, signAudio: async (path) => (path ? { url: `https://signed/${path}`, expiresAt: '2026-10-22T13:00:00.000Z' } : null), signAudioMany: async (paths) => paths.map(() => null) }));
   server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

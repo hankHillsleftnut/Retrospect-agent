@@ -198,8 +198,8 @@ import { distinctEvents } from '../src/questions/run-first-pass';
 test('a recurring event is shown once, with how often it occurs, leaving room for meetings with people', () => {
   const rows = [
     ...Array.from({ length: 15 }, (_, n) => ({ id: `dive${n}`, content: 'Calendar event: Dive Radio\nWhen: Thursday' })),
-    { id: 'f1', content: 'Calendar event: Shaurya X Francis\nWith: fxchen12@gmail.com' },
-    { id: 'y1', content: 'Calendar event: Yehuda <> Shaurya\nWith: yehuda@example.com' },
+    { id: 'f1', content: 'Calendar event: Sam X Pat\nWith: pat@example.com' },
+    { id: 'y1', content: 'Calendar event: Alex <> Sam\nWith: alex@example.com' },
   ];
   const out = distinctEvents(rows, 3);
   assert.deepEqual(out.map((r) => r.id), ['dive0', 'f1', 'y1']);

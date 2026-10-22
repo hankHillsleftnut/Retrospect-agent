@@ -3,7 +3,7 @@ import { Tables } from '../db/tables';
 import { claudeJsonCompletion } from '../services/anthropic';
 import { config } from '../config';
 import { MAGIC_MOMENTS_SYSTEM_PROMPT } from '../prompts/magic-moments';
-import type { Trace } from './trace';
+import { costLines, type CostLine, type Trace } from './trace';
 import type { DbRawContent, MagicMoment, MagicMomentsResult } from '../types';
 
 export interface RunMagicMomentsOptions {
@@ -18,6 +18,8 @@ export interface RunMagicMomentsSummary {
   notes?: string;
   hadOnboarding: boolean;
   integrationTypes: string[];
+  /** The one model call, priced; the route records it in the spend ledger (BEA.4). */
+  cost: CostLine[];
 }
 
 const INTEGRATION_TYPES = ['healthkit', 'screen_time', 'google_docs', 'calendar', 'social_web_research', 'apple_music', 'photos', 'contacts'];
@@ -103,6 +105,12 @@ Find the magic moments. Cross-reference what they SAID against what their DATA S
     notes: data.notes,
     hadOnboarding: !!onboarding,
     integrationTypes,
+    cost: costLines({
+      openai_tokens_input: 0, openai_tokens_output: 0,
+      anthropic_tokens_input: usage.inputTokens, anthropic_tokens_output: usage.outputTokens,
+      embedding_tokens: 0, perplexity_calls: 0, elevenlabs_chars: 0, est_usd: 0,
+      by_model: { [config.anthropic.cook0Model]: { input: usage.inputTokens, output: usage.outputTokens, calls: 1 } },
+    }),
   };
 }
 

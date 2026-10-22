@@ -1,19 +1,25 @@
 import { Router } from 'express';
 import { runPodcast as runPodcastEngine } from '../pipelines/podcast';
-import { checkDailySpend } from '../pipelines/spend-guard';
+import { checkDailySpend, spendLimitedBody } from '../pipelines/spend-guard';
 import { supabase } from '../db/supabase';
 import { Tables } from '../db/tables';
-import { audioPathOf, signedAudioUrl, type SignedAudio } from '../services/audio-storage';
+import { audioPathOf, signedAudioUrl, signedAudioUrls, type SignedAudio } from '../services/audio-storage';
 import type { DbPodcastEpisode } from '../types';
 
 export interface PodcastsDeps {
   runPodcast: typeof runPodcastEngine;
   /** Signs a link to one audio object (BEA.7); injected so tests never reach storage. */
   signAudio: (path: string | null) => Promise<SignedAudio | null>;
+  /** Signs many at once (one storage call for a list), one entry per path, in order. */
+  signAudioMany: (paths: Array<string | null>) => Promise<Array<SignedAudio | null>>;
 }
 
+/**
+ * Mounted behind requireInternalSecret (index.ts): the backend's doors are the only caller, and
+ * they pass the signed-in person's id, so `:userId` here is the service's word, not a client's.
+ */
 export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
-  const d: PodcastsDeps = { runPodcast: runPodcastEngine, signAudio: (path) => signedAudioUrl(path), ...deps };
+  const d: PodcastsDeps = { runPodcast: runPodcastEngine, signAudio: (path) => signedAudioUrl(path), signAudioMany: (paths) => signedAudioUrls(paths), ...deps };
   const router = Router();
 
   /**
@@ -32,7 +38,7 @@ export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
         const spend = await checkDailySpend(userId);
         if (!spend.allowed) {
           console.warn(`[podcasts] refused for ${userId}: ${spend.message}`);
-          return res.status(429).json({ error: spend.message, spentUsd: spend.spentUsd, capUsd: spend.capUsd });
+          return res.status(429).json(spendLimitedBody(spend));
         }
       }
       const result = await d.runPodcast({
@@ -70,18 +76,25 @@ export function makePodcastsRouter(deps: Partial<PodcastsDeps> = {}): Router {
     }
   });
 
-  /** GET /podcasts/:userId -- their episodes, newest first, each with a signed `audio` link when it has audio. */
+  /** GET /podcasts/:userId -- their episodes, newest first, each with a signed `audio` link when it has audio (signed in one call). */
   router.get('/:userId', async (req, res) => {
     const { userId } = req.params;
-    const { data, error } = await supabase
-      .from(Tables.PODCAST_EPISODES)
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (error) return res.status(500).json({ error: error.message });
-    const episodes = await Promise.all(((data ?? []) as DbPodcastEpisode[]).map(async (row) => ({ ...row, audio: await d.signAudio(audioPathOf(row)) })));
-    return res.json({ episodes });
+    try {
+      const { data, error } = await supabase
+        .from(Tables.PODCAST_EPISODES)
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (error) throw new Error(error.code ?? 'db');
+      const rows = (data ?? []) as DbPodcastEpisode[];
+      const links = await d.signAudioMany(rows.map(audioPathOf));
+      return res.json({ episodes: rows.map((row, i) => ({ ...row, audio: links[i] ?? null })) });
+    } catch (err) {
+      // Never the error's words (they can carry row values): a code in the log, 'internal' to the caller.
+      console.error(`[podcasts] list failed: ${err instanceof Error ? err.message.slice(0, 40) : 'unknown'}`);
+      return res.status(500).json({ error: 'internal' });
+    }
   });
 
   return router;

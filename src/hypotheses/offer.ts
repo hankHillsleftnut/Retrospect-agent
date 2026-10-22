@@ -39,8 +39,10 @@ export function chooseOffer(rows: Row[], c: UnderstandingContract, appetite: num
 }
 
 export async function loadOfferable(userId: string, db: typeof supabase = supabase): Promise<Row[]> {
-  const { data, error } = await db.from('hypotheses').select('id,question,framework,rationale,supports,offered_count,last_offered_at,status,created_at').eq('user_id', userId).in('status', ['stored', 'offered']).limit(100);
-  if (error) return [];
+  // Newest first, no cap: the open set is small (guesses expire), and a cap without an
+  // order could drop the newest. A query error is an error, not an empty list.
+  const { data, error } = await db.from('hypotheses').select('id,question,framework,rationale,supports,offered_count,last_offered_at,status,created_at').eq('user_id', userId).in('status', ['stored', 'offered']).order('created_at', { ascending: false });
+  if (error) throw new Error(`loadOfferable failed (${error.code ?? 'unknown'})`);
   return (data ?? []) as Row[];
 }
 

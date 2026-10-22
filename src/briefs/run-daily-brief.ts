@@ -10,6 +10,7 @@ import { Tables } from '../db/tables';
 import { config } from '../config';
 import { claudeJsonCompletion, type ClaudeUsage } from '../services/anthropic';
 import { costLines, estimateCostUsd, type CostLine } from '../pipelines/trace';
+import { recordSpend } from '../pipelines/spend-ledger';
 import { OWN_WORDS_CONTENT_TYPES } from '../questions/first-pass';
 import { distinctEvents } from '../questions/run-first-pass';
 import {
@@ -124,6 +125,8 @@ export async function runDailyBrief(
     by_model: usage.inputTokens ? { [modelName]: { input: usage.inputTokens, output: usage.outputTokens, calls: 1 } } : {},
   };
   const costUsd = estimateCostUsd(breakdown as any).usd;
+  // Spent whether or not the brief is saved: a dry run still called the model (BEA.4).
+  await recordSpend(userId, 'brief', costLines(breakdown as any), { db, now });
 
   let saved = false;
   if (!deps.dryRun) {
