@@ -79,7 +79,8 @@ export function buildBriefPrompt(answers: BriefAnswer[], material: BriefMaterial
   return `CURRENT ANSWERS\n${a}\n\nNEW SINCE THE LAST BRIEF\n${m}`;
 }
 
-export function quietBrief(throughLine = "Nothing new since your last brief. I'll keep listening."): VettedBrief {
+// Lowercase, as everything Retro says (contract 02 §3; the door never rewrites words).
+export function quietBrief(throughLine = "nothing new since your last brief. i'll keep listening."): VettedBrief {
   return { kind: 'quiet', throughLine, spineQuestionId: null, spineMovement: null, items: [], dropped: 0 };
 }
 
