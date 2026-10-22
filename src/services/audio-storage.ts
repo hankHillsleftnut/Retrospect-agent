@@ -21,7 +21,7 @@ export const SIGNED_AUDIO_TTL_SECONDS = 3600;
 /** The longest link anyone may ask for: a day. */
 const MAX_TTL_SECONDS = 24 * 3600;
 
-export type AudioStorage = Pick<ReturnType<typeof supabase.storage.from>, 'upload' | 'createSignedUrl'>;
+export type AudioStorage = Pick<ReturnType<typeof supabase.storage.from>, 'upload' | 'createSignedUrl' | 'createSignedUrls'>;
 const defaultStorage = (): AudioStorage => supabase.storage.from(AUDIO_BUCKET);
 
 /** Where an episode's audio lives: under the person, named by its run. */
@@ -78,12 +78,47 @@ export async function signedAudioUrl(
   }
   const storage = options.storage ?? defaultStorage();
   const now = options.now ?? new Date();
-  const { data, error } = await storage.createSignedUrl(path, ttlSeconds);
-  if (error || !data?.signedUrl) {
-    console.warn(`[audio-storage] could not sign a link: ${error?.message ?? 'no url returned'}`);
+  // storage-js rethrows what it doesn't classify (a failed fetch): the same answer as a refusal, never a throw.
+  try {
+    const { data, error } = await storage.createSignedUrl(path, ttlSeconds);
+    if (error || !data?.signedUrl) {
+      console.warn(`[audio-storage] could not sign a link: ${error?.message ?? 'no url returned'}`);
+      return null;
+    }
+    return { url: data.signedUrl, expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString() };
+  } catch {
+    console.warn('[audio-storage] could not sign a link: exception');
     return null;
   }
-  return { url: data.signedUrl, expiresAt: new Date(now.getTime() + ttlSeconds * 1000).toISOString() };
+}
+
+/**
+ * Signed links for many objects in one storage call (a list of fifty episodes
+ * is one request, not fifty). Returns one entry per input path, in order; a
+ * path storage could not sign, a null path, or a thrown call is null.
+ */
+export async function signedAudioUrls(
+  paths: Array<string | null | undefined>,
+  ttlSeconds: number = SIGNED_AUDIO_TTL_SECONDS,
+  options: { storage?: AudioStorage; now?: Date } = {},
+): Promise<Array<SignedAudio | null>> {
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds <= 0 || ttlSeconds > MAX_TTL_SECONDS) {
+    throw new RangeError(`signed audio ttl must be 1..${MAX_TTL_SECONDS} seconds`);
+  }
+  const wanted = [...new Set(paths.filter((p): p is string => typeof p === 'string' && p.length > 0))];
+  if (!wanted.length) return paths.map(() => null);
+  const storage = options.storage ?? defaultStorage();
+  const now = options.now ?? new Date();
+  const expiresAt = new Date(now.getTime() + ttlSeconds * 1000).toISOString();
+  const byPath = new Map<string, SignedAudio>();
+  try {
+    const { data, error } = await storage.createSignedUrls(wanted, ttlSeconds);
+    if (error) console.warn(`[audio-storage] could not sign ${wanted.length} link(s): ${error.message}`);
+    for (const r of data ?? []) if (r.path && r.signedUrl && !r.error) byPath.set(r.path, { url: r.signedUrl, expiresAt });
+  } catch {
+    console.warn(`[audio-storage] could not sign ${wanted.length} link(s): exception`);
+  }
+  return paths.map((p) => (p ? byPath.get(p) ?? null : null));
 }
 
 /** The path for an episode row: the stored one, else derived from a public URL written before 154's backfill ran. */

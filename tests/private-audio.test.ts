@@ -15,7 +15,7 @@ import { supabaseOnPglite } from './support/supabase-on-pglite';
 import { supabase } from '../src/db/supabase';
 import { config } from '../src/config';
 import {
-  audioPathFromPublicUrl, episodeAudioPath, legacyPublicAudioUrl, signedAudioUrl, storeEpisodeAudio, audioPathOf,
+  audioPathFromPublicUrl, episodeAudioPath, legacyPublicAudioUrl, signedAudioUrl, signedAudioUrls, storeEpisodeAudio, audioPathOf,
   SIGNED_AUDIO_TTL_SECONDS, type AudioStorage,
 } from '../src/services/audio-storage';
 import { makePodcastsRouter } from '../src/routes/podcasts';
@@ -80,6 +80,23 @@ test('signed links expire', async () => {
   await assert.rejects(signedAudioUrl('p', 0, { storage }), RangeError);
   await assert.rejects(signedAudioUrl('p', 48 * 3600, { storage }), RangeError);
   assert.equal(await signedAudioUrl('p', 60, { storage: fakeStorage('object not found').storage }), null);
+  // A thrown call (a failed fetch) is the same answer, never a throw.
+  const throwing = { upload: async () => ({ error: null }), createSignedUrl: async () => { throw new Error('fetch failed'); }, createSignedUrls: async () => { throw new Error('fetch failed'); } } as unknown as AudioStorage;
+  assert.equal(await signedAudioUrl('p', 60, { storage: throwing }), null);
+  assert.deepEqual(await signedAudioUrls(['p', null], 60, { storage: throwing }), [null, null]);
+});
+
+test('many links are signed in one call, in order, with nulls for missing audio and refused paths', async () => {
+  const asked: string[][] = [];
+  const storage = { upload: async () => ({ error: null }), createSignedUrl: async () => ({ data: null, error: null }),
+    createSignedUrls: async (paths: string[], ttl: number) => { asked.push([...paths, String(ttl)]); return { data: paths.map((p) => (p.endsWith('bad.mp3') ? { path: p, signedUrl: null, error: 'Object not found' } : { path: p, signedUrl: `https://x/sign/${p}?token=t`, error: null })), error: null }; },
+  } as unknown as AudioStorage;
+  const links = await signedAudioUrls(['podcasts/u/a.mp3', null, 'podcasts/u/bad.mp3', 'podcasts/u/a.mp3'], 120, { storage, now: NOW });
+  assert.deepEqual(asked, [['podcasts/u/a.mp3', 'podcasts/u/bad.mp3', '120']], 'one call, each path once');
+  assert.deepEqual(links.map((l) => l?.url ?? null), ['https://x/sign/podcasts/u/a.mp3?token=t', null, null, 'https://x/sign/podcasts/u/a.mp3?token=t']);
+  assert.equal(links[0]!.expiresAt, new Date(NOW.getTime() + 120_000).toISOString());
+  assert.deepEqual(await signedAudioUrls([null, undefined], 60, { storage }), [null, null], 'nothing to sign, no call');
+  assert.equal(asked.length, 1);
 });
 
 // ── The migration and the route, on a real database ─────────────────────────
@@ -88,13 +105,18 @@ let db: PGlite;
 let server: Server;
 let base = '';
 const signed: string[] = [];
+let signCalls = 0;
 before(async () => {
   ({ db } = await freshDatabase({ through: '153_spend_ledger.sql' }));
   const fake = supabaseOnPglite(db);
   Object.assign(supabase, { from: fake.from, rpc: fake.rpc });
   const app = express();
   app.use(express.json());
-  app.use('/podcasts', makePodcastsRouter({ signAudio: async (path) => { if (!path) return null; signed.push(path); return { url: `https://signed/${path}?token=x`, expiresAt: NOW.toISOString() }; } }));
+  app.use('/podcasts', makePodcastsRouter({
+    signAudio: async (path) => { if (!path) return null; signed.push(path); return { url: `https://signed/${path}?token=x`, expiresAt: NOW.toISOString() }; },
+    // One call per list: every path at once, nulls where there is no audio.
+    signAudioMany: async (paths) => { signCalls++; return paths.map((path) => { if (!path) return null; signed.push(path); return { url: `https://signed/${path}?token=x`, expiresAt: NOW.toISOString() }; }); },
+  }));
   server = app.listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -129,8 +151,10 @@ test('the episodes route signs each audio link, only for the person asking', asy
   await db.query(`INSERT INTO podcast_episodes (user_id, title, script, status) VALUES ($1, 'Quiet', 's', 'ready')`, [alice]);
   await db.query(`INSERT INTO podcast_episodes (user_id, title, script, status, audio_path) VALUES ($1, 'B', 's', 'ready', $2)`, [bob, `podcasts/${bob}/b.mp3`]);
   signed.length = 0;
+  signCalls = 0;
   const res = await fetch(`${base}/podcasts/${alice}`);
   assert.equal(res.status, 200);
+  assert.equal(signCalls, 1, 'the list is signed in one storage call');
   const { episodes } = (await res.json()) as { episodes: Array<{ title: string; audio: { url: string; expiresAt: string } | null; audio_url: string | null }> };
   assert.deepEqual(episodes.map((e) => e.title).sort(), ['A', 'Quiet']);
   const a = episodes.find((e) => e.title === 'A')!;
