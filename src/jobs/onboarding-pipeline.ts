@@ -4,23 +4,53 @@ import { runFirstPass } from '../questions/run-first-pass';
 import { runPodcast } from '../pipelines/podcast';
 import { checkDailySpend } from '../pipelines/spend-guard';
 import { recordSpend } from '../pipelines/spend-ledger';
+import type { CostLine } from '../pipelines/trace';
 import { advanceOnboarding, loadOnboardingFacts, type AdvanceDeps } from '../onboarding/pipeline';
+
+export interface FirstPassStepDeps {
+  checkSpend?: (userId: string) => Promise<{ allowed: boolean; message?: string }>;
+  run?: (userId: string) => Promise<{ cost: CostLine[] }>;
+  db?: typeof supabase;
+  now?: () => Date;
+}
+
+/**
+ * The first pass as the pipeline runs it. It writes answers but no trace: its
+ * cost goes to the ledger (BEA.4). Episodes trace themselves.
+ *
+ * Every run that gets past the cap leaves at least one first_pass ledger row,
+ * which is how the pipeline knows the first pass was tried (stageFor). A run
+ * that called no model (nothing to read yet, or every domain skipped) costs
+ * nothing, and recordSpend keeps only lines that cost something, so the
+ * attempt is marked with a $0 row of its own.
+ */
+export function makeFirstPassStep(deps: FirstPassStepDeps = {}): AdvanceDeps['firstPass'] {
+  const checkSpend = deps.checkSpend ?? checkDailySpend;
+  const run = deps.run ?? runFirstPass;
+  const db = deps.db ?? supabase;
+  return async (userId) => {
+    // One model call per domain: it obeys the cap like the episode step does (review, #138).
+    // Refused, it records nothing, so the next tick tries again once the cap allows.
+    const spend = await checkSpend(userId);
+    if (!spend.allowed) {
+      console.warn(`[onboarding-pipeline] user=${userId} first pass skipped: ${spend.message ?? 'over the spending limit'}`);
+      return null;
+    }
+    const report = await run(userId);
+    const now = (deps.now ?? (() => new Date()))();
+    const written = await recordSpend(userId, 'first_pass', report.cost, { db, now });
+    if (written === 0) {
+      const { error } = await db.from(Tables.SPEND_LEDGER).insert({ user_id: userId, at: now.toISOString(), kind: 'first_pass', usd: 0, model: null });
+      if (error) console.error(`[onboarding-pipeline] user=${userId} could not mark the first pass code=${error.code ?? 'unknown'}`);
+    }
+    return report;
+  };
+}
 
 /** The real steps behind advanceOnboarding. */
 export const defaultAdvanceDeps: AdvanceDeps = {
   loadFacts: (userId) => loadOnboardingFacts(userId),
-  // The first pass writes answers but no trace: its cost goes to the ledger (BEA.4). Episodes trace themselves.
-  firstPass: async (userId) => {
-    // One model call per domain: it obeys the cap like the episode step does (review, #138).
-    const spend = await checkDailySpend(userId);
-    if (!spend.allowed) {
-      console.warn(`[onboarding-pipeline] user=${userId} first pass skipped: ${spend.message}`);
-      return null;
-    }
-    const report = await runFirstPass(userId);
-    await recordSpend(userId, 'first_pass', report.cost);
-    return report;
-  },
+  firstPass: makeFirstPassStep(),
   makeEpisode: (userId) => runPodcast({ userId, triggeredBy: 'cron', notes: 'first episode (onboarding pipeline)' }),
   mayMakeEpisode: async (userId) => (await checkDailySpend(userId)).allowed,
 };
