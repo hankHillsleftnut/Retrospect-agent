@@ -26,6 +26,7 @@ import { onboardingRouter } from './routes/onboarding';
 import { notificationsRouter } from './routes/notifications';
 import { runsRouter } from './routes/runs';
 import { integrationsRouter } from './routes/integrations';
+import { usersRouter } from './routes/users';
 import { runDailyIngestion } from './jobs/daily-ingestion';
 import { runWeeklyPodcasts } from './jobs/weekly-podcast';
 import { startIntegrationSchedulerLoop } from './jobs/integration-scheduler';
@@ -66,6 +67,7 @@ app.use('/onboarding', requireInternalSecret, onboardingRouter);
 app.use('/notifications', requireInternalSecret, notificationsRouter);
 app.use('/integrations', requireInternalSecret, integrationsRouter);
 app.use('/briefs', requireInternalSecret, briefsRouter);
+app.use('/users', requireInternalSecret, usersRouter);
 
 app.get('/', (_req, res) => {
   res.redirect('/runs');
