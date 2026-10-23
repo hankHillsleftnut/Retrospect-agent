@@ -80,7 +80,15 @@ export const defaultDeleteDeps = (): DeleteEverythingDeps => ({
 export interface DeleteReport {
   grantsRevoked: number;
   grantsFailed: number;
+  /** Google connections with no stored credential: no grant exists, so nothing to revoke (not a failure). */
+  grantsNothingToRevoke: number;
   objectsDeleted: Record<string, number>;
+  /**
+   * Rows naming a file this sweep will not touch: a path outside the person's
+   * own folder, one that could escape it, or a bucket that is not an
+   * integration bucket. Never deleted; their own folders are still swept.
+   */
+  objectsSkipped: number;
   ok: boolean;
   /** Which steps did not finish ('grants' or a bucket name); empty when ok. */
   failedSteps: string[];
@@ -92,23 +100,33 @@ class StepFailed extends Error {}
 
 interface ConnectionRow { id: string; provider_id: string; metadata: Record<string, unknown> | null }
 
-async function revokeGrants(userId: string, deps: DeleteEverythingDeps): Promise<{ revoked: number; failed: number }> {
+async function revokeGrants(userId: string, deps: DeleteEverythingDeps): Promise<{ revoked: number; failed: number; nothingToRevoke: number }> {
   let connections: ConnectionRow[] = [];
   const tokenOf = new Map<string, string>();
   const revokedTokens = new Set<string>();
+  // Connections with no stored credential (a Google connect started, never finished): no grant exists.
+  const absent = new Set<string>();
   const engine: RevokeDeps = {
     listConnections: async (u) => {
       const { data, error } = await deps.db.from(Tables.INTEGRATION_CONNECTIONS)
         .select('id,provider_id,metadata').eq('user_id', u).eq('collection_mode', 'oauth_api');
       if (error) throw new StepFailed('connections');
-      // A grant this sweep already revoked is not revoked (or counted) twice.
-      connections = ((data ?? []) as ConnectionRow[]).filter((c) => !c.metadata?.grant_revoked_at);
+      // A grant this sweep already revoked (or found absent) is not handled, or counted, twice.
+      connections = ((data ?? []) as ConnectionRow[]).filter((c) => !c.metadata?.grant_revoked_at && !c.metadata?.grant_absent_at);
       return connections;
     },
     loadCredentials: async (u, connectionId) => {
+      // No credential row means nothing to revoke: {} makes the engine skip it instead of
+      // failing it on every call forever (which would block the deletion). A vault or
+      // database error is still a failure.
+      const { data: row, error } = await deps.db.from(Tables.INTEGRATION_CREDENTIALS)
+        .select('connection_id').eq('user_id', u).eq('connection_id', connectionId).maybeSingle();
+      if (error) throw new StepFailed('credentials');
+      if (!row) { absent.add(connectionId); return {}; }
       const creds = await deps.revoke.loadCredentials(u, connectionId);
       const token = String(creds.refresh_token ?? creds.access_token ?? '');
       if (token) tokenOf.set(connectionId, token);
+      else absent.add(connectionId);
       return creds;
     },
     revokeGoogleToken: async (token) => {
@@ -124,15 +142,17 @@ async function revokeGrants(userId: string, deps: DeleteEverythingDeps): Promise
   let unmarked = 0;
   for (const c of connections) {
     const token = tokenOf.get(c.id);
-    if (!token || !revokedTokens.has(token)) continue;
+    const revoked = token !== undefined && revokedTokens.has(token);
+    if (!revoked && !absent.has(c.id)) continue;
+    const mark = revoked ? { grant_revoked_at: at } : { grant_absent_at: at };
     const { error } = await deps.db.from(Tables.INTEGRATION_CONNECTIONS)
-      .update({ status: 'disconnected', disconnected_at: at, metadata: { ...(c.metadata ?? {}), grant_revoked_at: at } })
+      .update({ status: 'disconnected', disconnected_at: at, metadata: { ...(c.metadata ?? {}), ...mark } })
       .eq('id', c.id).eq('user_id', userId);
     if (error) unmarked += 1;
   }
   // The grant is gone either way; an unmarked one is only counted again next time.
   if (unmarked) deps.log(`[user-delete] user=${userId} grants unmarked=${unmarked}`);
-  return result;
+  return { ...result, nothingToRevoke: absent.size };
 }
 
 // ── Files ────────────────────────────────────────────────────────────────────
@@ -188,6 +208,16 @@ async function sweepPrefix(bucket: SweepBucket, prefix: string, counted: (n: num
   throw new StepFailed('not empty');
 }
 
+/** Buckets a row may name. Every upload door writes `<userId>/<provider>/<id>` there (backend routes/integrations.ts). */
+const ROW_BUCKETS = new Set([IMPORTS_BUCKET, MEDIA_BUCKET, EVIDENCE_BUCKET]);
+
+/** A row's path is deleted only when it sits inside this person's own folder and cannot climb out of it. */
+export function ownsRowPath(userId: string, bucket: unknown, path: unknown): path is string {
+  if (typeof bucket !== 'string' || !ROW_BUCKETS.has(bucket)) return false;
+  if (typeof path !== 'string' || !path.startsWith(`${userId}/`)) return false;
+  return path.split('/').every((s) => s !== '' && s !== '.' && s !== '..');
+}
+
 /** The person's own rows that name a stored file, read 1,000 at a time. */
 async function pathsFromRows(
   deps: DeleteEverythingDeps,
@@ -224,17 +254,25 @@ export async function deleteEverything(userId: string, deps: DeleteEverythingDep
   // 1. Grants. A failure is counted and reported; the files still go.
   let grantsRevoked = 0;
   let grantsFailed = 0;
+  let grantsNothingToRevoke = 0;
   await step('grants', async () => {
     const r = await revokeGrants(userId, deps);
     grantsRevoked = r.revoked;
     grantsFailed = r.failed;
+    grantsNothingToRevoke = r.nothingToRevoke;
   });
 
   // 2. Files the person's rows point at (archives they imported, media of their sources).
-  //    The rows are the person's own (filtered by their id); storage's answer is what is counted.
+  //    The rows are the person's own (filtered by their id), but a stored path is still held to
+  //    the person's own folder: one outside it is skipped and counted, never deleted.
+  let objectsSkipped = 0;
   await step(IMPORTS_BUCKET, async () => {
     const rows = await pathsFromRows(deps, Tables.INTEGRATION_IMPORTS, 'id,storage_path', userId);
-    const paths = rows.map((r) => r.storage_path).filter((p): p is string => typeof p === 'string' && p.length > 0);
+    const paths: string[] = [];
+    for (const r of rows) {
+      if (ownsRowPath(userId, IMPORTS_BUCKET, r.storage_path)) paths.push(r.storage_path);
+      else objectsSkipped += 1;
+    }
     await removeAll(deps.storage(IMPORTS_BUCKET), paths, (n) => add(IMPORTS_BUCKET, n));
   });
   let assetRows: Array<Record<string, unknown>> = [];
@@ -243,10 +281,11 @@ export async function deleteEverything(userId: string, deps: DeleteEverythingDep
   });
   const byBucket = new Map<string, string[]>();
   for (const r of assetRows) {
-    if (typeof r.storage_bucket !== 'string' || typeof r.storage_path !== 'string' || !r.storage_path) continue;
-    const list = byBucket.get(r.storage_bucket) ?? [];
+    if (!ownsRowPath(userId, r.storage_bucket, r.storage_path)) { objectsSkipped += 1; continue; }
+    const bucket = r.storage_bucket as string;
+    const list = byBucket.get(bucket) ?? [];
     list.push(r.storage_path);
-    byBucket.set(r.storage_bucket, list);
+    byBucket.set(bucket, list);
   }
   for (const [bucket, paths] of byBucket) {
     await step(bucket, () => removeAll(deps.storage(bucket), paths, (n) => add(bucket, n)));
@@ -261,8 +300,9 @@ export async function deleteEverything(userId: string, deps: DeleteEverythingDep
   const ok = failedSteps.length === 0 && grantsFailed === 0;
   const total = Object.values(objectsDeleted).reduce((a, b) => a + b, 0);
   deps.log(
-    `[user-delete] user=${userId} grantsRevoked=${grantsRevoked} grantsFailed=${grantsFailed} objects=${total} ok=${ok}` +
+    `[user-delete] user=${userId} grantsRevoked=${grantsRevoked} grantsFailed=${grantsFailed} grantsNothingToRevoke=${grantsNothingToRevoke}` +
+    ` objects=${total} objectsSkipped=${objectsSkipped} ok=${ok}` +
     (failedSteps.length ? ` failedSteps=${failedSteps.join(',')}` : ''),
   );
-  return { grantsRevoked, grantsFailed, objectsDeleted, ok, failedSteps };
+  return { grantsRevoked, grantsFailed, grantsNothingToRevoke, objectsDeleted, objectsSkipped, ok, failedSteps };
 }

@@ -61,7 +61,16 @@ async function personTables(): Promise<string[]> {
   const { rows } = await db.query<{ table_name: string }>(
     `SELECT c.table_name FROM information_schema.columns c JOIN information_schema.tables t USING (table_schema, table_name)
      WHERE c.table_schema = 'public' AND c.column_name = 'user_id' AND t.table_type = 'BASE TABLE'`);
-  return [...new Set([...named, ...rows.map((r) => r.table_name)])].sort();
+  const person = new Set([...named, ...rows.map((r) => r.table_name)]);
+  // A table hanging off a person's table holds their data too, user_id or not (a future child
+  // with no user_id and no entry in Tables is caught here).
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const f of fks) {
+      if (person.has(f.parent) && !person.has(f.child) && !SHARED.has(f.child)) { person.add(f.child); grew = true; }
+    }
+  }
+  return [...person].sort();
 }
 
 test('the exceptions are what they say: shared tables name no person, views are views', async () => {

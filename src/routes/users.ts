@@ -18,7 +18,7 @@ export function makeUsersRouter(deps: Partial<UsersDeps> = {}): Router {
    * POST /users/:userId/delete
    * Body: { confirm: "delete" }. Revokes every OAuth grant and deletes every
    * stored file of this person; deletes no row. Answers
-   * `{ grantsRevoked, grantsFailed, objectsDeleted: { <bucket>: n }, ok, failedSteps }`:
+   * `{ grantsRevoked, grantsFailed, grantsNothingToRevoke, objectsDeleted: { <bucket>: n }, objectsSkipped, ok, failedSteps }`:
    * 200 when everything is gone, 500 with the same report when a step did not
    * finish (call again: it is idempotent, and a second call reports zeros).
    */

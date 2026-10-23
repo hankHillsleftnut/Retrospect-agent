@@ -96,30 +96,37 @@ const rowCount = async (userId: string) => (await db.query<{ n: number }>(
         + (SELECT count(*) FROM integration_imports WHERE user_id = $1)
         + (SELECT count(*) FROM source_assets WHERE user_id = $1) AS n`, [userId])).rows[0]!.n;
 
-/** One person with files in every bucket, grants, and rows pointing at files. */
-async function person(storage: FakeStorage, opts: { manyEpisodes?: number } = {}) {
+async function credential(userId: string, connectionId: string) {
+  await db.query(
+    `INSERT INTO integration_credentials (user_id, connection_id, encrypted_credentials) VALUES ($1, $2, 'sealed')`,
+    [userId, connectionId],
+  );
+}
+
+/**
+ * One person with files in every bucket, grants, and rows pointing at files,
+ * laid out the way the upload doors write them: `<userId>/<provider>/<id>`.
+ */
+async function person(storage: FakeStorage, opts: { manyEpisodes?: number; noCredential?: boolean } = {}) {
   const id = await insertUser(db);
   const gmail = await connection(id, 'gmail');
-  await connection(id, 'youtube'); // the same Google grant as gmail
+  const youtube = await connection(id, 'youtube'); // the same Google grant as gmail
+  if (!opts.noCredential) { await credential(id, gmail); await credential(id, youtube); }
   const archive = await connection(id, 'takeout', 'data_export');
   const files = {
     'podcast-audio': [`podcasts/${id}/run-1.mp3`, `podcasts/${id}/run-2.mp3`],
     'brief-audio': [`${id}/brief-1-20261022.mp3`],
-    // Rows name these; the import one is not under the person's folder at all.
-    'integration-imports': [`uploads/${id}-archive.zip`, `${id}/second.zip`],
-    'integration-media': [`${id}/media/photo-1.jpg`],
-    'integration-evidence': [`${id}/a/b/evidence.json`],
+    'integration-imports': [`${id}/takeout/imp-1.zip`, `${id}/takeout/imp-2.zip`],
+    'integration-media': [`${id}/gmail/asset-1`],
+    'integration-evidence': [`${id}/a/b/evidence.json`, `${id}/gmail/evidence-1`],
   } as Record<string, string[]>;
   for (let i = 0; i < (opts.manyEpisodes ?? 0); i += 1) files['podcast-audio']!.push(`podcasts/${id}/bulk-${String(i).padStart(5, '0')}.mp3`);
   for (const [bucket, paths] of Object.entries(files)) storage.put(bucket, ...paths);
-  await importRow(id, archive, `uploads/${id}-archive.zip`);
-  await importRow(id, archive, `${id}/second.zip`);
-  await assetRow(id, gmail, 'integration-media', `${id}/media/photo-1.jpg`);
-  // A row whose file lives in a bucket no prefix covers: found through the row only.
-  await assetRow(id, gmail, 'legacy-assets', `assets/${id}-old.bin`);
-  storage.put('legacy-assets', `assets/${id}-old.bin`);
-  files['legacy-assets'] = [`assets/${id}-old.bin`];
-  return { id, files, token: `refresh-${id}` };
+  await importRow(id, archive, `${id}/takeout/imp-1.zip`);
+  await importRow(id, archive, `${id}/takeout/imp-2.zip`);
+  await assetRow(id, gmail, 'integration-media', `${id}/gmail/asset-1`);
+  await assetRow(id, gmail, 'integration-evidence', `${id}/gmail/evidence-1`);
+  return { id, files, token: `refresh-${id}`, gmail };
 }
 
 function depsFor(storage: FakeStorage, tokens: Record<string, string>, opts: { revokeOk?: boolean } = {}) {
@@ -153,7 +160,9 @@ test('one person\'s grants and files go, another person\'s stay, and no row is d
   assert.deepEqual(report, {
     grantsRevoked: 1, // gmail and youtube share one grant: revoked once
     grantsFailed: 0,
-    objectsDeleted: { ...ZERO, 'podcast-audio': 2502, 'brief-audio': 1, 'integration-imports': 2, 'integration-media': 1, 'integration-evidence': 1, 'legacy-assets': 1 },
+    grantsNothingToRevoke: 0,
+    objectsDeleted: { ...ZERO, 'podcast-audio': 2502, 'brief-audio': 1, 'integration-imports': 2, 'integration-media': 1, 'integration-evidence': 2 },
+    objectsSkipped: 0,
     ok: true,
     failedSteps: [],
   });
@@ -180,7 +189,7 @@ test('one person\'s grants and files go, another person\'s stay, and no row is d
 
   // Logs: counts and her id only.
   assert.equal(logs.length, 1);
-  assert.match(logs[0]!, new RegExp(`^\\[user-delete\\] user=${alice.id} grantsRevoked=1 grantsFailed=0 objects=2508 ok=true$`));
+  assert.match(logs[0]!, new RegExp(`^\\[user-delete\\] user=${alice.id} grantsRevoked=1 grantsFailed=0 grantsNothingToRevoke=0 objects=2508 objectsSkipped=0 ok=true$`));
 });
 
 test('a second call finds nothing left: zeros and ok', async () => {
@@ -191,8 +200,66 @@ test('a second call finds nothing left: zeros and ok', async () => {
 
   const second = depsFor(storage, { [alice.id]: alice.token });
   const report = await deleteEverything(alice.id, second.deps);
-  assert.deepEqual(report, { grantsRevoked: 0, grantsFailed: 0, objectsDeleted: { ...ZERO, 'legacy-assets': 0 }, ok: true, failedSteps: [] });
+  assert.deepEqual(report, { grantsRevoked: 0, grantsFailed: 0, grantsNothingToRevoke: 0, objectsDeleted: ZERO, objectsSkipped: 0, ok: true, failedSteps: [] });
   assert.deepEqual(second.revoked, [], 'a revoked grant is not revoked again');
+});
+
+test('a file that lands after the sweep is removed by the next call (the backend calls again after the row delete)', async () => {
+  const storage = new FakeStorage();
+  const alice = await person(storage);
+  assert.equal((await deleteEverything(alice.id, depsFor(storage, { [alice.id]: alice.token }).deps)).ok, true);
+  storage.put('brief-audio', `${alice.id}/late-20261023.mp3`);
+  // No rows needed: the folders are swept from the id alone.
+  await db.query(`DELETE FROM integration_imports WHERE user_id = $1`, [alice.id]);
+  const again = await deleteEverything(alice.id, depsFor(storage, { [alice.id]: alice.token }).deps);
+  assert.deepEqual([again.objectsDeleted['brief-audio'], again.ok], [1, true]);
+  assert.equal(storage.has('brief-audio', `${alice.id}/late-20261023.mp3`), false);
+});
+
+test('a Google connection with no stored credential is nothing to revoke: reported apart, not a failure, and the person can be deleted', async () => {
+  const storage = new FakeStorage();
+  const alice = await person(storage, { noCredential: true });
+  const { deps, revoked, logs } = depsFor(storage, { [alice.id]: alice.token });
+
+  const report = await deleteEverything(alice.id, deps);
+  assert.deepEqual([report.grantsRevoked, report.grantsFailed, report.grantsNothingToRevoke, report.ok], [0, 0, 2, true]);
+  assert.deepEqual(revoked, [], 'nothing was sent to Google');
+  assert.match(logs.at(-1)!, /grantsNothingToRevoke=2 .*ok=true/);
+
+  const second = depsFor(storage, { [alice.id]: alice.token });
+  const again = await deleteEverything(alice.id, second.deps);
+  assert.deepEqual([again.grantsRevoked, again.grantsFailed, again.grantsNothingToRevoke, again.ok], [0, 0, 0, true], 'second call: zeros');
+});
+
+test('a credential the vault cannot open is still a failure', async () => {
+  const storage = new FakeStorage();
+  const alice = await person(storage);
+  const { deps } = depsFor(storage, { [alice.id]: alice.token });
+  deps.revoke = { ...deps.revoke, loadCredentials: async () => { throw new Error('kms refused'); } };
+  const report = await deleteEverything(alice.id, deps);
+  assert.deepEqual([report.grantsFailed, report.grantsNothingToRevoke, report.ok], [2, 0, false]);
+});
+
+test('a row naming a file outside the person\'s folder is skipped and counted, never deleted', async () => {
+  const storage = new FakeStorage();
+  const alice = await person(storage);
+  const bob = await person(storage);
+  const archive = (await db.query<{ id: string }>(`SELECT id FROM integration_connections WHERE user_id = $1 AND provider_id = 'takeout'`, [alice.id])).rows[0]!.id;
+  // Poisoned rows on Alice's account, each pointing at something of Bob's.
+  await importRow(alice.id, archive, `${bob.id}/takeout/imp-1.zip`);
+  await importRow(alice.id, archive, `${alice.id}/../${bob.id}/takeout/imp-2.zip`);
+  await assetRow(alice.id, alice.gmail, 'podcast-audio', `podcasts/${bob.id}/run-1.mp3`);
+  await assetRow(alice.id, alice.gmail, 'brief-audio', `${alice.id}/x`); // her folder, but not a bucket a row may name
+  await assetRow(alice.id, alice.gmail, 'integration-media', `${bob.id}/gmail/asset-1`);
+  const { deps } = depsFor(storage, { [alice.id]: alice.token, [bob.id]: bob.token });
+
+  const report = await deleteEverything(alice.id, deps);
+  assert.equal(report.objectsSkipped, 5);
+  assert.equal(report.ok, true, 'a skipped row does not block the deletion');
+  for (const [bucket, paths] of Object.entries(bob.files)) for (const p of paths) assert.equal(storage.has(bucket, p), true, `${bucket} lost one of his`);
+  for (const [bucket, paths] of Object.entries(alice.files)) for (const p of paths) assert.equal(storage.has(bucket, p), false, `${bucket} kept one of hers`);
+  assert.ok(storage.removeCalls.every((c) => c.paths.every((p) => p.startsWith(`${alice.id}/`) || p.startsWith(`podcasts/${alice.id}/`))));
+  assert.ok(storage.removeCalls.every((c) => c.paths.every((p) => !p.includes('..'))));
 });
 
 test('a grant that cannot be revoked is reported, the files still go, and the next call tries it again', async () => {
@@ -283,7 +350,7 @@ before(async () => {
   app.use('/users', requireInternalSecret, makeUsersRouter({
     deleteEverything: async (userId) => {
       calls.push(userId);
-      return { grantsRevoked: 0, grantsFailed: nextOk ? 0 : 1, objectsDeleted: {}, ok: nextOk, failedSteps: nextOk ? [] : ['grants'] };
+      return { grantsRevoked: 0, grantsFailed: nextOk ? 0 : 1, grantsNothingToRevoke: 0, objectsDeleted: {}, objectsSkipped: 0, ok: nextOk, failedSteps: nextOk ? [] : ['grants'] };
     },
   }));
   server = app.listen(0, '127.0.0.1');
