@@ -8,7 +8,8 @@
  * so a new tester would never have had one.
  *
  * Stages, in order:
- *   reading         their connected data is still being read
+ *   reading         still answering the onboarding questions (access approved or
+ *                   waitlisted), or their connected data is still being read
  *   understanding   read; the first pass at the 36 questions comes next
  *   making_episode  answered; the first episode comes next (or is being made)
  *   ready           a finished episode exists -- the app can bring them in
@@ -40,7 +41,17 @@ export interface OnboardingFacts {
   episodesReady: number;
   /** An episode run started in the last 15 minutes and not finished. */
   episodeRunning: boolean;
+  /**
+   * users.access (backend migration 007). 'approved' or 'waitlisted' means they
+   * are still answering the onboarding questions: the app calls
+   * POST /v2/onboarding/complete after the last answer, which makes them 'member'.
+   * null where the column does not exist yet (behaves as before).
+   */
+  access: string | null;
 }
+
+/** Still answering the questions: nothing is made from their answers until they finish. */
+const STILL_ANSWERING = new Set(['approved', 'waitlisted']);
 
 /** Quiet for this long with nothing outstanding counts as "everything read". */
 export const QUIET_MS = 2 * 60 * 1000;
@@ -48,6 +59,8 @@ export const QUIET_MS = 2 * 60 * 1000;
 export const READING_TIMEOUT_MS = 20 * 60 * 1000;
 
 export function stageFor(f: OnboardingFacts, now: Date): OnboardingStage {
+  // Before the timeout below: someone who waited for an invite is past 20 minutes on their first tick.
+  if (f.access !== null && STILL_ANSWERING.has(f.access)) return 'reading';
   const sinceStart = now.getTime() - new Date(f.startedAt).getTime();
   const quietFor = f.lastArrivalAt ? now.getTime() - new Date(f.lastArrivalAt).getTime() : Infinity;
   const nothingOutstanding = f.outstandingJobs === 0 && f.outstandingRows === 0;
@@ -62,8 +75,9 @@ export function stageFor(f: OnboardingFacts, now: Date): OnboardingStage {
 export async function loadOnboardingFacts(userId: string, db: typeof supabase = supabase, now = new Date()): Promise<OnboardingFacts> {
   const count = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
   const recent = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
-  const [user, outstandingJobs, outstandingRows, latest, answers, firstPassRuns, episodesReady, running] = await Promise.all([
+  const [user, access, outstandingJobs, outstandingRows, latest, answers, firstPassRuns, episodesReady, running] = await Promise.all([
     db.from(Tables.USERS).select('created_at').eq('id', userId).single(),
+    loadAccess(userId, db),
     count(db.from(Tables.INTEGRATION_JOBS).select('id', { count: 'exact', head: true }).eq('user_id', userId).in('status', ['queued', 'leased', 'running'])),
     count(db.from(Tables.RAW_CONTENT).select('id', { count: 'exact', head: true }).eq('user_id', userId).in('processing_status', ['pending', 'processing'])),
     db.from(Tables.RAW_CONTENT).select('created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
@@ -81,7 +95,19 @@ export async function loadOnboardingFacts(userId: string, db: typeof supabase = 
     firstPassRuns,
     episodesReady,
     episodeRunning: running > 0,
+    access,
   };
+}
+
+/** Postgres "undefined column": a database without backend migration 007. */
+const UNDEFINED_COLUMN = '42703';
+
+async function loadAccess(userId: string, db: typeof supabase): Promise<string | null> {
+  const { data, error } = await db.from(Tables.USERS).select('access').eq('id', userId).maybeSingle();
+  if (error?.code === UNDEFINED_COLUMN) return null;
+  // Any other failure stops this tick rather than treating them as finished.
+  if (error) throw new Error(`could not read access code=${error.code ?? 'unknown'}`);
+  return (data as { access?: string | null } | null)?.access ?? null;
 }
 
 export interface AdvanceDeps {
