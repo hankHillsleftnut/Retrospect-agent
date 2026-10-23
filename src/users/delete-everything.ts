@@ -238,7 +238,10 @@ async function pathsFromRows(
 
 // ── The sweep ────────────────────────────────────────────────────────────────
 
-export async function deleteEverything(userId: string, deps: DeleteEverythingDeps = defaultDeleteDeps()): Promise<DeleteReport> {
+export async function deleteEverything(rawUserId: string, deps: DeleteEverythingDeps = defaultDeleteDeps()): Promise<DeleteReport> {
+  // Postgres accepts a UUID in any case, but every folder is named with the lower-case form
+  // (auth ids, `podcasts/<id>`): an id in capitals would list nothing, skip every row and say ok.
+  const userId = rawUserId.toLowerCase();
   const failed = new Set<string>();
   const objectsDeleted: Record<string, number> = {};
   for (const { bucket } of personPrefixes(userId)) objectsDeleted[bucket] = 0;

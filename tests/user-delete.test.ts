@@ -310,6 +310,32 @@ test('a removal refused half way is reported, and what did go is still counted',
   assert.ok(logs.every((l) => !l.includes('cannot remove')));
 });
 
+test('an id sent in capitals still finds the person\'s folders (storage paths are lower case)', async () => {
+  const storage = new FakeStorage();
+  const alice = await person(storage);
+  const bob = await person(storage);
+  const { deps } = depsFor(storage, { [alice.id]: alice.token, [bob.id]: bob.token });
+
+  const report = await deleteEverything(alice.id.toUpperCase(), deps);
+  assert.equal(report.ok, true);
+  assert.equal(report.objectsSkipped, 0, 'her own rows are not "outside her folder"');
+  for (const [bucket, paths] of Object.entries(alice.files)) for (const p of paths) assert.equal(storage.has(bucket, p), false, `${bucket} kept one of hers`);
+  for (const [bucket, paths] of Object.entries(bob.files)) for (const p of paths) assert.equal(storage.has(bucket, p), true, `${bucket} lost one of his`);
+});
+
+test('a sweep that failed half way is finished by the next call', async () => {
+  const storage = new FakeStorage();
+  const alice = await person(storage, { manyEpisodes: 2500 });
+  storage.failRemoveFrom.set('podcast-audio', 1);
+  const first = await deleteEverything(alice.id, depsFor(storage, { [alice.id]: alice.token }).deps);
+  assert.deepEqual([first.ok, first.failedSteps], [false, ['podcast-audio']]);
+
+  storage.failRemoveFrom.clear();
+  const again = await deleteEverything(alice.id, depsFor(storage, { [alice.id]: alice.token }).deps);
+  assert.deepEqual([again.ok, again.objectsDeleted['podcast-audio'], again.grantsRevoked], [true, 1502, 0]);
+  assert.equal(storage.all('podcast-audio').some((p) => p.includes(alice.id)), false);
+});
+
 test('a listed name that would leave the person\'s folder is refused, never removed', async () => {
   const storage = new FakeStorage();
   const alice = await person(storage);
