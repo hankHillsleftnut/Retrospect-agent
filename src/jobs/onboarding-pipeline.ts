@@ -9,7 +9,7 @@ import { advanceOnboarding, loadOnboardingFacts, type AdvanceDeps } from '../onb
 
 export interface FirstPassStepDeps {
   checkSpend?: (userId: string) => Promise<{ allowed: boolean; message?: string }>;
-  run?: (userId: string) => Promise<{ cost: CostLine[] }>;
+  run?: (userId: string) => Promise<{ cost: CostLine[]; poolSize: number }>;
   db?: typeof supabase;
   now?: () => Date;
 }
@@ -18,11 +18,13 @@ export interface FirstPassStepDeps {
  * The first pass as the pipeline runs it. It writes answers but no trace: its
  * cost goes to the ledger (BEA.4). Episodes trace themselves.
  *
- * Every run that gets past the cap leaves at least one first_pass ledger row,
- * which is how the pipeline knows the first pass was tried (stageFor). A run
- * that called no model (nothing to read yet, or every domain skipped) costs
- * nothing, and recordSpend keeps only lines that cost something, so the
- * attempt is marked with a $0 row of its own.
+ * A first_pass ledger row is how the pipeline knows the first pass was tried
+ * (stageFor). A paid run leaves its cost rows. A run that had material but cost
+ * nothing (every domain skipped) is marked with a $0 row, since recordSpend
+ * keeps only lines that cost something. Two cases are left unmarked so the next
+ * tick tries again: an empty pool (nothing has arrived yet; it calls no model,
+ * so retrying is free), and a paid run whose cost could not be written (marking
+ * it $0 would hide the spend from the cap).
  */
 export function makeFirstPassStep(deps: FirstPassStepDeps = {}): AdvanceDeps['firstPass'] {
   const checkSpend = deps.checkSpend ?? checkDailySpend;
@@ -38,8 +40,11 @@ export function makeFirstPassStep(deps: FirstPassStepDeps = {}): AdvanceDeps['fi
     }
     const report = await run(userId);
     const now = (deps.now ?? (() => new Date()))();
+    const paid = report.cost.some((l) => l.usd > 0);
     const written = await recordSpend(userId, 'first_pass', report.cost, { db, now });
-    if (written === 0) {
+    if (paid && written === 0) {
+      console.error(`[onboarding-pipeline] user=${userId} first pass cost not recorded; it will be tried again`);
+    } else if (!paid && report.poolSize > 0) {
       const { error } = await db.from(Tables.SPEND_LEDGER).insert({ user_id: userId, at: now.toISOString(), kind: 'first_pass', usd: 0, model: null });
       if (error) console.error(`[onboarding-pipeline] user=${userId} could not mark the first pass code=${error.code ?? 'unknown'}`);
     }
@@ -47,10 +52,28 @@ export function makeFirstPassStep(deps: FirstPassStepDeps = {}): AdvanceDeps['fi
   };
 }
 
+/**
+ * One first pass per person at a time in this process. The cron's inFlight set
+ * does not cover POST /onboarding/advance, which shares this step; without this
+ * a call during a running pass would pay for a second one (review, #143).
+ */
+export function onePerPerson(step: AdvanceDeps['firstPass']): AdvanceDeps['firstPass'] {
+  const running = new Set<string>();
+  return async (userId) => {
+    if (running.has(userId)) return null;
+    running.add(userId);
+    try {
+      return await step(userId);
+    } finally {
+      running.delete(userId);
+    }
+  };
+}
+
 /** The real steps behind advanceOnboarding. */
 export const defaultAdvanceDeps: AdvanceDeps = {
   loadFacts: (userId) => loadOnboardingFacts(userId),
-  firstPass: makeFirstPassStep(),
+  firstPass: onePerPerson(makeFirstPassStep()),
   makeEpisode: (userId) => runPodcast({ userId, triggeredBy: 'cron', notes: 'first episode (onboarding pipeline)' }),
   mayMakeEpisode: async (userId) => (await checkDailySpend(userId)).allowed,
 };

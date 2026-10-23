@@ -1,7 +1,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { stageFor, advanceOnboarding, loadOnboardingFacts, QUIET_MS, READING_TIMEOUT_MS, type OnboardingFacts, type AdvanceDeps } from '../src/onboarding/pipeline';
-import { makeFirstPassStep } from '../src/jobs/onboarding-pipeline';
+import { makeFirstPassStep, onePerPerson } from '../src/jobs/onboarding-pipeline';
 import { runFirstPass } from '../src/questions/run-first-pass';
 import { usageLines } from '../src/pipelines/spend-ledger';
 import { supabase } from '../src/db/supabase';
@@ -100,7 +100,9 @@ before(async () => {
 const ledger = async (userId: string) => (await db.query<{ kind: string; usd: string }>(
   `SELECT kind, usd::text FROM spend_ledger WHERE user_id = $1 ORDER BY at`, [userId])).rows;
 const allowed = async () => ({ allowed: true });
-const nothingAnswered = async () => ({ cost: usageLines([{ model: 'claude-sonnet-5-5', usage: { inputTokens: 0, outputTokens: 0 } }]) });
+/** Had material to read, answered nothing, cost nothing (every domain skipped). */
+const nothingAnswered = async () => ({ poolSize: 3, cost: usageLines([{ model: 'claude-sonnet-5-5', usage: { inputTokens: 0, outputTokens: 0 } }]) });
+const paidRun = async () => ({ poolSize: 3, cost: usageLines([{ model: 'claude-sonnet-5-5', usage: { inputTokens: 1000, outputTokens: 200 } }]) });
 
 /** One pipeline tick for one person: real facts and the real first-pass step; the episode is a stub. */
 async function tick(userId: string, firstPass: AdvanceDeps['firstPass'], done: string[], mayMakeEpisode = true) {
@@ -122,25 +124,46 @@ test('a first pass that records no answers: the second tick makes the episode, n
   assert.deepEqual(done, ['first_pass', 'episode']);
 });
 
-test('an empty pool calls no model, leaves a $0 row, and the episode is next', async () => {
+test('an empty pool (nothing arrived yet) calls no model, marks nothing, and waits for material', async () => {
   const userId = await insertUser(db);
   const step = makeFirstPassStep({
     checkSpend: allowed,
     run: (id) => runFirstPass(id, { db: supabase, model: async () => { throw new Error('must not be called'); } }),
   });
   await step(userId);
-  assert.deepEqual(await ledger(userId), [{ kind: 'first_pass', usd: '0.000000' }]);
+  assert.deepEqual(await ledger(userId), [], 'no episode made from nothing: the first pass is still to come');
   const f = await loadOnboardingFacts(userId, supabase);
-  assert.equal(f.answers, 0);
-  assert.equal(f.firstPassRuns, 1);
-  assert.equal(stageFor(f, new Date()), 'making_episode');
+  assert.equal(f.firstPassRuns, 0);
+  assert.equal(stageFor(f, new Date()), 'understanding');
 });
 
 test('a first pass that cost money records its cost once, with no extra $0 row', async () => {
   const userId = await insertUser(db);
-  const step = makeFirstPassStep({ checkSpend: allowed, run: async () => ({ cost: usageLines([{ model: 'claude-sonnet-5-5', usage: { inputTokens: 1000, outputTokens: 200 } }]) }) });
-  await step(userId);
+  await makeFirstPassStep({ checkSpend: allowed, run: paidRun })(userId);
   assert.deepEqual(await ledger(userId), [{ kind: 'first_pass', usd: '0.004000' }]);
+});
+
+test('a paid first pass whose cost could not be written is not passed off as a $0 try', async () => {
+  const inserts: unknown[] = [];
+  const failing = { from: () => ({ insert: async (rows: unknown) => { inserts.push(rows); return { error: { code: 'XX000' } }; } }) } as unknown as typeof supabase;
+  await makeFirstPassStep({ checkSpend: allowed, run: paidRun, db: failing })('u-failing-write');
+  assert.equal(inserts.length, 1, 'only the cost write, no $0 marker');
+  assert.ok((inserts[0] as Array<{ usd: number }>).every((r) => r.usd > 0));
+});
+
+test('two callers at once (cron tick and POST /onboarding/advance) pay for one first pass', async () => {
+  let runs = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const step = onePerPerson(async () => { runs += 1; await gate; return null; });
+  const first = step('u-race');
+  assert.equal(await step('u-race'), null, 'the second caller steps aside');
+  release();
+  await first;
+  assert.equal(runs, 1);
+  // Once finished, the person can be stepped again (the stage decides whether to).
+  await step('u-race');
+  assert.equal(runs, 2);
 });
 
 test('a first pass refused by the spending cap records nothing and is tried again next tick', async () => {
