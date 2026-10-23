@@ -32,5 +32,6 @@ test('once everything is read and quiet, the next step is the first pass', async
   const f = await loadOnboardingFacts(userId, supabase, new Date());
   assert.equal(f.outstandingRows, 0);
   assert.equal(f.outstandingJobs, 0);
+  assert.equal(f.access, null, 'no users.access column here (no backend 007): behaves as before');
   assert.equal(stageFor(f, new Date()), 'understanding');
 });
