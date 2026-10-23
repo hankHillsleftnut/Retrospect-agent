@@ -31,6 +31,12 @@ export interface OnboardingFacts {
   /** When onboarding began (their account was created). */
   startedAt: string;
   answers: number;
+  /**
+   * First passes already tried: their spend_ledger rows (kind 'first_pass').
+   * One run that finds nothing to answer still counts, so it is not re-run
+   * every tick until the spending cap trips.
+   */
+  firstPassRuns: number;
   episodesReady: number;
   /** An episode run started in the last 15 minutes and not finished. */
   episodeRunning: boolean;
@@ -47,7 +53,8 @@ export function stageFor(f: OnboardingFacts, now: Date): OnboardingStage {
   const nothingOutstanding = f.outstandingJobs === 0 && f.outstandingRows === 0;
   const readingDone = (nothingOutstanding && quietFor >= QUIET_MS) || sinceStart >= READING_TIMEOUT_MS;
   if (!readingDone) return 'reading';
-  if (f.answers === 0) return 'understanding';
+  // The first pass runs once per person: after one try, even one that answered nothing, the episode comes next.
+  if (f.answers === 0 && f.firstPassRuns === 0) return 'understanding';
   if (f.episodesReady === 0) return 'making_episode';
   return 'ready';
 }
@@ -55,12 +62,13 @@ export function stageFor(f: OnboardingFacts, now: Date): OnboardingStage {
 export async function loadOnboardingFacts(userId: string, db: typeof supabase = supabase, now = new Date()): Promise<OnboardingFacts> {
   const count = async (q: PromiseLike<{ count: number | null }>) => (await q).count ?? 0;
   const recent = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
-  const [user, outstandingJobs, outstandingRows, latest, answers, episodesReady, running] = await Promise.all([
+  const [user, outstandingJobs, outstandingRows, latest, answers, firstPassRuns, episodesReady, running] = await Promise.all([
     db.from(Tables.USERS).select('created_at').eq('id', userId).single(),
     count(db.from(Tables.INTEGRATION_JOBS).select('id', { count: 'exact', head: true }).eq('user_id', userId).in('status', ['queued', 'leased', 'running'])),
     count(db.from(Tables.RAW_CONTENT).select('id', { count: 'exact', head: true }).eq('user_id', userId).in('processing_status', ['pending', 'processing'])),
     db.from(Tables.RAW_CONTENT).select('created_at').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).maybeSingle(),
     count(db.from(Tables.QUESTION_ANSWERS).select('id', { count: 'exact', head: true }).eq('user_id', userId)),
+    count(db.from(Tables.SPEND_LEDGER).select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('kind', 'first_pass')),
     count(db.from(Tables.PODCAST_EPISODES).select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('status', 'ready')),
     count(db.from(Tables.PIPELINE_RUN_TRACES).select('id', { count: 'exact', head: true }).eq('user_id', userId).eq('kind', 'podcast').eq('status', 'running').gte('started_at', recent)),
   ]);
@@ -70,6 +78,7 @@ export async function loadOnboardingFacts(userId: string, db: typeof supabase = 
     lastArrivalAt: (latest.data as { created_at?: string } | null)?.created_at ?? null,
     startedAt: (user.data as { created_at?: string } | null)?.created_at ?? now.toISOString(),
     answers,
+    firstPassRuns,
     episodesReady,
     episodeRunning: running > 0,
   };
