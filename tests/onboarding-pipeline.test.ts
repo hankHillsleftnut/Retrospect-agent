@@ -1,7 +1,7 @@
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { stageFor, advanceOnboarding, loadOnboardingFacts, QUIET_MS, READING_TIMEOUT_MS, type OnboardingFacts, type AdvanceDeps } from '../src/onboarding/pipeline';
-import { makeFirstPassStep, onePerPerson } from '../src/jobs/onboarding-pipeline';
+import { makeFirstPassStep, onePerPerson, runOnboardingPipeline } from '../src/jobs/onboarding-pipeline';
 import { runFirstPass } from '../src/questions/run-first-pass';
 import { usageLines } from '../src/pipelines/spend-ledger';
 import { supabase } from '../src/db/supabase';
@@ -209,7 +209,7 @@ test("one person's first pass never moves another person on", async () => {
 
 test('still answering (approved or waitlisted): they wait, even with answers in and the reading timeout long past', () => {
   const old = ago(READING_TIMEOUT_MS * 10);
-  for (const access of ['approved', 'waitlisted']) {
+  for (const access of ['approved', 'waitlisted', 'suspended']) {
     assert.equal(stageFor(facts({ access }), NOW), 'reading', access);
     assert.equal(stageFor(facts({ access, startedAt: old, lastArrivalAt: null }), NOW), 'reading', access);
     assert.equal(stageFor(facts({ access, answers: 28, firstPassRuns: 1 }), NOW), 'reading', access);
@@ -281,4 +281,21 @@ test("one person still answering never holds back another, and finishing moves o
   assert.equal((await tick(a, step, done)).action, 'ran_first_pass');
   assert.deepEqual(ran, [b, a]);
   assert.equal((await ledger(b)).length, 1, "a's run is not counted against b");
+});
+
+test('someone invited after waiting more than three days is still stepped once they answer; an old account with no answers is not', async () => {
+  const invitedLate = await member(db), oldQuiet = await member(db);
+  await db.query(`UPDATE users SET created_at = NOW() - INTERVAL '5 days' WHERE id = ANY($1)`, [[invitedLate, oldQuiet]]);
+  await db.query(
+    `INSERT INTO raw_content (user_id, content_type, content, processing_status) VALUES ($1, 'onboarding_profile', 'their answers', 'completed'), ($1, 'onboarding_profile', 'their answers, later', 'completed')`,
+    [invitedLate],
+  );
+  const stepped: string[] = [];
+  await runOnboardingPipeline({
+    loadFacts: async (id) => { stepped.push(id); return facts(); },
+    firstPass: async () => null, makeEpisode: async () => null, mayMakeEpisode: async () => false, now: () => NOW,
+  });
+  assert.ok(stepped.includes(invitedLate), 'their answers are recent, so they are in');
+  assert.ok(!stepped.includes(oldQuiet), 'old members with nothing new are left alone');
+  assert.equal(stepped.filter((id) => id === invitedLate).length, 1, 'once per tick, though they have several answer rows');
 });

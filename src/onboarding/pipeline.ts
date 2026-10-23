@@ -50,8 +50,11 @@ export interface OnboardingFacts {
   access: string | null;
 }
 
-/** Still answering the questions: nothing is made from their answers until they finish. */
-const STILL_ANSWERING = new Set(['approved', 'waitlisted']);
+/**
+ * Still answering the questions: nothing is made from their answers until they
+ * finish. Suspended: nothing is made for them at all (no model spend).
+ */
+const NOTHING_MADE_YET = new Set(['approved', 'waitlisted', 'suspended']);
 
 /** Quiet for this long with nothing outstanding counts as "everything read". */
 export const QUIET_MS = 2 * 60 * 1000;
@@ -60,7 +63,7 @@ export const READING_TIMEOUT_MS = 20 * 60 * 1000;
 
 export function stageFor(f: OnboardingFacts, now: Date): OnboardingStage {
   // Before the timeout below: someone who waited for an invite is past 20 minutes on their first tick.
-  if (f.access !== null && STILL_ANSWERING.has(f.access)) return 'reading';
+  if (f.access !== null && NOTHING_MADE_YET.has(f.access)) return 'reading';
   const sinceStart = now.getTime() - new Date(f.startedAt).getTime();
   const quietFor = f.lastArrivalAt ? now.getTime() - new Date(f.lastArrivalAt).getTime() : Infinity;
   const nothingOutstanding = f.outstandingJobs === 0 && f.outstandingRows === 0;

@@ -78,9 +78,29 @@ export const defaultAdvanceDeps: AdvanceDeps = {
   mayMakeEpisode: async (userId) => (await checkDailySpend(userId)).allowed,
 };
 
-/** People mid-onboarding: accounts from the last three days. */
+/** People mid-onboarding: accounts, or onboarding answers, from the last three days. */
 const ONBOARDING_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 const inFlight = new Set<string>();
+
+/**
+ * Accounts from the window, plus anyone whose onboarding answers arrived in it:
+ * someone invited after waiting more than three days answers long after their
+ * account was made, and would otherwise never be stepped (review, #144).
+ */
+async function peopleMidOnboarding(since: string): Promise<string[] | null> {
+  const [accounts, answering] = await Promise.all([
+    supabase.from(Tables.USERS).select('id').gte('created_at', since),
+    supabase.from(Tables.RAW_CONTENT).select('user_id').eq('content_type', 'onboarding_profile').gte('created_at', since),
+  ]);
+  if (accounts.error) {
+    console.error('[onboarding-pipeline] could not list new accounts:', accounts.error.message);
+    return null;
+  }
+  if (answering.error) console.error(`[onboarding-pipeline] could not list recent answers code=${answering.error.code ?? 'unknown'}`);
+  const ids = new Set(((accounts.data ?? []) as Array<{ id: string }>).map((r) => r.id));
+  for (const r of (answering.data ?? []) as Array<{ user_id: string }>) ids.add(r.user_id);
+  return [...ids];
+}
 
 /**
  * Every couple of minutes: move each person mid-onboarding one step along.
@@ -88,12 +108,9 @@ const inFlight = new Set<string>();
  */
 export async function runOnboardingPipeline(deps: AdvanceDeps = defaultAdvanceDeps): Promise<void> {
   const since = new Date(Date.now() - ONBOARDING_WINDOW_MS).toISOString();
-  const { data, error } = await supabase.from(Tables.USERS).select('id').gte('created_at', since);
-  if (error) {
-    console.error('[onboarding-pipeline] could not list new accounts:', error.message);
-    return;
-  }
-  for (const { id } of (data ?? []) as Array<{ id: string }>) {
+  const people = await peopleMidOnboarding(since);
+  if (!people) return;
+  for (const id of people) {
     if (inFlight.has(id)) continue;
     inFlight.add(id);
     try {
