@@ -20,7 +20,8 @@ services:
     region: oregon
     plan: starter
     autoDeploy: false
-    buildCommand: npm install && npm run build
+    # --include=dev: NODE_ENV=production skips devDependencies, and the TypeScript build needs @types/pg.
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
